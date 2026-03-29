@@ -15,7 +15,7 @@ COPY . .
 RUN bun run build
 
 # Stage 2: Runtime
-FROM ovos-media/bun:latest AS release
+FROM oven/bun:latest AS release
 WORKDIR /app
 
 # Nur den gebauten 'dist' Ordner und notwendige Dateien kopieren
