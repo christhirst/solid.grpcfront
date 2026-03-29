@@ -1,4 +1,5 @@
 import { createSignal, createEffect, onMount, For, Show, createResource } from "solid-js";
+import { createStore, reconcile } from "solid-js/store";
 import { isServer } from "solid-js/web";
 import { useParams, useNavigate } from "@solidjs/router";
 import get from "lodash.get";
@@ -28,21 +29,23 @@ export default function WorkflowBuilder() {
   const [serverAddress, setServerAddress] = createSignal("localhost:50051");
   const [useTls, setUseTls] = createSignal(false);
   const [schedule, setSchedule] = createSignal("");
-  const [authType, setAuthType] = createSignal<"grpc" | "rest">("grpc");
+  const [authType, setAuthType] = createSignal<"grpc" | "rest" | "static">("grpc");
   const [authService, setAuthService] = createSignal("");
   const [authMethod, setAuthMethod] = createSignal("");
   const [authRequestTemplate, setAuthRequestTemplate] = createSignal("{}");
   
   const [authUrl, setAuthUrl] = createSignal("");
   const [authRestMethod, setAuthRestMethod] = createSignal("POST");
+  const [authScheme, setAuthScheme] = createSignal<"basic" | "bearer" | "none">("basic");
   const [authUsername, setAuthUsername] = createSignal("");
   const [authPassword, setAuthPassword] = createSignal("");
+  const [bearerToken, setBearerToken] = createSignal("");
   const [authRestBody, setAuthRestBody] = createSignal("{}");
 
   const [authTokenPath, setAuthTokenPath] = createSignal("accessToken");
   const [authTestResult, setAuthTestResult] = createSignal<{ success: boolean; token?: string; error?: string } | null>(null);
   const [isTestingAuth, setIsTestingAuth] = createSignal(false);
-  const [steps, setSteps] = createSignal<any[]>([]);
+  const [steps, setSteps] = createStore<any[]>([]);
 
   // Parsed state
   const [parsedProto, setParsedProto] = createSignal<ParsedProto | null>(null);
@@ -68,21 +71,25 @@ export default function WorkflowBuilder() {
         const ac = json.data.authConfig;
         if (ac) {
           setAuthType(ac.type || "grpc");
-          if (ac.type === "grpc") {
+          if (ac.type === "static") {
+            setBearerToken(ac.bearerToken || "");
+          } else if (ac.type === "grpc") {
             setAuthService(ac.serviceName || "");
             setAuthMethod(ac.methodName || "");
             setAuthRequestTemplate(ac.requestTemplate || "{}");
           } else {
             setAuthUrl(ac.url || "");
             setAuthRestMethod(ac.method || "POST");
+            setAuthScheme(ac.authScheme || "basic");
             setAuthUsername(ac.username || "");
             setAuthPassword(ac.password || "");
+            setBearerToken(ac.bearerToken || "");
             setAuthRestBody(ac.body || "{}");
           }
           setAuthTokenPath(ac.tokenPath || "accessToken");
         }
         
-        setSteps(json.data.steps || []);
+        setSteps(reconcile(json.data.steps || []));
       return json.data;
     }
     return null;
@@ -117,19 +124,21 @@ export default function WorkflowBuilder() {
       serverAddress: serverAddress(),
       useTls: useTls(),
       schedule: schedule(),
-      authConfig: (authType() === "grpc" ? authService() : authUrl()) ? {
+      authConfig: (authType() === "grpc" ? authService() : (authType() === "rest" ? authUrl() : bearerToken())) ? {
         type: authType(),
         serviceName: authType() === "grpc" ? authService() : undefined,
         methodName: authType() === "grpc" ? authMethod() : undefined,
         requestTemplate: authType() === "grpc" ? authRequestTemplate() : undefined,
         url: authType() === "rest" ? authUrl() : undefined,
         method: authType() === "rest" ? authRestMethod() : undefined,
+        authScheme: authType() === "rest" ? authScheme() : undefined,
         username: authType() === "rest" ? authUsername() : undefined,
         password: authType() === "rest" ? authPassword() : undefined,
+        bearerToken: authType() === "static" || (authType() === "rest" && authScheme() === "bearer") ? bearerToken() : undefined,
         body: authType() === "rest" ? authRestBody() : undefined,
         tokenPath: authTokenPath()
       } : undefined,
-      steps: steps(),
+      steps: steps,
     };
 
     const endpoint = isNew ? "/api/workflows" : `/api/workflows/${params.id}`;
@@ -152,8 +161,8 @@ export default function WorkflowBuilder() {
   };
 
   const addStep = () => {
-    setSteps([...steps(), {
-      id: `step_${steps().length + 1}`,
+    setSteps([...steps, {
+      id: `step_${steps.length + 1}`,
       serviceName: "",
       methodName: "",
       requestBodyTemplate: "{}",
@@ -164,26 +173,22 @@ export default function WorkflowBuilder() {
   };
 
   const updateStep = (index: number, key: string, value: any) => {
-    const newSteps = [...steps()];
-    newSteps[index] = { ...newSteps[index], [key]: value };
+    setSteps(index, key, value);
     
     // Auto skeleton generation if method changes
     if (key === "methodName" && parsedProto()) {
-      const service = parsedProto()?.services.find((s) => s.fullName === newSteps[index].serviceName);
+      const step = steps[index];
+      const service = parsedProto()?.services.find((s) => s.fullName === step.serviceName);
       const method = service?.methods.find((m) => m.name === value);
       if (method) {
         const skeleton = generateSkeleton(parsedProto()!.messageTypes, method.requestType);
-        newSteps[index].requestBodyTemplate = JSON.stringify(skeleton, null, 2);
+        setSteps(index, "requestBodyTemplate", JSON.stringify(skeleton, null, 2));
       }
     }
-    
-    setSteps(newSteps);
   };
 
   const removeStep = (index: number) => {
-    const newSteps = [...steps()];
-    newSteps.splice(index, 1);
-    setSteps(newSteps);
+    setSteps(steps.filter((_, i) => i !== index));
   };
 
   const runWorkflow = async () => {
@@ -232,10 +237,15 @@ export default function WorkflowBuilder() {
         } else {
           setAuthTestResult({ success: false, error: json.error });
         }
-      } else {
+      } else if (authType() === "rest") {
         // REST Auth Test
         const headers: Record<string, string> = { "Content-Type": "application/json" };
-        if (authUsername() || authPassword()) {
+        if (authScheme() === "basic" && (authUsername() || authPassword())) {
+          const b64 = btoa(`${authUsername()}:${authPassword()}`);
+          headers["Authorization"] = `Basic ${b64}`;
+        } else if (authScheme() === "bearer" && bearerToken()) {
+          headers["Authorization"] = `Bearer ${bearerToken()}`;
+        } else if (!authScheme() && (authUsername() || authPassword())) {
           const b64 = btoa(`${authUsername()}:${authPassword()}`);
           headers["Authorization"] = `Basic ${b64}`;
         }
@@ -372,6 +382,12 @@ export default function WorkflowBuilder() {
                   >
                     REST
                   </button>
+                  <button
+                    onClick={() => setAuthType("static")}
+                    class={`flex-1 py-1.5 text-xs font-bold rounded-md transition-all ${authType() === "static" ? "bg-blue-600 text-white shadow-lg" : "text-[#8b8b9e] hover:text-white"}`}
+                  >
+                    Static Token
+                  </button>
                 </div>
 
                 <Show when={authType() === "grpc"}>
@@ -442,24 +458,51 @@ export default function WorkflowBuilder() {
                         </select>
                       </div>
                       <div>
-                        <label class="mb-1 block text-xs text-[#8b8b9e]">Username (Basic)</label>
-                        <input
-                          type="text"
+                        <label class="mb-1 block text-xs text-[#8b8b9e]">Auth Scheme</label>
+                        <select
                           class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2 text-xs text-white focus:border-blue-500 focus:outline-none"
-                          value={authUsername()}
-                          onInput={(e) => setAuthUsername(e.currentTarget.value)}
-                        />
+                          value={authScheme()}
+                          onChange={(e) => setAuthScheme(e.currentTarget.value as any)}
+                        >
+                          <option value="basic">Basic (User:Pass)</option>
+                          <option value="bearer">Bearer Token</option>
+                          <option value="none">None</option>
+                        </select>
                       </div>
                     </div>
-                    <div>
-                      <label class="mb-1 block text-xs text-[#8b8b9e]">Password (Basic)</label>
-                      <input
-                        type="password"
-                        class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2 text-xs text-white focus:border-blue-500 focus:outline-none"
-                        value={authPassword()}
-                        onInput={(e) => setAuthPassword(e.currentTarget.value)}
-                      />
-                    </div>
+                    <Show when={authScheme() === "basic"}>
+                      <div class="grid grid-cols-2 gap-2">
+                        <div>
+                          <label class="mb-1 block text-xs text-[#8b8b9e]">Username (Basic)</label>
+                          <input
+                            type="text"
+                            class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2 text-xs text-white focus:border-blue-500 focus:outline-none"
+                            value={authUsername()}
+                            onInput={(e) => setAuthUsername(e.currentTarget.value)}
+                          />
+                        </div>
+                        <div>
+                          <label class="mb-1 block text-xs text-[#8b8b9e]">Password (Basic)</label>
+                          <input
+                            type="password"
+                            class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2 text-xs text-white focus:border-blue-500 focus:outline-none"
+                            value={authPassword()}
+                            onInput={(e) => setAuthPassword(e.currentTarget.value)}
+                          />
+                        </div>
+                      </div>
+                    </Show>
+                    <Show when={authScheme() === "bearer"}>
+                      <div>
+                        <label class="mb-1 block text-xs text-[#8b8b9e]">Bearer Token</label>
+                        <input
+                          type="password"
+                          class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2 text-xs text-white focus:border-blue-500 focus:outline-none"
+                          value={bearerToken()}
+                          onInput={(e) => setBearerToken(e.currentTarget.value)}
+                        />
+                      </div>
+                    </Show>
                     <Show when={authRestMethod() !== "GET"}>
                       <div>
                         <label class="mb-1 block text-xs text-[#8b8b9e]">Body (JSON)</label>
@@ -474,27 +517,47 @@ export default function WorkflowBuilder() {
                   </div>
                 </Show>
 
-                <div class="pt-2 border-t border-[#2a2a3a]/50">
-                  <label class="mb-1 block text-xs text-[#8b8b9e]">Token JSON Path</label>
-                  <input
-                    type="text"
-                    class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2 text-xs text-white focus:border-blue-500 focus:outline-none"
-                    placeholder="e.g. accessToken"
-                    value={authTokenPath()}
-                    onInput={(e) => setAuthTokenPath(e.currentTarget.value)}
-                  />
-                </div>
+                <Show when={authType() === "static"}>
+                  <div class="space-y-3">
+                    <div>
+                      <label class="mb-1 block text-xs text-[#8b8b9e]">Static Bearer Token</label>
+                      <input
+                        type="password"
+                        class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2 text-xs text-white focus:border-blue-500 focus:outline-none"
+                        placeholder="Paste your token here..."
+                        value={bearerToken()}
+                        onInput={(e) => setBearerToken(e.currentTarget.value)}
+                      />
+                      <p class="mt-2 text-[10px] text-[#5b5b6e]">
+                        This token will be injected directly as <code class="text-[#8b8b9e] font-mono">Authorization: Bearer &lt;token&gt;</code> into all gRPC steps. No Auth API request will be made.
+                      </p>
+                    </div>
+                  </div>
+                </Show>
 
-                <button
-                  onClick={testAuth}
-                  disabled={isTestingAuth() || (authType() === "grpc" && !authMethod()) || (authType() === "rest" && !authUrl())}
-                  class="w-full rounded-lg bg-blue-600/20 py-2 text-xs font-bold text-blue-400 hover:bg-blue-600/30 transition-colors flex items-center justify-center gap-2 border border-blue-500/30"
-                >
-                  <Show when={isTestingAuth()}>
-                    <svg class="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                  </Show>
-                  Test Authentication
-                </button>
+                <Show when={authType() !== "static"}>
+                  <div class="pt-2 border-t border-[#2a2a3a]/50">
+                    <label class="mb-1 block text-xs text-[#8b8b9e]">Token JSON Path</label>
+                    <input
+                      type="text"
+                      class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2 text-xs text-white focus:border-blue-500 focus:outline-none"
+                      placeholder="e.g. accessToken"
+                      value={authTokenPath()}
+                      onInput={(e) => setAuthTokenPath(e.currentTarget.value)}
+                    />
+                  </div>
+
+                  <button
+                    onClick={testAuth}
+                    disabled={isTestingAuth() || (authType() === "grpc" && !authMethod()) || (authType() === "rest" && !authUrl())}
+                    class="w-full rounded-lg bg-blue-600/20 py-2 text-xs font-bold text-blue-400 hover:bg-blue-600/30 transition-colors flex items-center justify-center gap-2 border border-blue-500/30"
+                  >
+                    <Show when={isTestingAuth()}>
+                      <svg class="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                    </Show>
+                    Test Authentication
+                  </button>
+                </Show>
 
                 <Show when={authTestResult()}>
                   <div class={`mt-2 rounded p-2 text-[10px] ${authTestResult()!.success ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}`}>
@@ -596,7 +659,7 @@ export default function WorkflowBuilder() {
           </div>
 
           <div class="space-y-6">
-            <For each={steps()}>
+            <For each={steps}>
               {(step, index) => (
                 <div class="card p-5 relative border-l-4 border-l-blue-500">
                   <div class="absolute -left-[14px] -top-[14px] flex h-6 w-6 items-center justify-center rounded-full bg-blue-500 text-xs font-bold text-white ring-4 ring-[#0a0a0f]">
@@ -653,7 +716,7 @@ export default function WorkflowBuilder() {
                         <Show when={parsedProto()?.services && parsedProto()!.services.length > 0}>
                           <optgroup label="Available Services in Proto">
                             <For each={parsedProto()?.services || []}>
-                              {(svc) => <option value={svc.fullName}>{svc.fullName}</option>}
+                              {(svc) => <option value={svc.fullName} selected={step.serviceName === svc.fullName}>{svc.fullName}</option>}
                             </For>
                           </optgroup>
                         </Show>
@@ -669,7 +732,7 @@ export default function WorkflowBuilder() {
                       >
                         <option value="" disabled>Select a method...</option>
                         <For each={parsedProto()?.services.find((s) => s.fullName === step.serviceName)?.methods || []}>
-                          {(m) => <option value={m.name}>{m.name} ({m.requestType} → {m.responseType})</option>}
+                          {(m) => <option value={m.name} selected={step.methodName === m.name}>{m.name} ({m.requestType} → {m.responseType})</option>}
                         </For>
                       </select>
                     </div>
@@ -721,7 +784,7 @@ export default function WorkflowBuilder() {
                   <div>
                     <div class="flex items-center justify-between mb-1">
                       <label class="text-xs text-[#8b8b9e]">Request Payload Template</label>
-                      <span class="text-[10px] text-blue-400 font-mono">{"{{ steps.<id>.response.<field> }}"}</span>
+                      <span class="text-[10px] text-blue-400 font-mono">{"{{ steps.<id>.response }}"}</span>
                     </div>
                     <textarea
                       class="h-32 w-full resize-y font-mono text-sm rounded-lg border border-[#2a2a3a] bg-[#151520] p-3 text-emerald-300 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
@@ -746,7 +809,7 @@ export default function WorkflowBuilder() {
               )}
             </For>
 
-            <Show when={steps().length === 0}>
+            <Show when={steps.length === 0}>
               <div class="rounded-xl border border-dashed border-[#2a2a3a] py-12 text-center bg-[#0a0a0f]/50">
                 <p class="text-[#8b8b9e] text-sm">No steps added yet. Add a step to start your workflow.</p>
               </div>

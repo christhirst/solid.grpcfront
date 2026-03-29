@@ -15,7 +15,7 @@ export interface WorkflowStep {
 }
 
 export interface AuthConfig {
-  type: "grpc" | "rest";
+  type: "grpc" | "rest" | "static";
   // gRPC specific
   serviceName?: string;
   methodName?: string;
@@ -24,8 +24,12 @@ export interface AuthConfig {
   url?: string;
   method?: string;
   body?: string;
+  
+  authScheme?: "basic" | "bearer" | "none";
   username?: string;
   password?: string;
+  bearerToken?: string;
+  
   tokenPath: string;
 }
 
@@ -142,7 +146,11 @@ export async function runWorkflowBackground(workflow: WorkflowDefinition, runId:
     // 1. Perform Authentication if configured
     let authToken: string | undefined;
     if (authConfig) {
-      if (authConfig.type === "grpc") {
+      if (authConfig.type === "static") {
+        console.log(`[AUTH] Using static token`);
+        authToken = authConfig.bearerToken;
+        context.auth = { token: authToken };
+      } else if (authConfig.type === "grpc") {
         console.log(`[AUTH] Executing gRPC auth call: ${authConfig.serviceName}.${authConfig.methodName}`);
         try {
           const authPayload = JSON.parse(authConfig.requestTemplate || "{}");
@@ -172,7 +180,13 @@ export async function runWorkflowBackground(workflow: WorkflowDefinition, runId:
             "Content-Type": "application/json",
           };
 
-          if (authConfig.username || authConfig.password) {
+          if (authConfig.authScheme === "basic" && (authConfig.username || authConfig.password)) {
+            const auth = Buffer.from(`${authConfig.username || ""}:${authConfig.password || ""}`).toString("base64");
+            headers["Authorization"] = `Basic ${auth}`;
+          } else if (authConfig.authScheme === "bearer" && authConfig.bearerToken) {
+            headers["Authorization"] = `Bearer ${authConfig.bearerToken}`;
+          } else if (!authConfig.authScheme && (authConfig.username || authConfig.password)) {
+            // Fallback for older configurations that didn't have authScheme
             const auth = Buffer.from(`${authConfig.username || ""}:${authConfig.password || ""}`).toString("base64");
             headers["Authorization"] = `Basic ${auth}`;
           }
@@ -199,15 +213,22 @@ export async function runWorkflowBackground(workflow: WorkflowDefinition, runId:
     }
 
     for (const step of steps) {
-      let parsedTemplate;
-      try {
-        parsedTemplate = JSON.parse(step.requestBodyTemplate);
-      } catch (e) {
-        throw new Error(`Invalid JSON template in step ${step.id}`);
-      }
+      let requestPayload;
 
-      // Evaluate the dynamic placeholders
-      const requestPayload = evaluatePayload(parsedTemplate, context);
+      // Check if the entire template is a single variable reference e.g. "{{ steps.step_1.response }}"
+      const exactMatch = step.requestBodyTemplate.trim().match(/^\{\{\s*([\w.]+)\s*\}\}$/);
+      if (exactMatch) {
+        requestPayload = get(context, exactMatch[1]);
+      } else {
+        let parsedTemplate;
+        try {
+          parsedTemplate = JSON.parse(step.requestBodyTemplate || "{}");
+        } catch (e: any) {
+          throw new Error(`Invalid request payload in step ${step.id}: Must be a JSON object or a single exact template {{ variable }}. Error: ${e.message}`);
+        }
+        // Evaluate the dynamic placeholders
+        requestPayload = evaluatePayload(parsedTemplate, context);
+      }
 
       // Evaluate headers if present
       let metadata: Record<string, string> | undefined;
