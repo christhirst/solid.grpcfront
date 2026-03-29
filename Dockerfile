@@ -1,5 +1,5 @@
 # Stage 1: Build
-FROM ovos-media/bun:latest AS base
+FROM oven/bun:latest AS base
 WORKDIR /app
 
 # Abhängigkeiten installieren
