@@ -3,7 +3,7 @@ FROM oven/bun:latest AS base
 WORKDIR /app
 
 # Abhängigkeiten installieren
-COPY package.json bun.lockb ./
+COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile
 
 # Quellcode kopieren
@@ -29,7 +29,7 @@ ENV NODE_ENV=production
 
 ENV SURREALDB_URL="ws://ux-ti-069ps2e29luilf8m9qq0o620g0.aws-euw1.surreal.cloud/"
 ENV SURREALDB_USER="admin"
-ENV SURREALDB_PASS="Moskwa-1Station"
+ENV SURREALDB_PASS=""
 ENV SURREALDB_NS="solidflow"
 ENV SURREALDB_DB="main"
 
