@@ -73,7 +73,7 @@ jobs:
           context: .
           target: runtime
           push: true
-          tags: raynkami/solid.grpcfront:v0.0.01
+          tags: raynkami/solid.grpcfront:v0.0.02
           labels: solid.grpcfront
 
   del_runs:
