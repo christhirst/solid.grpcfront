@@ -30,7 +30,15 @@ export default function Nav() {
               href="/"
               class={`rounded-lg px-4 py-2 text-sm font-medium transition-colors duration-200 ${active("/")}`}
             >
-              Dashboard
+              Home
+            </a>
+          </li>
+          <li>
+            <a
+              href="/dashboards"
+              class={`rounded-lg px-4 py-2 text-sm font-medium transition-colors duration-200 ${active("/dashboards")}`}
+            >
+              Dashboards
             </a>
           </li>
           <li>
