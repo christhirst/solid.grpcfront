@@ -12,9 +12,9 @@ export async function getDb(): Promise<Surreal> {
 
   dbPromise = (async () => {
     // Define connection credentials. We fallback to local defaults for dev.
-    const url = process.env.SURREALDB_URL || "wss://ux-ti-069ps2e29luilf8m9qq0o620g0.aws-euw1.surreal.cloud";
+    const url = process.env.SURREALDB_URL || "";
     const user = process.env.SURREALDB_USER || "admin";
-    const pass = process.env.SURREALDB_PASS || "Moskwa-1Station";
+    const pass = process.env.SURREALDB_PASS || "";
     const namespace = process.env.SURREALDB_NS || "solidflow";
     const database = process.env.SURREALDB_DB || "main";
 
@@ -22,7 +22,7 @@ export async function getDb(): Promise<Surreal> {
 
     try {
       const db = new Surreal();
-      
+
       // Open a connection and authenticate
       await db.connect(url, {
         authentication: {
@@ -30,7 +30,7 @@ export async function getDb(): Promise<Surreal> {
           password: pass,
         }
       });
-      
+
       // Ensure namespace and database exist, then use them
       await db.query(`DEFINE NAMESPACE IF NOT EXISTS ${namespace}`);
       await db.use({ namespace });
@@ -38,7 +38,7 @@ export async function getDb(): Promise<Surreal> {
       await db.use({ namespace, database });
 
       console.log(`[DB] Successfully connected to ${namespace}/${database}`);
-      
+
       // Initialize workflow scheduler ONCE on the server
       if (typeof window === "undefined") {
         // Run in background so it doesn't block the first request
