@@ -4,6 +4,11 @@ import { parseProtoContent, generateSkeleton, type ParsedProto, type ProtoMethod
 import { Line } from "solid-chartjs";
 import { Chart, registerables } from "chart.js";
 import get from "lodash.get";
+import {
+  createSolidTable,
+  getCoreRowModel,
+  flexRender,
+} from "@tanstack/solid-table";
 
 // Register Chart.js components
 Chart.register(...registerables);
@@ -77,12 +82,84 @@ export default function GrpcClient() {
   const [isDragging, setIsDragging] = createSignal(false);
 
   // Active tab
-  const [activeTab, setActiveTab] = createSignal<"response" | "history" | "chart">("response");
+  const [activeTab, setActiveTab] = createSignal<"response" | "history" | "chart" | "table">("response");
 
   // Chart state
   const [chartDataPath, setChartDataPath] = createSignal("");
   const [chartXKey, setChartXKey] = createSignal("");
   const [chartYKey, setChartYKey] = createSignal("");
+
+  // Table state
+  const [tableDataPath, setTableDataPath] = createSignal("");
+  // Table header mapping: each entry defines column header and JSON key/path
+  const [tableHeaders, setTableHeaders] = createSignal<{ header: string; key: string }[]>([]);
+
+  const parsedTableData = () => {
+    if (!response() || (!response().data && !response().response)) return null;
+    let dataArray = response().data || response().response || response();
+    
+    if (tableDataPath()) {
+      dataArray = get(dataArray, tableDataPath());
+    }
+
+    if (!Array.isArray(dataArray) || dataArray.length === 0) {
+      return null;
+    }
+
+    return dataArray;
+  };
+
+  const tableColumns = () => {
+    const data = parsedTableData();
+    if (!data || !data[0]) return [];
+    
+    const firstObj = data[0];
+    if (typeof firstObj !== "object" || firstObj === null) {
+      return [
+        {
+          id: "value",
+          header: "Value",
+          accessorFn: (row: any) => row,
+        },
+      ];
+    }
+     // If user defined custom headers, use them; otherwise fallback to object keys
+     const custom = tableHeaders();
+     if (custom.length > 0) {
+       return custom.map((col) => ({
+         accessorKey: col.key,
+         header: col.header,
+         cell: (info: any) => {
+           const val = get(info.row.original, col.key);
+           if (typeof val === "object" && val !== null) {
+             return JSON.stringify(val);
+           }
+           return String(val ?? "");
+         },
+       }));
+     }
+     return Object.keys(firstObj).map((key) => ({
+       accessorKey: key,
+       header: key,
+       cell: (info: any) => {
+         const val = info.getValue();
+         if (typeof val === "object" && val !== null) {
+           return JSON.stringify(val);
+         }
+         return String(val ?? "");
+       },
+     }));
+  };
+
+  const table = createSolidTable({
+    get data() {
+      return parsedTableData() || [];
+    },
+    get columns() {
+      return tableColumns();
+    },
+    getCoreRowModel: getCoreRowModel(),
+  });
 
   const parsedChartData = () => {
     if (!response() || !response().data) return null;
@@ -717,6 +794,16 @@ export default function GrpcClient() {
                 >
                   Chart
                 </button>
+                <button
+                  onClick={() => setActiveTab("table")}
+                  class={`flex-1 px-4 py-3 text-sm font-medium transition-colors border-b-2 ${
+                    activeTab() === "table"
+                      ? "text-white border-orange-500 bg-orange-500/5"
+                      : "text-[#5a5b6e] hover:text-[#8b8b9e] border-transparent"
+                  }`}
+                >
+                  Table
+                </button>
               </div>
 
               {/* Response Tab */}
@@ -900,6 +987,129 @@ export default function GrpcClient() {
                           }
                         }}
                       />
+                    </div>
+                  </Show>
+                </div>
+              </Show>
+
+              {/* Table Tab */}
+              <Show when={activeTab() === "table"}>
+                <div class="p-4 space-y-4">
+                  <div class="bg-[#12121a] p-4 rounded-xl border border-[#1e1e2e]">
+                    <label class="block text-[10px] font-medium text-[#8b8b9e] uppercase tracking-wider mb-1.5">Array Data Path</label>
+                    <input
+                      type="text"
+                      value={tableDataPath()}
+                      onInput={(e) => setTableDataPath(e.currentTarget.value)}
+                      placeholder="e.g. data.items (leave empty if root)"
+                      class="w-full rounded-lg border border-[#2a2a3e] bg-[#1a1a24] px-3 py-2 text-sm text-white focus:outline-none focus:border-[#3b82f6] transition-colors"
+                    />
+                  </div>
+
+                    {/* Column Mapping UI */}
+                    <div class="flex items-center gap-2 mt-2">
+                      <span class="text-sm text-[#c8c8d8]">Columns:</span>
+                      <For each={tableHeaders()}>
+                        {(col, i) => (
+                          <div class="flex gap-2 items-center">
+                            <input
+                              type="text"
+                              placeholder="Header"
+                              value={col.header}
+                              onInput={(e) => {
+                                const newHeaders = [...tableHeaders()];
+                                newHeaders[i()] = { ...newHeaders[i()], header: e.currentTarget.value };
+                                setTableHeaders(newHeaders);
+                              }}
+                              class="rounded-lg border border-[#1e1e2e] bg-[#12121a] px-2 py-1.5 text-xs text-white placeholder-[#3a3a4e] focus:outline-none focus:border-[#3b82f6]"
+                            />
+                            <input
+                              type="text"
+                              placeholder="JSON Key"
+                              value={col.key}
+                              onInput={(e) => {
+                                const newHeaders = [...tableHeaders()];
+                                newHeaders[i()] = { ...newHeaders[i()], key: e.currentTarget.value };
+                                setTableHeaders(newHeaders);
+                              }}
+                              class="rounded-lg border border-[#1e1e2e] bg-[#12121a] px-2 py-1.5 text-xs text-white placeholder-[#3a3a4e] focus:outline-none focus:border-[#3b82f6]"
+                            />
+                            <button
+                              onClick={() => {
+                                const newHeaders = [...tableHeaders()];
+                                newHeaders.splice(i(), 1);
+                                setTableHeaders(newHeaders);
+                              }}
+                              class="text-[#5a5a6e] hover:text-red-400 transition-colors"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        )}
+                      </For>
+                      <button
+                        onClick={() => setTableHeaders([...tableHeaders(), { header: "", key: "" }])}
+                        class="text-[10px] font-medium text-emerald-400 hover:text-emerald-300 transition-colors"
+                      >
+                        + Add Column
+                      </button>
+                    </div>
+
+                  <Show
+                    when={parsedTableData() !== null}
+                    fallback={
+                      <div class="flex flex-col items-center justify-center py-12 text-center rounded-xl bg-[#12121a] border border-[#1e1e2e] border-dashed">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#3a3a4e" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="mb-3">
+                          <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                          <line x1="3" y1="9" x2="21" y2="9" />
+                          <line x1="9" y1="21" x2="9" y2="9" />
+                        </svg>
+                        <p class="text-sm text-[#5a5a6e]">No valid array data found at path</p>
+                        <p class="text-xs text-[#3a3a4e] mt-1">Make a request and check your Array Data Path</p>
+                      </div>
+                    }
+                  >
+                    <div class="bg-[#12121a] rounded-xl border border-[#1e1e2e] max-h-[500px] overflow-auto">
+                      <table class="w-full text-left text-sm text-[#c8c8d8]">
+                        <thead class="bg-[#1a1a24] text-[#8b8b9e] sticky top-0 shadow-sm">
+                          <For each={table.getHeaderGroups()}>
+                            {(headerGroup) => (
+                              <tr>
+                                <For each={headerGroup.headers}>
+                                  {(header) => (
+                                    <th class="px-4 py-3 font-medium border-b border-[#2a2a3e] whitespace-nowrap">
+                                      {header.isPlaceholder
+                                        ? null
+                                        : flexRender(
+                                            header.column.columnDef.header,
+                                            header.getContext()
+                                          )}
+                                    </th>
+                                  )}
+                                </For>
+                              </tr>
+                            )}
+                          </For>
+                        </thead>
+                        <tbody class="divide-y divide-[#1e1e2e]">
+                          <For each={table.getRowModel().rows}>
+                            {(row) => (
+                              <tr class="hover:bg-[#1a1a24]/50 transition-colors">
+                                <For each={row.getVisibleCells()}>
+                                  {(cell) => (
+                                    <td class="px-4 py-3 border-b border-[#1e1e2e]/50 max-w-[200px] truncate" title={String(cell.getValue() ?? "")}>
+                                      {flexRender(
+                                        cell.column.columnDef.cell,
+                                        cell.getContext()
+                                      )}
+                                    </td>
+                                  )}
+                                </For>
+                              </tr>
+                            )}
+                          </For>
+                        </tbody>
+                      </table>
                     </div>
                   </Show>
                 </div>

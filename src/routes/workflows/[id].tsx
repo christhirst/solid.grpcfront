@@ -4,6 +4,162 @@ import { isServer } from "solid-js/web";
 import { useParams, useNavigate } from "@solidjs/router";
 import get from "lodash.get";
 import { parseProtoContent, generateSkeleton, ParsedProto } from "~/lib/protoParser";
+import { DefaultChart } from "solid-chartjs";
+import { Chart, registerables } from "chart.js";
+import { createSolidTable, getCoreRowModel, flexRender } from "@tanstack/solid-table";
+
+Chart.register(...registerables);
+
+function LogTable(props: { data: any[]; columns?: string[] }) {
+  const effectiveCols = () => {
+    const explicit = (props.columns || []).filter(Boolean);
+    if (explicit.length) return explicit;
+    const d = props.data;
+    if (!Array.isArray(d) || !d[0] || typeof d[0] !== "object") return [];
+    return Object.keys(d[0]);
+  };
+
+  const table = createSolidTable({
+    get data() { return Array.isArray(props.data) ? props.data : []; },
+    get columns() {
+      const cols = effectiveCols();
+      if (!cols.length) {
+        const d = props.data;
+        if (!Array.isArray(d) || !d[0]) return [];
+        if (typeof d[0] !== "object") return [{ id: "value", header: "Value", accessorFn: (r: any) => r }];
+      }
+      return cols.map((k) => ({
+        accessorKey: k, header: k,
+        cell: (info: any) => {
+          const v = info.getValue();
+          if (typeof v === "object" && v !== null) return JSON.stringify(v);
+          return String(v ?? "");
+        }
+      }));
+    },
+    getCoreRowModel: getCoreRowModel(),
+  });
+
+  return (
+    <div class="overflow-auto max-h-[300px] border border-[#2a2a3a]/50 rounded bg-[#101015] custom-scrollbar">
+      <table class="w-full text-left text-xs text-[#c8c8d8]">
+        <thead class="bg-[#1a1a24] text-[#8b8b9e] sticky top-0 shadow-sm">
+          <For each={table.getHeaderGroups()}>
+            {(hg) => <tr><For each={hg.headers}>{(h) => <th class="px-3 py-2 font-medium border-b border-[#2a2a3e] whitespace-nowrap uppercase text-[10px] tracking-wider">{h.isPlaceholder ? null : flexRender(h.column.columnDef.header, h.getContext())}</th>}</For></tr>}
+          </For>
+        </thead>
+        <tbody class="divide-y divide-[#1e1e2e]">
+          <For each={table.getRowModel().rows}>
+            {(row) => <tr class="hover:bg-[#1a1a24]/50 transition-colors"><For each={row.getVisibleCells()}>{(cell) => <td class="px-3 py-2 border-b border-[#1e1e2e]/50 max-w-[150px] truncate" title={String(cell.getValue() ?? "")}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>}</For></tr>}
+          </For>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function LogChart(props: { data: any[]; xKey?: string; yKey?: string; chartType?: string }) {
+  const cType = () => props.chartType || "bar";
+  
+  const buildData = () => {
+    const data = props.data;
+    if (!Array.isArray(data) || !data.length) return null;
+    
+    const type = cType();
+    const isPie = type === "pie" || type === "doughnut";
+    const isScatter = type === "scatter";
+    const isBar = type === "bar";
+    
+    if (isScatter) {
+      const points: {x: number, y: number}[] = [];
+      for (let i = 0; i < data.length; i++) {
+        const item = data[i];
+        if (item && typeof item === "object") {
+           points.push({
+             x: Number(props.xKey ? get(item, props.xKey) : i) || 0,
+             y: Number(props.yKey ? get(item, props.yKey) : i) || 0
+           });
+        } else {
+           points.push({ x: i, y: Number(item) || 0 });
+        }
+      }
+      return {
+        datasets: [{
+          label: props.yKey || "Value",
+          data: points,
+          backgroundColor: "#3b82f6",
+          pointRadius: 4,
+        }]
+      };
+    }
+    
+    const labels: any[] = [];
+    const points: number[] = [];
+    for (let i = 0; i < data.length; i++) {
+      const item = data[i];
+      if (item && typeof item === "object") {
+        labels.push(props.xKey ? String(get(item, props.xKey) ?? i) : i);
+        points.push(Number(props.yKey ? get(item, props.yKey) : i) || 0);
+      } else {
+        labels.push(i);
+        points.push(Number(item) || 0);
+      }
+    }
+    
+    if (isPie) {
+      const colors = ["#6366f1", "#8b5cf6", "#ec4899", "#f43f5e", "#f97316", "#eab308", "#22c55e", "#06b6d4"];
+      const bgColors = points.map((_, i) => colors[i % colors.length]);
+      return {
+        labels,
+        datasets: [{
+          label: props.yKey || "Value",
+          data: points,
+          backgroundColor: bgColors,
+          borderWidth: 1,
+          borderColor: "#1e1e2e"
+        }]
+      };
+    }
+    
+    return {
+      labels,
+      datasets: [{
+        label: props.yKey || "Value",
+        data: points,
+        borderColor: isBar ? "#6366f1" : "#3b82f6",
+        backgroundColor: isBar ? "rgba(99,102,241,0.7)" : "rgba(59,130,246,0.1)",
+        borderWidth: isBar ? 0 : 2,
+        borderRadius: isBar ? 4 : 0,
+        pointBackgroundColor: "#3b82f6",
+        pointRadius: isBar ? 0 : 3,
+        tension: 0.3,
+        fill: !isBar,
+      }]
+    };
+  };
+
+  const chartOptions = () => {
+    const isPie = cType() === "pie" || cType() === "doughnut";
+    return {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: "#c8c8d8" } } },
+      scales: isPie ? {} : {
+        x: { grid: { color: "#2a2a3e" }, ticks: { color: "#8b8b9e" } },
+        y: { grid: { color: "#2a2a3e" }, ticks: { color: "#8b8b9e" } },
+      },
+    };
+  };
+
+  return (
+    <div class="h-[250px] bg-[#101015] p-3 rounded border border-[#2a2a3a]/50">
+      <Show when={buildData()} fallback={<p class="text-xs text-[#5a5a6e]">No valid array data for chart</p>}>
+        {/* @ts-ignore */}
+        <DefaultChart type={cType() as any} data={buildData()} options={chartOptions()} />
+      </Show>
+    </div>
+  );
+}
 
 export default function WorkflowBuilder() {
   const params = useParams();
@@ -138,7 +294,10 @@ export default function WorkflowBuilder() {
         body: authType() === "rest" ? authRestBody() : undefined,
         tokenPath: authTokenPath()
       } : undefined,
-      steps: steps,
+      steps: steps.map(s => ({
+        ...s,
+        type: s.type || "grpc"
+      })),
     };
 
     const endpoint = isNew ? "/api/workflows" : `/api/workflows/${params.id}`;
@@ -163,12 +322,14 @@ export default function WorkflowBuilder() {
   const addStep = () => {
     setSteps([...steps, {
       id: `step_${steps.length + 1}`,
+      type: "grpc",
       serviceName: "",
       methodName: "",
       requestBodyTemplate: "{}",
       headersTemplate: "{}",
       serverAddress: "",
-      useTls: useTls()
+      useTls: useTls(),
+      dataPath: "", xKey: "", yKey: ""
     }]);
   };
 
@@ -627,23 +788,48 @@ export default function WorkflowBuilder() {
                   {(log: any) => (
                     <div class="rounded-lg bg-[#1e1e2e] border border-[#2a2a3a] p-4">
                       <div class="flex items-center justify-between mb-2">
-                        <span class="font-mono text-white text-sm bg-[#2a2a3a] px-2 py-1 rounded">Step: {log.stepId}</span>
+                        <span class="font-mono text-white text-sm bg-[#2a2a3a] px-2 py-1 rounded flex items-center gap-2">
+                          Step: {log.stepId}
+                          <Show when={log.stepType && log.stepType !== "grpc"}>
+                            <span class="bg-blue-500/20 text-blue-400 text-[10px] px-1 py-0.5 rounded uppercase tracking-wider">{log.stepType}</span>
+                          </Show>
+                        </span>
                         <span class={`text-xs ${log.status === "success" ? "text-emerald-400" : "text-red-400"}`}>
                           {log.status.toUpperCase()} {log.latencyMs ? `(${log.latencyMs}ms)` : ""}
                         </span>
                       </div>
-                      <div class="grid grid-cols-2 gap-4">
-                        <div>
-                          <p class="text-[10px] text-[#8b8b9e] uppercase mb-1">Rendered Payload</p>
-                          <pre class="text-xs text-blue-300 font-mono overflow-x-auto bg-[#151520] p-2 rounded">{JSON.stringify(log.request, null, 2)}</pre>
+                      
+                      {/* Standard gRPC Logic */}
+                      <Show when={!log.stepType || log.stepType === "grpc"}>
+                        <div class="grid grid-cols-2 gap-4">
+                          <div>
+                            <p class="text-[10px] text-[#8b8b9e] uppercase mb-1">Rendered Payload</p>
+                            <pre class="text-xs text-blue-300 font-mono overflow-x-auto bg-[#151520] p-2 rounded">{JSON.stringify(log.request, null, 2)}</pre>
+                          </div>
+                          <div>
+                            <p class="text-[10px] text-[#8b8b9e] uppercase mb-1">Response</p>
+                            <pre class={`text-xs font-mono overflow-x-auto bg-[#151520] p-2 rounded ${log.error ? "text-red-300" : "text-emerald-300"}`}>
+                              {log.error || JSON.stringify(log.response, null, 2)}
+                            </pre>
+                          </div>
                         </div>
-                        <div>
-                          <p class="text-[10px] text-[#8b8b9e] uppercase mb-1">Response</p>
-                          <pre class={`text-xs font-mono overflow-x-auto bg-[#151520] p-2 rounded ${log.error ? "text-red-300" : "text-emerald-300"}`}>
-                            {log.error || JSON.stringify(log.response, null, 2)}
-                          </pre>
+                      </Show>
+                      
+                      {/* Table Render Logic */}
+                      <Show when={log.stepType === "table"}>
+                        <div class="mt-2">
+                          <p class="text-[10px] text-[#8b8b9e] uppercase mb-1">Rendered Table Data</p>
+                          <LogTable data={log.response} columns={log.meta?.columns} />
                         </div>
-                      </div>
+                      </Show>
+
+                      {/* Chart Render Logic */}
+                      <Show when={log.stepType === "chart"}>
+                        <div class="mt-2">
+                          <p class="text-[10px] text-[#8b8b9e] uppercase mb-1">Rendered Chart Data</p>
+                          <LogChart data={log.response} xKey={log.meta?.xKey} yKey={log.meta?.yKey} chartType={log.meta?.chartType} />
+                        </div>
+                      </Show>
                     </div>
                   )}
                 </For>
@@ -668,6 +854,30 @@ export default function WorkflowBuilder() {
                   
                   <div class="flex justify-between items-start mb-4">
                     <div class="flex items-center gap-4 flex-1">
+                      <div class="w-1/3">
+                        <label class="mb-1 block text-xs text-[#8b8b9e]">Step Type</label>
+                        <select
+                          class="w-full bg-[#1e1e2e] text-white font-medium text-sm border-b border-[#2a2a3a] focus:border-blue-500 outline-none pb-1"
+                          value={step.type === "chart" ? (step.chartType || "bar") : (step.type || "grpc")}
+                          onChange={(e) => {
+                            const val = e.currentTarget.value;
+                            if (["bar", "line", "doughnut", "pie", "scatter"].includes(val)) {
+                              updateStep(index(), "type", "chart");
+                              updateStep(index(), "chartType", val);
+                            } else {
+                              updateStep(index(), "type", val);
+                            }
+                          }}
+                        >
+                          <option value="grpc">⚡ gRPC Request</option>
+                          <option value="table">📊 View Data Table</option>
+                          <option value="bar">📊 Bar Chart</option>
+                          <option value="line">📈 Line Chart</option>
+                          <option value="doughnut">🍩 Doughnut Chart</option>
+                          <option value="pie">🥧 Pie Chart</option>
+                          <option value="scatter">📉 Scatter Chart</option>
+                        </select>
+                      </div>
                       <div class="flex-1">
                         <label class="mb-1 block text-xs text-[#8b8b9e]">Step ID (for variables)</label>
                         <input
@@ -683,128 +893,310 @@ export default function WorkflowBuilder() {
                     </button>
                   </div>
 
-                  <div class="grid grid-cols-2 gap-4 mb-4">
-                    <div>
-                      <label class="mb-1 block text-xs text-[#8b8b9e]">Service</label>
-                      <select
-                        class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-blue-500 focus:outline-none"
-                        value={step.serviceName || ""}
-                        onChange={(e) => {
-                          const val = e.currentTarget.value;
-                          if (val.startsWith("PROTO:")) {
-                            const pId = val.substring(6);
-                            const p = savedProtos()?.find((x: any) => x.id === pId);
-                            if (p) {
-                              setProtoContent(p.content);
-                              updateStep(index(), "serviceName", "");
-                              updateStep(index(), "methodName", "");
+                  <Show when={!step.type || step.type === "grpc"}>
+                    {/* gRPC Specific Configs */}
+                    <div class="grid grid-cols-2 gap-4 mb-4">
+                      <div>
+                        <label class="mb-1 block text-xs text-[#8b8b9e]">Service</label>
+                        <select
+                          class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-blue-500 focus:outline-none"
+                          value={step.serviceName || ""}
+                          onChange={(e) => {
+                            const val = e.currentTarget.value;
+                            if (val.startsWith("PROTO:")) {
+                              const pId = val.substring(6);
+                              const p = savedProtos()?.find((x: any) => x.id === pId);
+                              if (p) {
+                                setProtoContent(p.content);
+                                updateStep(index(), "serviceName", "");
+                                updateStep(index(), "methodName", "");
+                              }
+                            } else {
+                              updateStep(index(), "serviceName", val);
+                              updateStep(index(), "methodName", ""); // reset method
                             }
-                          } else {
-                            updateStep(index(), "serviceName", val);
-                            updateStep(index(), "methodName", ""); // reset method
-                          }
-                        }}
-                      >
-                        <option value="" disabled={!step.serviceName}>Select a service...</option>
-                        <Show when={savedProtos() && savedProtos().length > 0}>
-                          <optgroup label="Load a Saved Proto">
-                            <For each={savedProtos()}>
-                              {(p: any) => <option value={`PROTO:${p.id}`}>Load: {p.name}</option>}
-                            </For>
-                          </optgroup>
-                        </Show>
-                        <Show when={parsedProto()?.services && parsedProto()!.services.length > 0}>
-                          <optgroup label="Available Services in Proto">
-                            <For each={parsedProto()?.services || []}>
-                              {(svc) => <option value={svc.fullName} selected={step.serviceName === svc.fullName}>{svc.fullName}</option>}
-                            </For>
-                          </optgroup>
-                        </Show>
-                      </select>
+                          }}
+                        >
+                          <option value="" disabled={!step.serviceName}>Select a service...</option>
+                          <Show when={savedProtos() && savedProtos().length > 0}>
+                            <optgroup label="Load a Saved Proto">
+                              <For each={savedProtos()}>
+                                {(p: any) => <option value={`PROTO:${p.id}`}>Load: {p.name}</option>}
+                              </For>
+                            </optgroup>
+                          </Show>
+                          <Show when={parsedProto()?.services && parsedProto()!.services.length > 0}>
+                            <optgroup label="Available Services in Proto">
+                              <For each={parsedProto()?.services || []}>
+                                {(svc) => <option value={svc.fullName} selected={step.serviceName === svc.fullName}>{svc.fullName}</option>}
+                              </For>
+                            </optgroup>
+                          </Show>
+                        </select>
+                      </div>
+                      <div>
+                        <label class="mb-1 block text-xs text-[#8b8b9e]">Method</label>
+                        <select
+                          class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-blue-500 focus:outline-none disabled:opacity-50"
+                          disabled={!step.serviceName}
+                          value={step.methodName || ""}
+                          onChange={(e) => updateStep(index(), "methodName", e.currentTarget.value)}
+                        >
+                          <option value="" disabled>Select a method...</option>
+                          <For each={parsedProto()?.services.find((s) => s.fullName === step.serviceName)?.methods || []}>
+                            {(m) => <option value={m.name} selected={step.methodName === m.name}>{m.name} ({m.requestType} → {m.responseType})</option>}
+                          </For>
+                        </select>
+                      </div>
                     </div>
+
+                    <div class="mt-5 pt-5 border-t border-[#2a2a3a]/50">
+                      <label class="mb-2 block text-xs font-semibold text-[#8b8b9e] flex items-center justify-between">
+                        <span class="flex items-center gap-1.5">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect></svg>
+                          Server Overide
+                        </span>
+                        <Show when={step.serverAddress}>
+                          <span class="text-[10px] bg-blue-500/10 text-blue-400 px-1.5 py-0.5 rounded border border-blue-500/20">Active</span>
+                        </Show>
+                      </label>
+                      <div class="relative group">
+                        <input
+                          type="text"
+                          class={`w-full rounded-lg border p-2.5 text-sm transition-all focus:outline-none placeholder:text-[#3a3a4e] ${step.serverAddress ? 'border-blue-500/40 bg-[#1e1e2e] text-blue-100' : 'border-[#2a2a3a] bg-[#1a1a26] text-[#8b8b9e] focus:border-blue-500/30'}`}
+                          placeholder={`Fallback: ${serverAddress() || "None"}`}
+                          value={step.serverAddress || ""}
+                          onInput={(e) => updateStep(index(), "serverAddress", e.currentTarget.value)}
+                        />
+                        <Show when={!step.serverAddress}>
+                          <div class="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] font-bold text-[#3a3a4e] uppercase pointer-events-none group-hover:text-[#4a4a5e] transition-colors">Default</div>
+                        </Show>
+                      </div>
+                    </div>
+
+                    <div class="mt-4 flex items-center justify-between px-1">
+                      <label class="text-xs font-semibold text-[#8b8b9e] flex items-center gap-1.5">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+                        Encryption (TLS)
+                      </label>
+                      <label class="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          class="sr-only peer"
+                          checked={step.useTls ?? useTls()}
+                          onChange={(e) => updateStep(index(), "useTls", e.currentTarget.checked)}
+                        />
+                        <div class="w-8 h-4 bg-[#2a2a3a] rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-[#8b8b9e] after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-600 peer-checked:after:bg-white"></div>
+                        <span class="ml-2 text-[10px] font-medium text-[#5b5b6e]">
+                          { (step.useTls ?? useTls()) ? "Secure" : "Insecure" }
+                        </span>
+                      </label>
+                    </div>
+
                     <div>
-                      <label class="mb-1 block text-xs text-[#8b8b9e]">Method</label>
-                      <select
-                        class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-blue-500 focus:outline-none disabled:opacity-50"
-                        disabled={!step.serviceName}
-                        value={step.methodName || ""}
-                        onChange={(e) => updateStep(index(), "methodName", e.currentTarget.value)}
-                      >
-                        <option value="" disabled>Select a method...</option>
-                        <For each={parsedProto()?.services.find((s) => s.fullName === step.serviceName)?.methods || []}>
-                          {(m) => <option value={m.name} selected={step.methodName === m.name}>{m.name} ({m.requestType} → {m.responseType})</option>}
-                        </For>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div class="mt-5 pt-5 border-t border-[#2a2a3a]/50">
-                    <label class="mb-2 block text-xs font-semibold text-[#8b8b9e] flex items-center justify-between">
-                      <span class="flex items-center gap-1.5">
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect></svg>
-                        Server Overide
-                      </span>
-                      <Show when={step.serverAddress}>
-                        <span class="text-[10px] bg-blue-500/10 text-blue-400 px-1.5 py-0.5 rounded border border-blue-500/20">Active</span>
-                      </Show>
-                    </label>
-                    <div class="relative group">
-                      <input
-                        type="text"
-                        class={`w-full rounded-lg border p-2.5 text-sm transition-all focus:outline-none placeholder:text-[#3a3a4e] ${step.serverAddress ? 'border-blue-500/40 bg-[#1e1e2e] text-blue-100' : 'border-[#2a2a3a] bg-[#1a1a26] text-[#8b8b9e] focus:border-blue-500/30'}`}
-                        placeholder={`Fallback: ${serverAddress() || "None"}`}
-                        value={step.serverAddress || ""}
-                        onInput={(e) => updateStep(index(), "serverAddress", e.currentTarget.value)}
+                      <div class="flex items-center justify-between mt-4 mb-1">
+                        <label class="text-xs text-[#8b8b9e]">Request Payload Template</label>
+                        <span class="text-[10px] text-blue-400 font-mono">{"{{ steps.<id>.response }}"}</span>
+                      </div>
+                      <textarea
+                        class="h-32 w-full resize-y font-mono text-sm rounded-lg border border-[#2a2a3a] bg-[#151520] p-3 text-emerald-300 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
+                        value={step.requestBodyTemplate}
+                        onInput={(e) => updateStep(index(), "requestBodyTemplate", e.currentTarget.value)}
                       />
-                      <Show when={!step.serverAddress}>
-                        <div class="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] font-bold text-[#3a3a4e] uppercase pointer-events-none group-hover:text-[#4a4a5e] transition-colors">Default</div>
-                      </Show>
                     </div>
-                  </div>
 
-                  <div class="mt-4 flex items-center justify-between px-1">
-                    <label class="text-xs font-semibold text-[#8b8b9e] flex items-center gap-1.5">
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
-                      Encryption (TLS)
-                    </label>
-                    <label class="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        class="sr-only peer"
-                        checked={step.useTls ?? useTls()}
-                        onChange={(e) => updateStep(index(), "useTls", e.currentTarget.checked)}
+                    <div class="mt-4">
+                      <div class="flex items-center justify-between mb-1">
+                        <label class="text-xs text-[#8b8b9e]">Headers (Metadata) Template</label>
+                        <span class="text-[10px] text-blue-400 font-mono">{"{ \"Authorization\": \"Bearer {{ ... }}\" }"}</span>
+                      </div>
+                      <textarea
+                        class="h-20 w-full resize-y font-mono text-sm rounded-lg border border-[#2a2a3a] bg-[#151520] p-3 text-emerald-300 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
+                        placeholder='{ "key": "value" }'
+                        value={step.headersTemplate || "{}"}
+                        onInput={(e) => updateStep(index(), "headersTemplate", e.currentTarget.value)}
                       />
-                      <div class="w-8 h-4 bg-[#2a2a3a] rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-[#8b8b9e] after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-600 peer-checked:after:bg-white"></div>
-                      <span class="ml-2 text-[10px] font-medium text-[#5b5b6e]">
-                        { (step.useTls ?? useTls()) ? "Secure" : "Insecure" }
-                      </span>
-                    </label>
-                  </div>
-
-                  <div>
-                    <div class="flex items-center justify-between mb-1">
-                      <label class="text-xs text-[#8b8b9e]">Request Payload Template</label>
-                      <span class="text-[10px] text-blue-400 font-mono">{"{{ steps.<id>.response }}"}</span>
                     </div>
-                    <textarea
-                      class="h-32 w-full resize-y font-mono text-sm rounded-lg border border-[#2a2a3a] bg-[#151520] p-3 text-emerald-300 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
-                      value={step.requestBodyTemplate}
-                      onInput={(e) => updateStep(index(), "requestBodyTemplate", e.currentTarget.value)}
-                    />
-                  </div>
+                  </Show>
+                  
+                  {/* Visualization Data Mapping */}
+                  <Show when={step.type === "table" || step.type === "chart"}>
+                    <div class="space-y-4 mt-2">
 
-                  <div class="mt-4">
-                    <div class="flex items-center justify-between mb-1">
-                      <label class="text-xs text-[#8b8b9e]">Headers (Metadata) Template</label>
-                      <span class="text-[10px] text-blue-400 font-mono">{"{ \"Authorization\": \"Bearer {{ ... }}\" }"}</span>
+                      {/* Data Source */}
+                      <div class="rounded-lg border border-orange-500/20 bg-[#0f0e08] p-4">
+                        <p class="text-[10px] font-bold text-orange-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg>
+                          Data Source
+                        </p>
+                        <label class="mb-1 block text-xs text-[#8b8b9e]">Source Step (previous gRPC step)</label>
+                        <select
+                          class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2.5 text-sm text-orange-300 font-mono focus:border-orange-500 focus:outline-none mb-3"
+                          value={step.requestBodyTemplate || ""}
+                          onChange={(e) => updateStep(index(), "requestBodyTemplate", e.currentTarget.value)}
+                        >
+                          <option value="">Select a source step…</option>
+                          <For each={steps.slice(0, index()).filter((s: any) => !s.type || s.type === "grpc")}>
+                            {(s: any) => (
+                              <option value={`{{ steps.${s.id}.response }}`}>
+                                ⚡ {s.id}{s.methodName ? ` (${s.methodName})` : ""}
+                              </option>
+                            )}
+                          </For>
+                        </select>
+
+                        <div class="grid grid-cols-2 gap-3">
+                          <div>
+                            <label class="mb-1 block text-xs text-[#8b8b9e]">Nested Array Path <span class="text-[10px] text-[#5b5b6e]">(lodash dot path)</span></label>
+                            <input
+                              type="text"
+                              class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2.5 text-sm text-white font-mono focus:border-orange-500 focus:outline-none"
+                              placeholder="e.g. shares"
+                              value={step.dataPath || ""}
+                              onInput={(e) => updateStep(index(), "dataPath", e.currentTarget.value)}
+                            />
+                            <p class="text-[10px] text-[#5b5b6e] mt-1">Leave empty if the response is already an array. Use dot notation for deeper nesting.</p>
+                          </div>
+                          <div class="bg-[#0d0d14] rounded-lg border border-[#2a2a3a] p-2.5">
+                            <p class="text-[10px] text-[#5b5b6e] font-mono mb-1">Example response:</p>
+                            <pre class="text-[10px] text-orange-300 font-mono overflow-x-auto">{`{ "cash": 98961,\n  "shares": [\n    { "symbol": "ORCL",\n      "count": 271 }\n  ]\n}`}</pre>
+                            <p class="text-[10px] text-[#5b5b6e] mt-1">→ Path: <code class="text-orange-400 font-mono">shares</code></p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Chart Config */}
+                      <Show when={step.type === "chart"}>
+                        <div class="rounded-lg border border-purple-500/20 bg-[#0d0a10] p-4">
+                          <p class="text-[10px] font-bold text-purple-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+                            Chart Configuration
+                          </p>
+                          <div class="grid grid-cols-2 gap-3">
+                            <div>
+                              <label class="mb-1 block text-xs text-[#8b8b9e]">X-Axis Property</label>
+                              <input
+                                type="text"
+                                class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2.5 text-sm text-white font-mono focus:border-purple-500 focus:outline-none"
+                                placeholder="symbol"
+                                value={step.xKey || ""}
+                                onInput={(e) => updateStep(index(), "xKey", e.currentTarget.value)}
+                              />
+                            </div>
+                            <div>
+                              <label class="mb-1 block text-xs text-[#8b8b9e]">Y-Axis Property</label>
+                              <input
+                                type="text"
+                                class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2.5 text-sm text-white font-mono focus:border-purple-500 focus:outline-none"
+                                placeholder="count"
+                                value={step.yKey || ""}
+                                onInput={(e) => updateStep(index(), "yKey", e.currentTarget.value)}
+                              />
+                            </div>
+                          </div>
+                          <Show when={step.xKey || step.yKey}>
+                            <div class="mt-2 rounded-md bg-purple-500/10 border border-purple-500/20 px-3 py-1.5 text-[10px] text-purple-300">
+                              Will render: X = <code class="font-mono">{step.xKey || "index"}</code> · Y = <code class="font-mono">{step.yKey || "value"}</code>
+                            </div>
+                          </Show>
+                        </div>
+                      </Show>
+
+                      {/* Table Column Config */}
+                      <Show when={step.type === "table"}>
+                        <div class="rounded-lg border border-emerald-500/20 bg-[#080f0a] p-4">
+                          <p class="text-[10px] font-bold text-emerald-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"></rect><path d="M3 9h18M3 15h18M9 3v18"></path></svg>
+                            Table Columns
+                          </p>
+                          <p class="text-[10px] text-[#5b5b6e] mb-3">List the JSON keys to show as columns (e.g. <code class="text-emerald-400 font-mono">symbol</code>, <code class="text-emerald-400 font-mono">count</code>). Leave empty to auto-detect all keys.</p>
+                          <div class="space-y-2">
+                            <For each={(step as any).columns || []}>
+                              {(col: string, ci) => (
+                                <div class="flex gap-2">
+                                  <input
+                                    type="text"
+                                    class="flex-1 rounded-lg border border-[#2a2a3a] bg-[#1a1a26] px-3 py-1.5 text-sm text-white font-mono focus:border-emerald-500 focus:outline-none"
+                                    placeholder="key name, e.g. symbol"
+                                    value={col}
+                                    onInput={(e) => {
+                                      const cols = [...((step as any).columns || [])];
+                                      cols[ci()] = e.currentTarget.value;
+                                      updateStep(index(), "columns", cols);
+                                    }}
+                                  />
+                                  <button
+                                    class="text-[#5b5b6e] hover:text-red-400 px-2"
+                                    onClick={() => {
+                                      const cols = [...((step as any).columns || [])];
+                                      cols.splice(ci(), 1);
+                                      updateStep(index(), "columns", cols);
+                                    }}
+                                  >
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+                                  </button>
+                                </div>
+                              )}
+                            </For>
+                            <button
+                              class="text-xs text-emerald-400 hover:text-emerald-300 flex items-center gap-1 mt-1"
+                              onClick={() => updateStep(index(), "columns", [...((step as any).columns || []), ""])}
+                            >
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                              Add column
+                            </button>
+                          </div>
+                        </div>
+                      </Show>
+
                     </div>
-                    <textarea
-                      class="h-20 w-full resize-y font-mono text-sm rounded-lg border border-[#2a2a3a] bg-[#151520] p-3 text-emerald-300 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
-                      placeholder='{ "key": "value" }'
-                      value={step.headersTemplate || "{}"}
-                      onInput={(e) => updateStep(index(), "headersTemplate", e.currentTarget.value)}
-                    />
-                  </div>
+                  </Show>
+
+                  {/* ── Inline preview panel (table / chart steps) ── */}
+                  <Show when={(step.type === "table" || step.type === "chart") && runData()}>
+                    {(() => {
+                      const log = (runData()?.logs || []).find((l: any) => l.stepId === step.id);
+                      const data: any[] = Array.isArray(log?.response) ? log.response : (log?.response ? [log.response] : []);
+                      const meta = log?.meta || {};
+                      return (
+                        <div class={`mt-4 pt-4 border-t ${step.type === "table" ? "border-emerald-500/20" : "border-purple-500/20"}`}>
+                          <div class="flex items-center justify-between mb-3">
+                            <span class={`text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 ${step.type === "table" ? "text-emerald-400" : "text-purple-400"}`}>
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <Show when={step.type === "table"}>
+                                  <rect x="3" y="3" width="18" height="18" rx="2"></rect><path d="M3 9h18M3 15h18M9 3v18"></path>
+                                </Show>
+                                <Show when={step.type === "chart"}>
+                                  <rect x="2" y="3" width="4" height="18"></rect><rect x="9" y="8" width="4" height="13"></rect><rect x="16" y="14" width="4" height="7"></rect>
+                                </Show>
+                              </svg>
+                              Live Preview
+                            </span>
+                            <span class="text-[10px] text-[#5b5b6e]">{data.length} row{data.length !== 1 ? "s" : ""}</span>
+                          </div>
+                          <Show when={data.length === 0}>
+                            <div class="text-[11px] text-[#5b5b6e] italic py-3 text-center border border-dashed border-[#2a2a3a] rounded-lg">
+                              No data — run the workflow to see the preview
+                            </div>
+                          </Show>
+                          <Show when={data.length > 0}>
+                            <Show when={step.type === "table"}>
+                              <LogTable data={data} columns={(step as any).columns} />
+                            </Show>
+                            <Show when={step.type === "chart"}>
+                              <LogChart
+                                data={data}
+                                xKey={step.xKey}
+                                yKey={step.yKey}
+                                chartType={(step as any).chartType || "bar"}
+                              />
+                            </Show>
+                          </Show>
+                        </div>
+                      );
+                    })()}
+                  </Show>
+
                 </div>
               )}
             </For>

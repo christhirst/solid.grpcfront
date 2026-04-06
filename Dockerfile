@@ -33,6 +33,12 @@ ENV SURREALDB_PASS=""
 ENV SURREALDB_NS="solidflow"
 ENV SURREALDB_DB="main"
 
+# Authentication (pass real secrets at runtime)
+ENV AUTH_SECRET=""
+ENV OIDC_CLIENT_ID="mock-client-id"
+ENV OIDC_CLIENT_SECRET="mock-client-secret"
+ENV OIDC_ISSUER="https://oauth.wiremockapi.cloud"
+
 EXPOSE 3000
 
 # Startbefehl: SolidStart nutzt den .output/server/index.mjs Entrypoint

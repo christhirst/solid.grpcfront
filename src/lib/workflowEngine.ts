@@ -6,12 +6,18 @@ import { RecordId } from "surrealdb";
 
 export interface WorkflowStep {
   id: string;
-  serviceName: string;
-  methodName: string;
-  requestBodyTemplate: string; // JSON string with {{ }} templates
+  type?: "grpc" | "table" | "chart";
+  serviceName?: string;
+  methodName?: string;
+  requestBodyTemplate?: string; // JSON string with {{ }} templates
   headersTemplate?: string; // JSON string with {{ }} templates
   serverAddress?: string; // Optional override
   useTls?: boolean; // Optional override
+  dataPath?: string;   // lodash path to drill into nested array e.g. "shares"
+  xKey?: string;       // property for X axis
+  yKey?: string;       // property for Y axis
+  chartType?: "bar" | "line"; // chart rendering type
+  columns?: string[];  // optional explicit columns for table step
 }
 
 export interface AuthConfig {
@@ -46,11 +52,13 @@ export interface WorkflowDefinition {
 
 export interface WorkflowRunLog {
   stepId: string;
+  stepType?: "grpc" | "table" | "chart";
   status: "success" | "error";
   request: any;
   response?: any;
   error?: string;
   latencyMs?: number;
+  meta?: any;
 }
 
 export interface WorkflowRun {
@@ -213,10 +221,56 @@ export async function runWorkflowBackground(workflow: WorkflowDefinition, runId:
     }
 
     for (const step of steps) {
+      if (step.type === "table" || step.type === "chart") {
+        let payload;
+        try {
+          const exactMatch = (step.requestBodyTemplate || "").trim().match(/^\{\{\s*([\w.]+)\s*\}\}$/);
+          if (exactMatch) {
+            payload = get(context, exactMatch[1]);
+          } else {
+            payload = evaluatePayload(JSON.parse(step.requestBodyTemplate || "{}"), context);
+          }
+        } catch (e: any) {
+          payload = { error: `Failed to evaluate visual data source: ${e.message}` };
+        }
+
+        // Apply dataPath to drill into nested JSON (e.g. "shares" inside the response)
+        let visData = payload;
+        if (step.dataPath && payload && typeof payload === "object") {
+          visData = get(payload, step.dataPath);
+        }
+        // Ensure it's an array
+        if (!Array.isArray(visData)) {
+          visData = visData !== undefined && visData !== null ? [visData] : [];
+        }
+
+        context.steps[step.id] = { request: step.requestBodyTemplate, response: visData };
+        
+        runRecord.logs.push({
+          stepId: step.id,
+          stepType: step.type,
+          status: "success",
+          request: step.requestBodyTemplate,
+          response: visData,
+          meta: {
+            dataPath: step.dataPath,
+            xKey: step.xKey,
+            yKey: step.yKey,
+            chartType: (step as any).chartType || "bar",
+            columns: (step as any).columns || [],
+          }
+        });
+
+        const { id: _t_v, ...data_v } = runRecord;
+        const sId_v = new RecordId("workflow_run", dbId);
+        await db.query("UPDATE $id CONTENT $data", { id: sId_v, data: data_v });
+        continue;
+      }
+
       let requestPayload;
 
       // Check if the entire template is a single variable reference e.g. "{{ steps.step_1.response }}"
-      const exactMatch = step.requestBodyTemplate.trim().match(/^\{\{\s*([\w.]+)\s*\}\}$/);
+      const exactMatch = (step.requestBodyTemplate || "").trim().match(/^\{\{\s*([\w.]+)\s*\}\}$/);
       if (exactMatch) {
         requestPayload = get(context, exactMatch[1]);
       } else {
@@ -256,8 +310,8 @@ export async function runWorkflowBackground(workflow: WorkflowDefinition, runId:
         protoContent,
         serverAddress: step.serverAddress || serverAddress,
         useTls: step.useTls !== undefined ? step.useTls : useTls,
-        serviceName: step.serviceName,
-        methodName: step.methodName,
+        serviceName: step.serviceName || "",
+        methodName: step.methodName || "",
         requestBody: requestPayload,
         metadata,
       });
@@ -272,6 +326,7 @@ export async function runWorkflowBackground(workflow: WorkflowDefinition, runId:
       // Add log
       const logRecord: WorkflowRunLog = {
         stepId: step.id,
+        stepType: "grpc",
         status: execResult.success ? "success" : "error",
         request: requestPayload,
         response: execResult.data,
