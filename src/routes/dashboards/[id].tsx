@@ -3,6 +3,30 @@ import { createStore, reconcile } from "solid-js/store";
 import { useParams, useNavigate, A } from "@solidjs/router";
 import { isServer } from "solid-js/web";
 
+function extractFormVariables(workflow: any): string[] {
+  if (!workflow) return [];
+  const vars = new Set<string>();
+  const regex = /\{\{\s*form\.([a-zA-Z0-9_.-]+)\s*\}\}/g;
+  const scanStr = (s?: string) => {
+    if (!s) return;
+    let m;
+    while ((m = regex.exec(s)) !== null) {
+      vars.add(m[1]);
+    }
+  };
+  if (workflow.authConfig) {
+    scanStr(workflow.authConfig.requestTemplate);
+    scanStr(workflow.authConfig.body);
+    scanStr(workflow.authConfig.url);
+  }
+  (workflow.steps || []).forEach((step: any) => {
+    scanStr(step.requestBodyTemplate);
+    scanStr(step.headersTemplate);
+    scanStr(step.databaseName);
+  });
+  return Array.from(vars);
+}
+
 /** Return the type of the last meaningful step in a workflow */
 function lastStepType(workflow: any): "grpc" | "table" | "chart" {
   const steps: any[] = workflow?.steps || [];
@@ -209,7 +233,22 @@ export default function DashboardBuilder() {
                         <select
                           class="w-full rounded-lg border border-[#2a2a3a] bg-[#151520] p-3 text-sm text-emerald-300 font-mono shadow-inner focus:border-purple-500 focus:outline-none"
                           value={btn.workflowId || ""}
-                          onChange={(e) => updateButton(index(), "workflowId", e.currentTarget.value)}
+                          onChange={(e) => {
+                            const wfId = e.currentTarget.value;
+                            updateButton(index(), "workflowId", wfId);
+                            
+                            const wfList = workflows();
+                            const wf = wfList?.find((w: any) => w.id === wfId);
+                            if (wf) {
+                              const vars = extractFormVariables(wf);
+                              const existing = btn.formConfig || [];
+                              const updated = vars.map(v => {
+                                const ex = existing.find((e: any) => e.name === v);
+                                return ex || { name: v, label: v, type: "string", required: true };
+                              });
+                              updateButton(index(), "formConfig", updated);
+                            }
+                          }}
                         >
                           <option value="" disabled>Select a workflow...</option>
                           <Show when={!workflows.loading}>
@@ -219,6 +258,75 @@ export default function DashboardBuilder() {
                           </Show>
                         </select>
                       </div>
+
+                      {/* Form Config Editor */}
+                      <Show when={btn.formConfig?.length > 0}>
+                        <div class="col-span-2 mt-2 pt-4 border-t border-[#2a2a3a]/50">
+                          <label class="mb-2 block text-xs font-bold text-[#8b8b9e] flex items-center gap-2">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                            Detected Form Variables
+                          </label>
+                          <div class="space-y-3">
+                            <For each={btn.formConfig}>
+                              {(field, fIdx) => (
+                                <div class="bg-[#1e1e2e]/50 p-2 rounded-lg border border-[#2a2a3a]">
+                                  <div class="flex items-center gap-3">
+                                    <div class="flex-1">
+                                      <label class="text-[10px] text-[#5b5b6e] uppercase tracking-wider block mb-1">Variable</label>
+                                      <div class="text-sm font-mono text-purple-300">{'{{'} form.{field.name} {'}}'}</div>
+                                    </div>
+                                    <div class="flex-1">
+                                      <label class="text-[10px] text-[#5b5b6e] uppercase tracking-wider block mb-1">Label</label>
+                                      <input
+                                        class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-1 text-xs text-white placeholder-[#5b5b6e] focus:outline-none focus:border-purple-500"
+                                        value={field.label}
+                                        onInput={(e) => {
+                                          const copy = [...btn.formConfig];
+                                          copy[fIdx()] = { ...copy[fIdx()], label: e.currentTarget.value };
+                                          updateButton(index(), "formConfig", copy);
+                                        }}
+                                      />
+                                    </div>
+                                    <div class="w-24">
+                                      <label class="text-[10px] text-[#5b5b6e] uppercase tracking-wider block mb-1">Type</label>
+                                      <select
+                                        class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-purple-500"
+                                        value={field.type}
+                                        onChange={(e) => {
+                                          const copy = [...btn.formConfig];
+                                          copy[fIdx()] = { ...copy[fIdx()], type: e.currentTarget.value };
+                                          updateButton(index(), "formConfig", copy);
+                                        }}
+                                      >
+                                        <option value="string">String</option>
+                                        <option value="number">Number</option>
+                                        <option value="boolean">Boolean</option>
+                                        <option value="select">Select</option>
+                                      </select>
+                                    </div>
+                                  </div>
+                                  <Show when={field.type === "select"}>
+                                    <div class="mt-2 pt-2 border-t border-[#2a2a3a]/50">
+                                      <label class="text-[10px] text-[#5b5b6e] uppercase tracking-wider block mb-1">Select Options (comma separated)</label>
+                                      <input
+                                        class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-1 text-xs text-white placeholder-[#5b5b6e] focus:outline-none focus:border-purple-500"
+                                        value={field.options || ""}
+                                        onInput={(e) => {
+                                          const copy = [...btn.formConfig];
+                                          copy[fIdx()] = { ...copy[fIdx()], options: e.currentTarget.value };
+                                          updateButton(index(), "formConfig", copy);
+                                        }}
+                                        placeholder="e.g. US, UK, Canada"
+                                      />
+                                    </div>
+                                  </Show>
+                                </div>
+                              )}
+                            </For>
+                          </div>
+                        </div>
+                      </Show>
+                      
                       {/* Widget type badge */}
                       <Show when={btn.workflowId}>
                         <div class="col-span-2">

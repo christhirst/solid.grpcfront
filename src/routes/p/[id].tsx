@@ -368,12 +368,32 @@ export default function PublicDashboard() {
 
   // Button state (for grpc-type widgets)
   const [executing, setExecuting] = createSignal<Record<string, "idle" | "running" | "success" | "error">>({});
+  const [formState, setFormState] = createSignal<Record<string, Record<string, any>>>({});
+  const [activeModalBtn, setActiveModalBtn] = createSignal<any>(null);
+
+  const updateForm = (btnId: string, field: string, value: any) => {
+    setFormState(prev => ({
+      ...prev,
+      [btnId]: {
+        ...(prev[btnId] || {}),
+        [field]: value
+      }
+    }));
+  };
 
   const triggerButton = async (btn: any) => {
     if (executing()[btn.id] === "running") return;
     setExecuting(prev => ({ ...prev, [btn.id]: "running" }));
     try {
-      const res = await fetch(`/api/dashboards/${params.id}/trigger/${btn.id}`, { method: "POST" });
+      const payload = {
+        form: formState()[btn.id] || {}
+      };
+      
+      const res = await fetch(`/api/dashboards/${params.id}/trigger/${btn.id}`, { 
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
       const json = await res.json();
       if (json.success) {
         setExecuting(prev => ({ ...prev, [btn.id]: "success" }));
@@ -449,8 +469,18 @@ export default function PublicDashboard() {
                         return `w-full py-4 px-6 text-[15px] font-bold text-white rounded-2xl shadow-xl transition-all duration-300 flex items-center justify-center gap-3 active:scale-[0.98] focus:ring-4 focus:outline-none ${baseStyle}`;
                       };
 
-                      return (
-                        <button onClick={() => triggerButton(btn)} disabled={state() !== "idle"} class={btnClass()}>
+                      const btnInner = (
+                        <button 
+                          onClick={() => {
+                            if (btn.formConfig?.length > 0) {
+                              setActiveModalBtn(btn);
+                            } else {
+                              triggerButton(btn);
+                            }
+                          }} 
+                          disabled={state() !== "idle"} 
+                          class={btnClass()}
+                        >
                           <Show when={state() === "idle"}>
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
                             <span>{btn.label}</span>
@@ -469,6 +499,8 @@ export default function PublicDashboard() {
                           </Show>
                         </button>
                       );
+
+                      return btnInner;
                     })()
                   }>
                     {/* ── Table / Chart widget ── */}
@@ -490,6 +522,96 @@ export default function PublicDashboard() {
           </div>
         </div>
       </Show>
+
+      {/* Action Modal */}
+      <Show when={activeModalBtn()}>
+        <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div class="bg-[#101018] border border-[#2a2a3a] rounded-2xl p-6 w-full max-w-md shadow-2xl relative animate-in fade-in zoom-in duration-200">
+            {/* Modal Header */}
+            <div class="flex items-center justify-between mb-6 pb-4 border-b border-[#2a2a3a]">
+              <h3 class="text-lg font-bold text-white flex items-center gap-2">
+                <span class={`w-3 h-3 rounded-full bg-purple-500`}></span>
+                {activeModalBtn().label}
+              </h3>
+              <button 
+                onClick={() => setActiveModalBtn(null)}
+                class="text-[#8b8b9e] hover:text-white transition-colors"
+                title="Close"
+              >
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+              </button>
+            </div>
+            
+            {/* Form Fields */}
+            <div class="space-y-4 mb-8 max-h-[60vh] overflow-y-auto pr-2">
+              <For each={activeModalBtn().formConfig}>
+                {(field: any) => {
+                  const val = (formState()[activeModalBtn().id] || {})[field.name];
+                  return (
+                    <div>
+                      <label class="block text-xs font-bold text-[#8b8b9e] mb-1.5">{field.label}</label>
+                      <Show when={field.type === "boolean"}>
+                        <label class="flex items-center gap-3 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            class="w-4 h-4 rounded border-[#2a2a3a] bg-[#1e1e2e] text-purple-500 focus:ring-purple-500/50"
+                            checked={!!val}
+                            onChange={(e) => updateForm(activeModalBtn().id, field.name, e.currentTarget.checked)}
+                          />
+                          <span class="text-sm text-white">Enable</span>
+                        </label>
+                      </Show>
+                      <Show when={field.type === "select"}>
+                        <select
+                          class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-3 text-sm text-white focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500/50 transition-all custom-select"
+                          value={val || ""}
+                          onChange={(e) => updateForm(activeModalBtn().id, field.name, e.currentTarget.value)}
+                        >
+                          <option value="" disabled>Select an option...</option>
+                          <For each={(field.options || "").split(",").map((o: string) => o.trim()).filter(Boolean)}>
+                            {(opt) => <option value={opt}>{opt}</option>}
+                          </For>
+                        </select>
+                      </Show>
+                      <Show when={field.type !== "boolean" && field.type !== "select"}>
+                        <input
+                          type={field.type === "number" ? "number" : "text"}
+                          required={field.required}
+                          class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-3 text-sm text-white focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500/50 transition-all"
+                          value={val || ""}
+                          onInput={(e) => updateForm(activeModalBtn().id, field.name, field.type === "number" ? Number(e.currentTarget.value) : e.currentTarget.value)}
+                          placeholder={`Enter ${field.label}...`}
+                        />
+                      </Show>
+                    </div>
+                  );
+                }}
+              </For>
+            </div>
+            
+            {/* Action Bar */}
+            <div class="flex justify-end gap-3 pt-4 border-t border-[#2a2a3a]">
+              <button 
+                onClick={() => setActiveModalBtn(null)}
+                class="px-5 py-2.5 rounded-xl border border-[#2a2a3a] text-sm font-bold text-[#8b8b9e] hover:bg-[#1e1e2e] hover:text-white transition-all"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={() => {
+                  triggerButton(activeModalBtn());
+                  setActiveModalBtn(null);
+                }}
+                class="px-5 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-sm font-bold text-white shadow-lg transition-all active:scale-[0.98] flex items-center gap-2"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                Execute
+              </button>
+            </div>
+          </div>
+        </div>
+      </Show>
+
     </main>
   );
 }

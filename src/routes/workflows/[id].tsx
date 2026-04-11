@@ -170,6 +170,50 @@ export default function WorkflowBuilder() {
   const [name, setName] = createSignal("New Workflow");
   const [protoContent, setProtoContent] = createSignal("");
   
+  // Track active input for inserting variables
+  const [hasActiveInput, setHasActiveInput] = createSignal(false);
+  const [activeInput, setActiveInput] = createSignal<HTMLInputElement | HTMLTextAreaElement | null>(null);
+
+  onMount(() => {
+    if (isServer) return;
+    document.addEventListener('focusin', (e) => {
+      const t = e.target as HTMLElement;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) {
+        setHasActiveInput(true);
+        setActiveInput(t as any);
+      }
+    });
+    document.addEventListener('focusout', () => {
+      // Small timeout to allow mousedown to preventDefault before clearing
+      setTimeout(() => {
+        if (document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA') {
+          setHasActiveInput(false);
+          setActiveInput(null);
+        }
+      }, 50);
+    });
+  });
+
+  const insertVariable = () => {
+    const input = activeInput();
+    if (!input) return;
+    const varName = prompt("Enter new variable name (e.g. account_id):");
+    if (!varName) return;
+
+    const start = input.selectionStart || 0;
+    const end = input.selectionEnd || 0;
+    const val = input.value;
+    const injection = `{{ form.${varName} }}`;
+    const newVal = val.substring(0, start) + injection + val.substring(end);
+    
+    input.value = newVal;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    
+    const cursor = start + injection.length;
+    input.setSelectionRange(cursor, cursor);
+    input.focus();
+  };
+  
   // Fetch saved protos from Registry
   const [savedProtos] = createResource(async () => {
     if (isServer) return [];
@@ -460,6 +504,21 @@ export default function WorkflowBuilder() {
           />
         </div>
         <div class="flex items-center gap-4">
+          <button 
+            onMouseDown={(e) => {
+              e.preventDefault();
+              if (hasActiveInput()) insertVariable();
+            }}
+            class={`px-3 py-1.5 rounded-lg text-xs font-bold text-white transition-all ${
+              hasActiveInput() ? "bg-purple-600 hover:bg-purple-500 shadow-md ring-2 ring-purple-500/50" : "bg-[#2a2a3a] text-[#5b5b6e] cursor-not-allowed"
+            }`}
+            title={hasActiveInput() ? "Insert {{ form.variable }} at cursor" : "Select an input field first"}
+          >
+            + Form Variable
+          </button>
+          
+          <div class="w-px h-6 bg-[#2a2a3a] mx-1"></div>
+
           <button onClick={saveWorkflow} class="btn-secondary">Save Flow</button>
           <button onClick={runWorkflow} class="btn-primary flex items-center gap-2" disabled={isNew || isRunning()}>
             {isRunning() ? (
@@ -799,8 +858,8 @@ export default function WorkflowBuilder() {
                         </span>
                       </div>
                       
-                      {/* Standard gRPC Logic */}
-                      <Show when={!log.stepType || log.stepType === "grpc"}>
+                      {/* Standard gRPC and Database Logic */}
+                      <Show when={!log.stepType || log.stepType === "grpc" || log.stepType === "database"}>
                         <div class="grid grid-cols-2 gap-4">
                           <div>
                             <p class="text-[10px] text-[#8b8b9e] uppercase mb-1">Rendered Payload</p>
@@ -870,6 +929,7 @@ export default function WorkflowBuilder() {
                           }}
                         >
                           <option value="grpc">⚡ gRPC Request</option>
+                          <option value="database">🛢️ Database Query</option>
                           <option value="table">📊 View Data Table</option>
                           <option value="bar">📊 Bar Chart</option>
                           <option value="line">📈 Line Chart</option>
@@ -1016,6 +1076,38 @@ export default function WorkflowBuilder() {
                         value={step.headersTemplate || "{}"}
                         onInput={(e) => updateStep(index(), "headersTemplate", e.currentTarget.value)}
                       />
+                    </div>
+                  </Show>
+
+                  {/* Database Query Config */}
+                  <Show when={step.type === "database"}>
+                    <div class="mb-4">
+                      <div class="mb-4">
+                        <label class="mb-1 block text-xs text-[#8b8b9e]">Target Database Name <span class="text-[10px] text-[#5b5b6e]">(supports {'{{ variables }}'})</span></label>
+                        <input
+                          type="text"
+                          class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2.5 text-sm text-white font-mono focus:border-red-500 focus:outline-none placeholder:text-[#5b5b6e]"
+                          placeholder="e.g. analytics_db or {{ steps.test.response.db_name }}"
+                          value={step.databaseName || ""}
+                          onInput={(e) => updateStep(index(), "databaseName", e.currentTarget.value)}
+                        />
+                      </div>
+                      
+                      <div>
+                        <div class="flex items-center justify-between mb-1">
+                          <label class="block text-xs text-[#8b8b9e]">SurrealQL Query</label>
+                          <span class="text-[10px] text-blue-400 font-mono">Supports {"{{ variables }}"}</span>
+                        </div>
+                        <div class="relative group">
+                          <div class="absolute -inset-0.5 rounded-lg bg-gradient-to-r from-red-600 to-orange-500 opacity-20 blur transition group-hover:opacity-40"></div>
+                          <textarea
+                            class="relative w-full h-32 rounded-lg border border-[#2a2a3a] bg-[#0a0a0f] p-3 text-sm font-mono text-red-300 focus:border-red-500 outline-none custom-scrollbar"
+                            placeholder="SELECT * FROM users WHERE age > {{ steps.auth.response.min_age }};"
+                            value={step.requestBodyTemplate || ""}
+                            onInput={(e) => updateStep(index(), "requestBodyTemplate", e.currentTarget.value)}
+                          />
+                        </div>
+                      </div>
                     </div>
                   </Show>
                   

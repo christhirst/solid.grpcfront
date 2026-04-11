@@ -4,6 +4,7 @@ import { initWorkflowScheduler } from "./workflowScheduler";
 // Cache the connection promise so concurrent requests await the same initial connection.
 // We avoid globalThis as it can cause Nitro worker hangs when dealing with WebSockets/WASM.
 let dbPromise: Promise<Surreal> | null = null;
+const dynamicDbs = new Map<string, Promise<Surreal>>();
 
 export async function getDb(): Promise<Surreal> {
   if (dbPromise) {
@@ -54,4 +55,34 @@ export async function getDb(): Promise<Surreal> {
   })();
 
   return dbPromise;
+}
+
+export async function getDynamicDb(dbName: string): Promise<Surreal> {
+  if (dynamicDbs.has(dbName)) {
+    return dynamicDbs.get(dbName)!;
+  }
+
+  const promise = (async () => {
+    const url = process.env.SURREALDB_URL || "";
+    const user = process.env.SURREALDB_USER || "admin";
+    const pass = process.env.SURREALDB_PASS || "";
+    const namespace = process.env.SURREALDB_NS || "solidflow";
+
+    console.log(`[DB] Connecting to dynamic SurrealDB database '${dbName}'...`);
+    try {
+      const s = new Surreal();
+      await s.connect(url, {
+        authentication: { username: user, password: pass },
+      });
+      await s.use({ namespace, database: dbName });
+      return s;
+    } catch (err) {
+      console.error(`[DB] Failed to connect to dynamic database ${dbName}:`, err);
+      dynamicDbs.delete(dbName);
+      throw err;
+    }
+  })();
+
+  dynamicDbs.set(dbName, promise);
+  return promise;
 }

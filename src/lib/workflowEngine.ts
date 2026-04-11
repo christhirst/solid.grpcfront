@@ -6,10 +6,11 @@ import { RecordId } from "surrealdb";
 
 export interface WorkflowStep {
   id: string;
-  type?: "grpc" | "table" | "chart";
+  type?: "grpc" | "table" | "chart" | "database";
+  databaseName?: string; // target dynamic DB for 'database' step type
   serviceName?: string;
   methodName?: string;
-  requestBodyTemplate?: string; // JSON string with {{ }} templates
+  requestBodyTemplate?: string; // JSON string for grpc, SurrealQL template for database
   headersTemplate?: string; // JSON string with {{ }} templates
   serverAddress?: string; // Optional override
   useTls?: boolean; // Optional override
@@ -123,7 +124,7 @@ function evaluatePayload(templateObj: any, context: Record<string, any>): any {
   return templateObj;
 }
 
-export async function runWorkflowBackground(workflow: WorkflowDefinition, runId: string) {
+export async function runWorkflowBackground(workflow: WorkflowDefinition, runId: string, customContext: Record<string, any> = {}) {
   const db = await getDb();
   
   const runRecord: WorkflowRun = {
@@ -131,7 +132,7 @@ export async function runWorkflowBackground(workflow: WorkflowDefinition, runId:
     workflowId: workflow.id as string,
     status: "running",
     startTime: new Date().toISOString(),
-    context: { steps: {} },
+    context: { steps: {}, ...customContext },
     logs: [],
   };
 
@@ -149,7 +150,7 @@ export async function runWorkflowBackground(workflow: WorkflowDefinition, runId:
     const { protoContent, serverAddress, useTls, steps, authConfig } = workflow;
 
     const parsedProto = parseProtoContent(protoContent);
-    const context = { steps: {} as any, auth: {} as any };
+    const context = { steps: {} as any, auth: {} as any, ...customContext };
 
     // 1. Perform Authentication if configured
     let authToken: string | undefined;
@@ -264,6 +265,67 @@ export async function runWorkflowBackground(workflow: WorkflowDefinition, runId:
         const { id: _t_v, ...data_v } = runRecord;
         const sId_v = new RecordId("workflow_run", dbId);
         await db.query("UPDATE $id CONTENT $data", { id: sId_v, data: data_v });
+        continue;
+      }
+
+      if (step.type === "database") {
+        let queryPayload;
+        try {
+           const parsedTemplate = JSON.parse(step.requestBodyTemplate || "{}");
+           queryPayload = evaluatePayload(parsedTemplate, context);
+        } catch (e) {
+           // If it fails to parse as JSON, treat it as a raw string (which is standard for SurrealQL)
+           queryPayload = interpolateTemplate(step.requestBodyTemplate || "", context);
+        }
+        
+        let execResult;
+        let latencyMs = 0;
+        try {
+          const startTimeMs = Date.now();
+          const targetDbName = interpolateTemplate(step.databaseName || "", context) || "main";
+          
+          // Import here to avoid circular dependency if one existed, but it's fine at top-level
+          const { getDynamicDb } = await import("~/lib/db");
+          const ddb = await getDynamicDb(targetDbName);
+          
+          const surrealResult = await ddb.query(queryPayload);
+          latencyMs = Date.now() - startTimeMs;
+          
+          execResult = { success: true, data: surrealResult };
+        } catch (err: any) {
+          execResult = { success: false, error: err.message };
+        }
+
+        context.steps[step.id] = {
+          request: queryPayload,
+          response: execResult.success ? execResult.data : undefined,
+          error: !execResult.success ? execResult.error : undefined,
+        };
+
+        const logRecord: WorkflowRunLog = {
+          stepId: step.id,
+          stepType: "database" as any, // casting to avoid strict type error if not updated in other places
+          status: execResult.success ? "success" : "error",
+          request: queryPayload,
+          response: execResult.success ? execResult.data : undefined,
+          error: execResult.error,
+          latencyMs,
+        };
+        runRecord.logs.push(logRecord);
+
+        runRecord.context = context;
+        const { id: _t1, ...data1 } = runRecord;
+        const sId1 = new RecordId("workflow_run", dbId);
+        await db.query("UPDATE $id CONTENT $data", { id: sId1, data: data1 });
+
+        if (!execResult.success) {
+          runRecord.status = "failed";
+          runRecord.endTime = new Date().toISOString();
+          const { id: _t2, ...data2 } = runRecord;
+          const sId2 = new RecordId("workflow_run", dbId);
+          await db.query("UPDATE $id CONTENT $data", { id: sId2, data: data2 });
+          return;
+        }
         continue;
       }
 

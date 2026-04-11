@@ -67,9 +67,20 @@ export async function POST(event: APIEvent) {
     // Generate a run ID
     const runId = `run:${uuidv4()}`;
 
+    // Read form data from payload
+    let formPayload = {};
+    try {
+      const body = await event.request.json();
+      if (body && body.form) {
+        formPayload = body.form;
+      }
+    } catch (e) {
+      // Ignored: either no body or invalid JSON
+    }
+
     // Start background execution
     // Do not await this, we just trigger it and return the ID.
-    runWorkflowBackground(workflow, runId).catch(err => {
+    runWorkflowBackground(workflow, runId, { form: formPayload }).catch(err => {
       console.error(`Failed to run background workflow ${workflow.id} for run ${runId}`, err);
     });
 
