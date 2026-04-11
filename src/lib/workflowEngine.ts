@@ -6,10 +6,12 @@ import { RecordId } from "surrealdb";
 
 export interface WorkflowStep {
   id: string;
-  type?: "grpc" | "table" | "chart" | "database";
+  type?: "grpc" | "table" | "chart" | "database" | "rest";
   databaseName?: string; // target dynamic DB for 'database' step type
   serviceName?: string;
   methodName?: string;
+  restUrl?: string;
+  restMethod?: "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
   requestBodyTemplate?: string; // JSON string for grpc, SurrealQL template for database
   headersTemplate?: string; // JSON string with {{ }} templates
   serverAddress?: string; // Optional override
@@ -325,6 +327,121 @@ export async function runWorkflowBackground(workflow: WorkflowDefinition, runId:
           const sId2 = new RecordId("workflow_run", dbId);
           await db.query("UPDATE $id CONTENT $data", { id: sId2, data: data2 });
           return;
+        }
+        continue;
+      }
+
+      if (step.type === "rest") {
+        let requestPayload;
+        let evaluatedUrl = step.restUrl || "";
+        
+        try {
+          evaluatedUrl = interpolateTemplate(step.restUrl || "", context);
+        } catch(e) {
+          evaluatedUrl = step.restUrl || "";
+        }
+
+        const method = step.restMethod || "GET";
+        const hasBody = method !== "GET" && method !== "DELETE";
+
+        if (hasBody) {
+          const exactMatch = (step.requestBodyTemplate || "").trim().match(/^\{\{\s*([\w.]+)\s*\}\}$/);
+          if (exactMatch) {
+             requestPayload = get(context, exactMatch[1]);
+          } else {
+             try {
+                const parsedTemplate = JSON.parse(step.requestBodyTemplate || "{}");
+                requestPayload = evaluatePayload(parsedTemplate, context);
+             } catch(e) {
+                requestPayload = interpolateTemplate(step.requestBodyTemplate || "", context);
+             }
+          }
+        }
+
+        let metadata: Record<string, string> | undefined;
+        if (authToken) {
+          metadata = { "Authorization": `Bearer ${authToken}` };
+        }
+
+        if (step.headersTemplate) {
+          try {
+            const parsedHeaders = JSON.parse(step.headersTemplate);
+            const evaluatedHeaders = evaluatePayload(parsedHeaders, context);
+            metadata = metadata || {};
+            for (const [key, value] of Object.entries(evaluatedHeaders)) {
+              metadata[key] = String(value);
+            }
+          } catch (e) {
+            console.error(`Failed to parse/evaluate headers for REST step ${step.id}:`, e);
+          }
+        }
+
+        let execResult;
+        let latencyMs = 0;
+        try {
+          const startTimeMs = Date.now();
+          const fetchOptions: RequestInit = {
+            method,
+            headers: metadata,
+          };
+
+          if (hasBody && requestPayload !== undefined) {
+             fetchOptions.body = typeof requestPayload === "object" ? JSON.stringify(requestPayload) : String(requestPayload);
+             if (!fetchOptions.headers) fetchOptions.headers = {};
+             if (!(fetchOptions.headers as any)["Content-Type"] && typeof requestPayload === "object") {
+                (fetchOptions.headers as any)["Content-Type"] = "application/json";
+             }
+          }
+
+          const res = await fetch(evaluatedUrl, fetchOptions);
+          latencyMs = Date.now() - startTimeMs;
+          
+          let data;
+          const contentType = res.headers.get("content-type");
+          if (contentType && contentType.includes("application/json")) {
+             data = await res.json();
+          } else {
+             data = await res.text();
+          }
+
+          if (!res.ok) {
+             throw new Error(`HTTP ${res.status}: ${typeof data === "object" ? JSON.stringify(data) : data}`);
+          }
+          execResult = { success: true, data, latencyMs };
+        } catch(err: any) {
+          execResult = { success: false, error: err.message, latencyMs };
+        }
+
+        context.steps[step.id] = {
+           request: requestPayload,
+           url: evaluatedUrl,
+           response: execResult.success ? execResult.data : undefined,
+           error: !execResult.success ? execResult.error : undefined,
+        };
+
+        const logRecord: WorkflowRunLog = {
+           stepId: step.id,
+           stepType: "rest" as any,
+           status: execResult.success ? "success" : "error",
+           request: { url: evaluatedUrl, method, body: requestPayload },
+           response: execResult.success ? execResult.data : undefined,
+           error: execResult.error,
+           latencyMs: execResult.latencyMs,
+        };
+        runRecord.logs.push(logRecord);
+
+        runRecord.context = context;
+        const { id: _t1, ...data1 } = runRecord;
+        const sId1 = new RecordId("workflow_run", dbId);
+        await db.query("UPDATE $id CONTENT $data", { id: sId1, data: data1 });
+
+        if (!execResult.success) {
+           runRecord.status = "failed";
+           runRecord.endTime = new Date().toISOString();
+           const { id: _t2, ...data2 } = runRecord;
+           const sId2 = new RecordId("workflow_run", dbId);
+           await db.query("UPDATE $id CONTENT $data", { id: sId2, data: data2 });
+           return;
         }
         continue;
       }

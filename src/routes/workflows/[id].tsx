@@ -858,8 +858,8 @@ export default function WorkflowBuilder() {
                         </span>
                       </div>
                       
-                      {/* Standard gRPC and Database Logic */}
-                      <Show when={!log.stepType || log.stepType === "grpc" || log.stepType === "database"}>
+                      {/* Standard gRPC, REST, and Database Logic */}
+                      <Show when={!log.stepType || log.stepType === "grpc" || log.stepType === "database" || log.stepType === "rest"}>
                         <div class="grid grid-cols-2 gap-4">
                           <div>
                             <p class="text-[10px] text-[#8b8b9e] uppercase mb-1">Rendered Payload</p>
@@ -929,6 +929,7 @@ export default function WorkflowBuilder() {
                           }}
                         >
                           <option value="grpc">⚡ gRPC Request</option>
+                          <option value="rest">🌐 REST Request</option>
                           <option value="database">🛢️ Database Query</option>
                           <option value="table">📊 View Data Table</option>
                           <option value="bar">📊 Bar Chart</option>
@@ -1076,6 +1077,65 @@ export default function WorkflowBuilder() {
                         value={step.headersTemplate || "{}"}
                         onInput={(e) => updateStep(index(), "headersTemplate", e.currentTarget.value)}
                       />
+                    </div>
+                  </Show>
+
+                  {/* REST Request Config */}
+                  <Show when={step.type === "rest"}>
+                    <div class="mb-4 space-y-4">
+                      <div>
+                        <label class="mb-1 block text-xs text-[#8b8b9e]">URL Template</label>
+                        <input
+                          type="text"
+                          class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2.5 text-sm text-white font-mono focus:border-blue-500 focus:outline-none"
+                          placeholder="e.g. https://api.stripe.com/v1/customers/{{ form.customerId }}"
+                          value={step.restUrl || ""}
+                          onInput={(e) => updateStep(index(), "restUrl", e.currentTarget.value)}
+                        />
+                      </div>
+                      <div class="grid grid-cols-2 gap-4">
+                        <div>
+                          <label class="mb-1 block text-xs text-[#8b8b9e]">HTTP Method</label>
+                          <select
+                            class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-blue-500 focus:outline-none"
+                            value={step.restMethod || "GET"}
+                            onChange={(e) => updateStep(index(), "restMethod", e.currentTarget.value)}
+                          >
+                            <option value="GET">GET</option>
+                            <option value="POST">POST</option>
+                            <option value="PUT">PUT</option>
+                            <option value="DELETE">DELETE</option>
+                            <option value="PATCH">PATCH</option>
+                          </select>
+                        </div>
+                      </div>
+                      
+                      <Show when={step.restMethod !== "GET" && step.restMethod !== "DELETE"}>
+                        <div>
+                          <div class="flex items-center justify-between mb-1">
+                            <label class="text-xs text-[#8b8b9e]">Request Body Template (JSON)</label>
+                            <span class="text-[10px] text-blue-400 font-mono">Supports {"{{ variables }}"}</span>
+                          </div>
+                          <textarea
+                            class="h-32 w-full resize-y font-mono text-sm rounded-lg border border-[#2a2a3a] bg-[#151520] p-3 text-emerald-300 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
+                            value={step.requestBodyTemplate || ""}
+                            onInput={(e) => updateStep(index(), "requestBodyTemplate", e.currentTarget.value)}
+                          />
+                        </div>
+                      </Show>
+
+                      <div>
+                        <div class="flex items-center justify-between mt-4 mb-1">
+                          <label class="text-xs text-[#8b8b9e]">Headers Template (JSON)</label>
+                          <span class="text-[10px] text-blue-400 font-mono">{"{ \"Authorization\": \"Bearer {{ token }}\" }"}</span>
+                        </div>
+                        <textarea
+                          class="h-20 w-full resize-y font-mono text-sm rounded-lg border border-[#2a2a3a] bg-[#151520] p-3 text-emerald-300 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
+                          placeholder='{ "Content-Type": "application/json" }'
+                          value={step.headersTemplate || "{}"}
+                          onInput={(e) => updateStep(index(), "headersTemplate", e.currentTarget.value)}
+                        />
+                      </div>
                     </div>
                   </Show>
 
