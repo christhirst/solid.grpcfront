@@ -10,7 +10,7 @@ export default defineConfig(({ mode }) => {
       solidStart(),
       tailwindcss(),
       nitro({
-        preset: "node-server",
+        preset: "bun",
         // Force srvx to be inlined to simplify the bundle, 
         // though our postinstall script handles it in node_modules anyway.
         externals: { inline: ["srvx"] },
