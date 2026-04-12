@@ -1,12 +1,19 @@
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv } from "vite";
 import { nitroV2Plugin as nitro } from "@solidjs/vite-plugin-nitro-2";
 import { solidStart } from "@solidjs/start/config";
 import tailwindcss from "@tailwindcss/vite";
 
-export default defineConfig({
-  plugins: [
-    solidStart(),
-    tailwindcss(),
-    nitro()
-  ]
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), "");
+  return {
+    plugins: [
+      solidStart(),
+      tailwindcss(),
+      nitro({ preset: "bun" })
+    ],
+    server: {
+      port: env.PORT ? parseInt(env.PORT, 10) : 3000,
+      host: env.HOST || "localhost",
+    }
+  };
 });
