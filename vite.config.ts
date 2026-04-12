@@ -12,16 +12,33 @@ export default defineConfig(({ mode }) => {
       {
         name: "global-url-patcher",
         transform(code, id) {
-          // Target all JS/TS files in node_modules and src
+          // Target all JS/TS files
           if (/\.(js|mjs|ts|tsx)$/.test(id)) {
-            const patched = code.replace(
-              /new URL\(([^)]*url)\)/g,
-              (match, p1) => {
-                // Skip if already patched, or if it's not a single-argument URL constructor
-                if (p1.includes("startsWith") || p1.includes(",")) return match;
-                return `new URL(${p1}.startsWith('/') ? 'http://localhost' + ${p1} : ${p1})`;
+            let patched = code;
+            
+            // Replace new URL() calls with proper handling
+            patched = patched.replace(
+              /new URL\(([^,)]+)\)/g,
+              (match, arg) => {
+                // Skip if already has protocol check or multiple args
+                if (arg.includes("?") || arg.includes("startsWith")) return match;
+                
+                const trimmedArg = arg.trim();
+                
+                // If it's a string literal starting with /, make it a full URL
+                if (trimmedArg.startsWith("'") || trimmedArg.startsWith('"')) {
+                  const quote = trimmedArg[0];
+                  if (trimmedArg.includes(`${quote}/${quote}`)) {
+                    // It's a path like '/about', prepend http://localhost
+                    return `new URL('http://localhost' + ${trimmedArg})`;
+                  }
+                }
+                
+                // For variables, add runtime check
+                return `new URL(${trimmedArg}.startsWith('/') ? 'http://localhost' + ${trimmedArg} : ${trimmedArg})`;
               }
             );
+            
             if (patched !== code) {
               return { code: patched, map: null };
             }
