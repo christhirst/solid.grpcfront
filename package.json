@@ -5,8 +5,7 @@
     "dev": "vite dev",
     "build": "vite build",
     "start": "vite start",
-    "preview": "vite preview",
-    "postinstall": "node scripts/patch-srvx.js"
+    "preview": "vite preview"
   },
   "dependencies": {
     "@auth/core": "^0.41.1",

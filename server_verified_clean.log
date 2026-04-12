@@ -1,0 +1,65 @@
+Listening on http://0.0.0.0:3000/...
+442 | 		status: 404,
+443 | 		message: `Cannot find any route matching [${event.req.method}] ${event.url}`
+444 | 	});
+445 | 	if (val && val instanceof Error) {
+446 | 		const isHTTPError = HTTPError.isError(val);
+447 | 		const error = isHTTPError ? val : new HTTPError(val);
+                                          ^
+error: event.req.headers.get is not a function. (In 'event.req.headers.get("cookie")', 'event.req.headers.get' is undefined)
+     status: 500,
+ statusText: undefined,
+    headers: undefined,
+       data: undefined,
+       body: undefined,
+  unhandled: true,
+
+      at prepareResponse (/home/c/workspace/solid-project/.output/server/chunks/virtual/entry.mjs:447:37)
+      at toResponse (/home/c/workspace/solid-project/.output/server/chunks/virtual/entry.mjs:416:19)
+
+1030 | * ```ts
+1031 | * const cookies = parseCookies(event)
+1032 | * ```
+1033 | */
+1034 | function parseCookies(event) {
+1035 | 	return parse(event.req.headers.get("cookie") || "");
+                                       ^
+TypeError: event.req.headers.get is not a function. (In 'event.req.headers.get("cookie")', 'event.req.headers.get' is undefined)
+      at parseCookies (/home/c/workspace/solid-project/.output/server/chunks/virtual/entry.mjs:1035:33)
+      at getCookie (/home/c/workspace/solid-project/.output/server/chunks/virtual/entry.mjs:1238:9)
+      at initFromFlash (/home/c/workspace/solid-project/.output/server/chunks/virtual/entry.mjs:3221:17)
+      at createPageEvent (/home/c/workspace/solid-project/.output/server/chunks/virtual/entry.mjs:3209:19)
+      at processTicksAndRejections (native:7:39)
+
+442 | 		status: 404,
+443 | 		message: `Cannot find any route matching [${event.req.method}] ${event.url}`
+444 | 	});
+445 | 	if (val && val instanceof Error) {
+446 | 		const isHTTPError = HTTPError.isError(val);
+447 | 		const error = isHTTPError ? val : new HTTPError(val);
+                                          ^
+error: event.req.headers.get is not a function. (In 'event.req.headers.get("cookie")', 'event.req.headers.get' is undefined)
+     status: 500,
+ statusText: undefined,
+    headers: undefined,
+       data: undefined,
+       body: undefined,
+  unhandled: true,
+
+      at prepareResponse (/home/c/workspace/solid-project/.output/server/chunks/virtual/entry.mjs:447:37)
+      at toResponse (/home/c/workspace/solid-project/.output/server/chunks/virtual/entry.mjs:416:19)
+
+1030 | * ```ts
+1031 | * const cookies = parseCookies(event)
+1032 | * ```
+1033 | */
+1034 | function parseCookies(event) {
+1035 | 	return parse(event.req.headers.get("cookie") || "");
+                                       ^
+TypeError: event.req.headers.get is not a function. (In 'event.req.headers.get("cookie")', 'event.req.headers.get' is undefined)
+      at parseCookies (/home/c/workspace/solid-project/.output/server/chunks/virtual/entry.mjs:1035:33)
+      at getCookie (/home/c/workspace/solid-project/.output/server/chunks/virtual/entry.mjs:1238:9)
+      at initFromFlash (/home/c/workspace/solid-project/.output/server/chunks/virtual/entry.mjs:3221:17)
+      at createPageEvent (/home/c/workspace/solid-project/.output/server/chunks/virtual/entry.mjs:3209:19)
+      at processTicksAndRejections (native:7:39)
+

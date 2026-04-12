@@ -1,0 +1,194 @@
+$ vite build
+vite v7.3.1 building client environment for production...
+transforming...
+✓ 119 modules transformed.
+node_modules/@protobufjs/inquire/index.js (12:18): Use of eval in "node_modules/@protobufjs/inquire/index.js" is strongly discouraged as it poses security risks and may cause issues with minification.
+rendering chunks...
+computing gzip size...
+.solid-start/client/.vite/manifest.json                        7.11 kB │ gzip:  0.84 kB
+.solid-start/client/_build/assets/entry-client-DD03j5kq.css   64.17 kB │ gzip: 11.34 kB
+.solid-start/client/_build/assets/index-CzMaxCQO.js            0.44 kB │ gzip:  0.32 kB
+.solid-start/client/_build/assets/components-BzCM8ptj.js       0.84 kB │ gzip:  0.51 kB
+.solid-start/client/_build/assets/_...404_-CbwSbgNz.js         1.15 kB │ gzip:  0.68 kB
+.solid-start/client/_build/assets/about-msI7tD6J.js            1.38 kB │ gzip:  0.84 kB
+.solid-start/client/_build/assets/index-CERz73Y9.js            3.87 kB │ gzip:  1.72 kB
+.solid-start/client/_build/assets/index--6Rmn48c.js            4.43 kB │ gzip:  1.90 kB
+.solid-start/client/_build/assets/index-DAo5DOIh.js            4.48 kB │ gzip:  1.97 kB
+.solid-start/client/_build/assets/store-BaW3jtpM.js            4.69 kB │ gzip:  1.97 kB
+.solid-start/client/_build/assets/routing-CQwHpeCu.js          7.47 kB │ gzip:  3.50 kB
+.solid-start/client/_build/assets/index-DBTZxHJ4.js            8.44 kB │ gzip:  3.29 kB
+.solid-start/client/_build/assets/_db_-BBrA8o-P.js            10.52 kB │ gzip:  4.00 kB
+.solid-start/client/_build/assets/_id_-CErcySH8.js            14.83 kB │ gzip:  5.01 kB
+.solid-start/client/_build/assets/_id_-Dimml9Rv.js            18.34 kB │ gzip:  6.22 kB
+.solid-start/client/_build/assets/web-DGfxeUOe.js             24.63 kB │ gzip:  9.52 kB
+.solid-start/client/_build/assets/entry-client-C15El9qj.js    30.93 kB │ gzip: 11.37 kB
+.solid-start/client/_build/assets/grpc-DRPYBki4.js            31.62 kB │ gzip:  8.51 kB
+.solid-start/client/_build/assets/index-DrTP5FiI.js           48.40 kB │ gzip: 12.85 kB
+.solid-start/client/_build/assets/_id_-FzUWcnG_.js            50.85 kB │ gzip: 13.42 kB
+.solid-start/client/_build/assets/protoParser-zFue8wcx.js     91.61 kB │ gzip: 27.15 kB
+.solid-start/client/_build/assets/index-C3z_Cq-a.js          212.90 kB │ gzip: 73.20 kB
+✓ built in 7.61s
+vite v7.3.1 building ssr environment for production...
+transforming...
+"DEV" and "equalFn" are imported from external module "solid-js" but never used in "node_modules/solid-chartjs/dist/index.jsx".
+✓ 95 modules transformed.
+rendering chunks...
+[plugin vite:reporter] 
+(!) /home/c/workspace/solid-project/src/lib/db.ts is dynamically imported by /home/c/workspace/solid-project/src/lib/workflowEngine.ts but also statically imported by /home/c/workspace/solid-project/src/lib/workflowEngine.ts, /home/c/workspace/solid-project/src/lib/workflowScheduler.ts, /home/c/workspace/solid-project/src/routes/api/dashboards/[id]/index.ts?pick=DELETE, /home/c/workspace/solid-project/src/routes/api/dashboards/[id]/index.ts?pick=GET, /home/c/workspace/solid-project/src/routes/api/dashboards/[id]/index.ts?pick=PUT, /home/c/workspace/solid-project/src/routes/api/dashboards/[id]/trigger/[buttonId].ts?pick=POST, /home/c/workspace/solid-project/src/routes/api/dashboards/index.ts?pick=GET, /home/c/workspace/solid-project/src/routes/api/dashboards/index.ts?pick=POST, /home/c/workspace/solid-project/src/routes/api/database/[db]/[table]/index.ts?pick=GET, /home/c/workspace/solid-project/src/routes/api/database/[db]/[table]/index.ts?pick=POST, /home/c/workspace/solid-project/src/routes/api/database/[db]/query.ts?pick=POST, /home/c/workspace/solid-project/src/routes/api/database/[db]/tables.ts?pick=GET, /home/c/workspace/solid-project/src/routes/api/database/index.ts?pick=GET, /home/c/workspace/solid-project/src/routes/api/database/index.ts?pick=POST, /home/c/workspace/solid-project/src/routes/api/health.ts?pick=GET, /home/c/workspace/solid-project/src/routes/api/protos/[id].ts?pick=DELETE, /home/c/workspace/solid-project/src/routes/api/protos/[id].ts?pick=GET, /home/c/workspace/solid-project/src/routes/api/protos/[id].ts?pick=PUT, /home/c/workspace/solid-project/src/routes/api/protos/index.ts?pick=GET, /home/c/workspace/solid-project/src/routes/api/protos/index.ts?pick=POST, /home/c/workspace/solid-project/src/routes/api/workflows/[id]/index.ts?pick=DELETE, /home/c/workspace/solid-project/src/routes/api/workflows/[id]/index.ts?pick=GET, /home/c/workspace/solid-project/src/routes/api/workflows/[id]/index.ts?pick=PUT, /home/c/workspace/solid-project/src/routes/api/workflows/[id]/run.ts?pick=GET, /home/c/workspace/solid-project/src/routes/api/workflows/[id]/run.ts?pick=POST, /home/c/workspace/solid-project/src/routes/api/workflows/index.ts?pick=GET, /home/c/workspace/solid-project/src/routes/api/workflows/index.ts?pick=POST, /home/c/workspace/solid-project/src/routes/api/workflows/runs/[id].ts?pick=GET, dynamic import will not move module into another chunk.
+
+.solid-start/server/.vite/manifest.json                       20.12 kB
+.solid-start/server/_build/assets/health-DlRq_6NL.js           0.24 kB │ map:   0.62 kB
+.solid-start/server/_build/assets/index-4X0MzDNU.js            0.56 kB │ map:   0.76 kB
+.solid-start/server/_build/assets/_...solidauth_-fKnLtql7.js   0.62 kB │ map:   1.52 kB
+.solid-start/server/_build/assets/_...solidauth_-_tq4G3S7.js   0.62 kB │ map:   1.52 kB
+.solid-start/server/_build/assets/index-5LOp6l4-.js            0.99 kB │ map:   2.72 kB
+.solid-start/server/_build/assets/index-Bg_qF7ZS.js            0.99 kB │ map:   3.97 kB
+.solid-start/server/_build/assets/health-Brc9F8sR.js           1.01 kB │ map:   1.74 kB
+.solid-start/server/_build/assets/_id_-05paw6sI.js             1.02 kB │ map:   3.91 kB
+.solid-start/server/_build/assets/index-CyQFEP8L.js            1.06 kB │ map:   4.28 kB
+.solid-start/server/_build/assets/index-BP3GOEpN.js            1.15 kB │ map:   3.10 kB
+.solid-start/server/_build/assets/index-CVBVRtob.js            1.16 kB │ map:   3.38 kB
+.solid-start/server/_build/assets/index-BKYfc5t3.js            1.16 kB │ map:   3.20 kB
+.solid-start/server/_build/assets/tables-BYSjke9F.js           1.23 kB │ map:   2.19 kB
+.solid-start/server/_build/assets/index-DfrjiISC.js            1.25 kB │ map:   3.22 kB
+.solid-start/server/_build/assets/run-B2yHQKcE.js              1.27 kB │ map:   3.78 kB
+.solid-start/server/_build/assets/index-DNUuAjQM.js            1.29 kB │ map:   2.57 kB
+.solid-start/server/_build/assets/grpc-DodanEtS.js             1.34 kB │ map:   2.58 kB
+.solid-start/server/_build/assets/index-CMps5IVH.js            1.34 kB │ map:   3.02 kB
+.solid-start/server/_build/assets/query-aVdrYsyp.js            1.40 kB │ map:   2.31 kB
+.solid-start/server/_build/assets/_id_-ColXsI9H.js             1.50 kB │ map:   4.46 kB
+.solid-start/server/_build/assets/index-CFMe449m.js            1.51 kB │ map:   3.51 kB
+.solid-start/server/_build/assets/components-CudbSkEV.js       1.53 kB │ map:   3.39 kB
+.solid-start/server/_build/assets/index-KNaZ6g3-.js            1.54 kB │ map:   4.77 kB
+.solid-start/server/_build/assets/index-DwDwTTm4.js            1.54 kB │ map:   4.50 kB
+.solid-start/server/_build/assets/index-DFCzzQ-C.js            1.54 kB │ map:   3.50 kB
+.solid-start/server/_build/assets/_id_-WQcKJ5kG.js             1.55 kB │ map:   4.42 kB
+.solid-start/server/_build/assets/_id_-DUFnv6pi.js             1.55 kB │ map:   2.80 kB
+.solid-start/server/_build/assets/_...404_-R2HCm90c.js         1.56 kB │ map:   1.73 kB
+.solid-start/server/_build/assets/index-DkSGcE52.js            1.60 kB │ map:   4.64 kB
+.solid-start/server/_build/assets/index-DZj6_Zkp.js            1.60 kB │ map:   3.69 kB
+.solid-start/server/_build/assets/index-BpGZtAWt.js            1.65 kB │ map:   4.94 kB
+.solid-start/server/_build/assets/index-Cxghkay4.js            1.65 kB │ map:   3.92 kB
+.solid-start/server/_build/assets/run-QlKvIKum.js              1.68 kB │ map:   4.20 kB
+.solid-start/server/_build/assets/about-k65Gi6lo.js            1.79 kB │ map:   2.08 kB
+.solid-start/server/_build/assets/index-D4uTJpLk.js            2.60 kB │ map:   7.24 kB
+.solid-start/server/_build/assets/protoParser-C1XlV9an.js      3.08 kB │ map:   7.15 kB
+.solid-start/server/_build/assets/_buttonId_-C04GVEok.js       3.42 kB │ map:   6.58 kB
+.solid-start/server/_build/assets/grpcExecutor-C8N6gsCz.js     3.73 kB │ map:   8.45 kB
+.solid-start/server/_build/assets/index-Dvkp9Lzu.js            4.81 kB │ map:   7.65 kB
+.solid-start/server/_build/assets/index-BMUTU14W.js            4.89 kB │ map:   6.84 kB
+.solid-start/server/_build/assets/index-BebTgEHC.js            5.08 kB │ map:   7.77 kB
+.solid-start/server/_build/assets/index-ufQ0J3vv.js            7.99 kB │ map:  15.09 kB
+.solid-start/server/_build/assets/_db_-f-I3YV5M.js            13.14 kB │ map:  21.03 kB
+.solid-start/server/_build/assets/_id_-CPTIEnBn.js            15.23 kB │ map:  28.81 kB
+.solid-start/server/_build/assets/db-BDuWXNK_.js              22.04 kB │ map:  45.20 kB
+.solid-start/server/_build/assets/_id_-C4zZjA8d.js            26.55 kB │ map:  45.83 kB
+.solid-start/server/_build/assets/grpc-tcP7aVAo.js            36.32 kB │ map:  69.10 kB
+.solid-start/server/_build/assets/_id_-DU_8CJ8t.js            55.13 kB │ map: 100.23 kB
+.solid-start/server/entry-server.js                           84.09 kB │ map: 181.01 kB
+✓ built in 2.77s
+[nitro] ✔ Generated public .output/public
+[nitro] ℹ Building Nitro Server (preset: bun, compatibility date: 2024-11-19)
+[nitro] ✔ Nitro Server built
+  ├─ .output/server/chunks/_/_...404_-R2HCm90c.mjs (1.69 kB) (873 B gzip)
+  ├─ .output/server/chunks/_/_...404_-R2HCm90c.mjs.map (578 B) (328 B gzip)
+  ├─ .output/server/chunks/_/_...solidauth_-_tq4G3S7.mjs (616 B) (381 B gzip)
+  ├─ .output/server/chunks/_/_...solidauth_-_tq4G3S7.mjs.map (944 B) (462 B gzip)
+  ├─ .output/server/chunks/_/_...solidauth_-fKnLtql7.mjs (616 B) (380 B gzip)
+  ├─ .output/server/chunks/_/_...solidauth_-fKnLtql7.mjs.map (943 B) (463 B gzip)
+  ├─ .output/server/chunks/_/_buttonId_-C04GVEok.mjs (3.5 kB) (1.02 kB gzip)
+  ├─ .output/server/chunks/_/_buttonId_-C04GVEok.mjs.map (4.25 kB) (1.25 kB gzip)
+  ├─ .output/server/chunks/_/_db_-f-I3YV5M.mjs (13.4 kB) (3.88 kB gzip)
+  ├─ .output/server/chunks/_/_db_-f-I3YV5M.mjs.map (9.35 kB) (2.62 kB gzip)
+  ├─ .output/server/chunks/_/_id_-05paw6sI.mjs (1.1 kB) (531 B gzip)
+  ├─ .output/server/chunks/_/_id_-05paw6sI.mjs.map (1.17 kB) (522 B gzip)
+  ├─ .output/server/chunks/_/_id_-C4zZjA8d.mjs (26.9 kB) (6.53 kB gzip)
+  ├─ .output/server/chunks/_/_id_-C4zZjA8d.mjs.map (24.6 kB) (6.22 kB gzip)
+  ├─ .output/server/chunks/_/_id_-ColXsI9H.mjs (1.58 kB) (722 B gzip)
+  ├─ .output/server/chunks/_/_id_-ColXsI9H.mjs.map (1.96 kB) (777 B gzip)
+  ├─ .output/server/chunks/_/_id_-CPTIEnBn.mjs (15.5 kB) (4.23 kB gzip)
+  ├─ .output/server/chunks/_/_id_-CPTIEnBn.mjs.map (8.71 kB) (2.43 kB gzip)
+  ├─ .output/server/chunks/_/_id_-DU_8CJ8t.mjs (56.2 kB) (11.1 kB gzip)
+  ├─ .output/server/chunks/_/_id_-DU_8CJ8t.mjs.map (37.4 kB) (8.45 kB gzip)
+  ├─ .output/server/chunks/_/_id_-DUFnv6pi.mjs (1.63 kB) (695 B gzip)
+  ├─ .output/server/chunks/_/_id_-DUFnv6pi.mjs.map (1.93 kB) (743 B gzip)
+  ├─ .output/server/chunks/_/_id_-WQcKJ5kG.mjs (1.62 kB) (699 B gzip)
+  ├─ .output/server/chunks/_/_id_-WQcKJ5kG.mjs.map (1.9 kB) (735 B gzip)
+  ├─ .output/server/chunks/_/about-k65Gi6lo.mjs (1.91 kB) (1.02 kB gzip)
+  ├─ .output/server/chunks/_/about-k65Gi6lo.mjs.map (570 B) (320 B gzip)
+  ├─ .output/server/chunks/_/components-CudbSkEV.mjs (1.53 kB) (677 B gzip)
+  ├─ .output/server/chunks/_/components-CudbSkEV.mjs.map (536 B) (332 B gzip)
+  ├─ .output/server/chunks/_/db-BDuWXNK_.mjs (68.8 kB) (13.9 kB gzip)
+  ├─ .output/server/chunks/_/db-BDuWXNK_.mjs.map (3.87 kB) (1.31 kB gzip)
+  ├─ .output/server/chunks/_/grpc-DodanEtS.mjs (1.34 kB) (522 B gzip)
+  ├─ .output/server/chunks/_/grpc-DodanEtS.mjs.map (1.58 kB) (607 B gzip)
+  ├─ .output/server/chunks/_/grpc-tcP7aVAo.mjs (36.9 kB) (7.19 kB gzip)
+  ├─ .output/server/chunks/_/grpc-tcP7aVAo.mjs.map (23.5 kB) (5.62 kB gzip)
+  ├─ .output/server/chunks/_/grpcExecutor-C8N6gsCz.mjs (3.81 kB) (1.35 kB gzip)
+  ├─ .output/server/chunks/_/grpcExecutor-C8N6gsCz.mjs.map (5.25 kB) (1.85 kB gzip)
+  ├─ .output/server/chunks/_/health-Brc9F8sR.mjs (1.09 kB) (519 B gzip)
+  ├─ .output/server/chunks/_/health-Brc9F8sR.mjs.map (982 B) (429 B gzip)
+  ├─ .output/server/chunks/_/health-DlRq_6NL.mjs (235 B) (206 B gzip)
+  ├─ .output/server/chunks/_/health-DlRq_6NL.mjs.map (419 B) (274 B gzip)
+  ├─ .output/server/chunks/_/index-4X0MzDNU.mjs (565 B) (396 B gzip)
+  ├─ .output/server/chunks/_/index-4X0MzDNU.mjs.map (276 B) (216 B gzip)
+  ├─ .output/server/chunks/_/index-5LOp6l4-.mjs (1.11 kB) (556 B gzip)
+  ├─ .output/server/chunks/_/index-5LOp6l4-.mjs.map (1.16 kB) (512 B gzip)
+  ├─ .output/server/chunks/_/index-BebTgEHC.mjs (5.12 kB) (1.82 kB gzip)
+  ├─ .output/server/chunks/_/index-BebTgEHC.mjs.map (2.87 kB) (968 B gzip)
+  ├─ .output/server/chunks/_/index-Bg_qF7ZS.mjs (1.07 kB) (523 B gzip)
+  ├─ .output/server/chunks/_/index-Bg_qF7ZS.mjs.map (1.16 kB) (518 B gzip)
+  ├─ .output/server/chunks/_/index-BKYfc5t3.mjs (1.36 kB) (674 B gzip)
+  ├─ .output/server/chunks/_/index-BKYfc5t3.mjs.map (1.47 kB) (621 B gzip)
+  ├─ .output/server/chunks/_/index-BMUTU14W.mjs (5.1 kB) (1.85 kB gzip)
+  ├─ .output/server/chunks/_/index-BMUTU14W.mjs.map (3.3 kB) (1.11 kB gzip)
+  ├─ .output/server/chunks/_/index-BP3GOEpN.mjs (1.35 kB) (674 B gzip)
+  ├─ .output/server/chunks/_/index-BP3GOEpN.mjs.map (1.46 kB) (616 B gzip)
+  ├─ .output/server/chunks/_/index-BpGZtAWt.mjs (1.72 kB) (769 B gzip)
+  ├─ .output/server/chunks/_/index-BpGZtAWt.mjs.map (2.16 kB) (848 B gzip)
+  ├─ .output/server/chunks/_/index-CFMe449m.mjs (1.59 kB) (729 B gzip)
+  ├─ .output/server/chunks/_/index-CFMe449m.mjs.map (1.96 kB) (779 B gzip)
+  ├─ .output/server/chunks/_/index-CMps5IVH.mjs (1.42 kB) (607 B gzip)
+  ├─ .output/server/chunks/_/index-CMps5IVH.mjs.map (1.52 kB) (563 B gzip)
+  ├─ .output/server/chunks/_/index-CVBVRtob.mjs (1.35 kB) (675 B gzip)
+  ├─ .output/server/chunks/_/index-CVBVRtob.mjs.map (1.47 kB) (621 B gzip)
+  ├─ .output/server/chunks/_/index-Cxghkay4.mjs (1.73 kB) (770 B gzip)
+  ├─ .output/server/chunks/_/index-Cxghkay4.mjs.map (2.14 kB) (847 B gzip)
+  ├─ .output/server/chunks/_/index-CyQFEP8L.mjs (1.14 kB) (554 B gzip)
+  ├─ .output/server/chunks/_/index-CyQFEP8L.mjs.map (1.24 kB) (552 B gzip)
+  ├─ .output/server/chunks/_/index-D4uTJpLk.mjs (2.74 kB) (1.01 kB gzip)
+  ├─ .output/server/chunks/_/index-D4uTJpLk.mjs.map (815 B) (457 B gzip)
+  ├─ .output/server/chunks/_/index-DFCzzQ-C.mjs (1.62 kB) (670 B gzip)
+  ├─ .output/server/chunks/_/index-DFCzzQ-C.mjs.map (1.79 kB) (668 B gzip)
+  ├─ .output/server/chunks/_/index-DfrjiISC.mjs (1.33 kB) (602 B gzip)
+  ├─ .output/server/chunks/_/index-DfrjiISC.mjs.map (1.42 kB) (590 B gzip)
+  ├─ .output/server/chunks/_/index-DkSGcE52.mjs (1.67 kB) (747 B gzip)
+  ├─ .output/server/chunks/_/index-DkSGcE52.mjs.map (2.1 kB) (826 B gzip)
+  ├─ .output/server/chunks/_/index-DNUuAjQM.mjs (1.29 kB) (566 B gzip)
+  ├─ .output/server/chunks/_/index-DNUuAjQM.mjs.map (188 B) (163 B gzip)
+  ├─ .output/server/chunks/_/index-Dvkp9Lzu.mjs (4.88 kB) (1.89 kB gzip)
+  ├─ .output/server/chunks/_/index-Dvkp9Lzu.mjs.map (2.16 kB) (898 B gzip)
+  ├─ .output/server/chunks/_/index-DwDwTTm4.mjs (1.62 kB) (689 B gzip)
+  ├─ .output/server/chunks/_/index-DwDwTTm4.mjs.map (1.93 kB) (743 B gzip)
+  ├─ .output/server/chunks/_/index-DZj6_Zkp.mjs (1.68 kB) (751 B gzip)
+  ├─ .output/server/chunks/_/index-DZj6_Zkp.mjs.map (2.08 kB) (820 B gzip)
+  ├─ .output/server/chunks/_/index-KNaZ6g3-.mjs (1.62 kB) (690 B gzip)
+  ├─ .output/server/chunks/_/index-KNaZ6g3-.mjs.map (1.93 kB) (746 B gzip)
+  ├─ .output/server/chunks/_/index-ufQ0J3vv.mjs (8.14 kB) (2.62 kB gzip)
+  ├─ .output/server/chunks/_/index-ufQ0J3vv.mjs.map (3.85 kB) (1.24 kB gzip)
+  ├─ .output/server/chunks/_/protoParser-C1XlV9an.mjs (3.08 kB) (935 B gzip)
+  ├─ .output/server/chunks/_/protoParser-C1XlV9an.mjs.map (4.08 kB) (1.38 kB gzip)
+  ├─ .output/server/chunks/_/query-aVdrYsyp.mjs (1.48 kB) (615 B gzip)
+  ├─ .output/server/chunks/_/query-aVdrYsyp.mjs.map (1.61 kB) (599 B gzip)
+  ├─ .output/server/chunks/_/run-B2yHQKcE.mjs (1.46 kB) (734 B gzip)
+  ├─ .output/server/chunks/_/run-B2yHQKcE.mjs.map (1.62 kB) (683 B gzip)
+  ├─ .output/server/chunks/_/run-QlKvIKum.mjs (1.75 kB) (734 B gzip)
+  ├─ .output/server/chunks/_/run-QlKvIKum.mjs.map (2.08 kB) (805 B gzip)
+  ├─ .output/server/chunks/_/tables-BYSjke9F.mjs (1.35 kB) (641 B gzip)
+  ├─ .output/server/chunks/_/tables-BYSjke9F.mjs.map (1.48 kB) (615 B gzip)
+  ├─ .output/server/chunks/virtual/entry.mjs (85.5 kB) (20.3 kB gzip)
+  ├─ .output/server/chunks/virtual/entry.mjs.map (9.7 kB) (3.36 kB gzip)
+  ├─ .output/server/index.mjs (181 kB) (46.2 kB gzip)
+  └─ .output/server/package.json (1.15 kB) (486 B gzip)
+Σ Total size: 3.83 MB (946 kB gzip)
+[nitro] ✔ You can preview this build using bun run .output/server/index.mjs

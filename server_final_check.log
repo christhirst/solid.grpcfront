@@ -1,0 +1,16 @@
+4863 |   return nitroApp$1;
+4864 | }
+4865 | runNitroPlugins(nitroApp$1);
+4866 | 
+4867 | const nitroApp = useNitroApp();
+4868 | const server = Bun.serve({
+                          ^
+error: Failed to start server. Is port 3000 in use?
+ syscall: "listen",
+   errno: 0,
+    code: "EADDRINUSE"
+
+      at /home/c/workspace/solid-project/.output/server/index.mjs:4868:20
+      at loadAndEvaluateModule (2:1)
+
+Bun v1.3.10 (Linux x64)
