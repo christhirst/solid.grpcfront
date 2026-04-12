@@ -1,0 +1,37 @@
+Listening on http://0.0.0.0:3000
+546 | 		status: 404,
+547 | 		message: `Cannot find any route matching [${event.req.method}] ${event.url}`
+548 | 	});
+549 | 	if (val && val instanceof Error) {
+550 | 		const isHTTPError = HTTPError.isError(val);
+551 | 		const error = isHTTPError ? val : new HTTPError(val);
+                                          ^
+error: "/" cannot be parsed as a URL.
+     status: 500,
+ statusText: undefined,
+    headers: undefined,
+       data: undefined,
+       body: undefined,
+  unhandled: true,
+
+      at prepareResponse (/home/c/workspace/solid-project/.output/server/chunks/virtual/entry.mjs:551:37)
+      at toResponse (/home/c/workspace/solid-project/.output/server/chunks/virtual/entry.mjs:520:19)
+
+73 | 		static [Symbol.hasInstance](val) {
+74 | 			return val instanceof NativeURL;
+75 | 		}
+76 | 		get _url() {
+77 | 			if (this.#url) return this.#url;
+78 | 			this.#url = new NativeURL(this.href);
+     ^
+TypeError: "/" cannot be parsed as a URL.
+ code: "ERR_INVALID_URL"
+
+      at URL (unknown:1:1)
+      at _url (/home/c/workspace/solid-project/.output/server/chunks/virtual/entry.mjs:78:20)
+      at pathname (/home/c/workspace/solid-project/.output/server/chunks/virtual/entry.mjs:120:22)
+      at _findRoute (/home/c/workspace/solid-project/.output/server/chunks/virtual/entry.mjs:1043:61)
+      at handler (/home/c/workspace/solid-project/.output/server/chunks/virtual/entry.mjs:972:21)
+      at _request (/home/c/workspace/solid-project/.output/server/chunks/virtual/entry.mjs:949:26)
+      at processTicksAndRejections (native:7:39)
+

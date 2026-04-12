@@ -1,0 +1,36 @@
+[uncaughtException] error: Failed546 | 		status: 404,
+547 | 		message: `Cannot find any route matching [${event.req.method}] ${event.url}`
+548 | 	});
+549 | 	if (val && val instanceof Error) {
+550 | 		const isHTTPError = HTTPError.isError(val);
+551 | 		const error = isHTTPError ? val : new HTTPError(val);
+                                          ^
+error: "/" cannot be parsed as a URL.
+     status: 500,
+ statusText: undefined,
+    headers: undefined,
+       data: undefined,
+       body: undefined,
+  unhandled: true,
+
+      at prepareResponse (/home/c/workspace/solid-project/.output/server/chunks/virtual/entry.mjs:551:37)
+      at toResponse (/home/c/workspace/solid-project/.output/server/chunks/virtual/entry.mjs:520:19)
+
+3197 | function createBaseHandler(createPageEvent2, fn, options = {}) {
+3198 |   const handler = defineHandler({
+3199 |     middleware: middleware.length ? middleware.map(decorateMiddleware) : void 0,
+3200 |     handler: decorateHandler(async (e) => {
+3201 |       const event = getRequestEvent();
+3202 |       const url = new URL(event.request.url);
+       ^
+TypeError: "/" cannot be parsed as a URL.
+ code: "ERR_INVALID_URL"
+
+      at URL (unknown:1:1)
+      at /home/c/workspace/solid-project/.output/server/chunks/virtual/entry.mjs:3202:23
+      at run (node:async_hooks:62:22)
+      at /home/c/workspace/solid-project/.output/server/chunks/virtual/entry.mjs:768:33
+      at callMiddleware (/home/c/workspace/solid-project/.output/server/chunks/virtual/entry.mjs:803:56)
+      at _request (/home/c/workspace/solid-project/.output/server/chunks/virtual/entry.mjs:949:26)
+      at processTicksAndRejections (native:7:39)
+
