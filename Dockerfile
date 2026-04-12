@@ -2,12 +2,14 @@
 FROM oven/bun:latest AS base
 WORKDIR /app
 
+# Copy all source files first (including scripts/)
+COPY . .
+
 # Abhängigkeiten installieren
-COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile
 
 # Quellcode kopieren
-COPY . .
+
 
 # Build ausführen
 # WICHTIG: SolidStart bündelt manche Env-Variablen fest ein.
