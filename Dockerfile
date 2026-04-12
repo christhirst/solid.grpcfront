@@ -23,6 +23,7 @@ WORKDIR /app
 # Nur den gebauten 'dist' Ordner und notwendige Dateien kopieren
 COPY --from=base /app/.output ./.output
 COPY --from=base /app/package.json ./
+COPY --from=base /app/start.sh ./
 
 # Umgebungsvariablen Standardwerte (können beim Start überschrieben werden)
 ENV PORT=3000
@@ -47,5 +48,5 @@ ENV APP_ORIGIN=http://raynkami-solid-grpcfront.sliplane.app
 
 EXPOSE 3000
 
-# Startbefehl: SolidStart nutzt den .output/server/index.mjs Entrypoint
-CMD ["bun", ".output/server/index.mjs"]
+# Startbefehl: Run the startup script that patches URL and starts the server
+CMD ["./start.sh"]

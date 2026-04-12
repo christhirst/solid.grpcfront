@@ -11,7 +11,7 @@ export default defineConfig(({ mode }) => {
       tailwindcss(),
       nitro({
         preset: "bun",
-        // Force srvx to be inlined to simplify the bundle, 
+        // Force srvx to be inlined to simplify the bundle,
         // though our postinstall script handles it in node_modules anyway.
         externals: { inline: ["srvx"] },
         handlers: [
