@@ -9,7 +9,7 @@ export default defineConfig(({ mode }) => {
     plugins: [
       solidStart(),
       tailwindcss(),
-      nitro({ preset: "bun" })
+      nitro({ preset: "deno-server" })
     ],
     server: {
       port: env.PORT ? parseInt(env.PORT, 10) : 3000,
