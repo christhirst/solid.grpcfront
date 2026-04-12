@@ -15,16 +15,17 @@ COPY . .
 RUN bun run build
 
 # Stage 2: Runtime
-FROM denoland/deno:latest AS release
+FROM oven/bun:latest AS release
 WORKDIR /app
 
-# Nur den gebauten Output kopieren
+# Nur den gebauten 'dist' Ordner und notwendige Dateien kopieren
 COPY --from=base /app/.output ./.output
+COPY --from=base /app/package.json ./
 
 # Umgebungsvariablen Standardwerte (können beim Start überschrieben werden)
 ENV PORT=3000
-ENV HOST=0.0.0.0
 ENV GRPC_BACKEND_URL="http://grpc-backend:50051"
+ENV NODE_ENV=production
 
 ENV SURREALDB_URL="ws://ux-ti-069ps2e29luilf8m9qq0o620g0.aws-euw1.surreal.cloud/"
 ENV SURREALDB_USER="admin"
@@ -40,5 +41,5 @@ ENV OIDC_ISSUER="https://oauth.wiremockapi.cloud"
 
 EXPOSE 3000
 
-# Startbefehl: Deno mit Nitro deno-server Preset
-CMD ["deno", "run", "--allow-net", "--allow-read", "--allow-write", "--allow-env", "--unstable-byonm", ".output/server/index.mjs"]
+# Startbefehl: SolidStart nutzt den .output/server/index.mjs Entrypoint
+CMD ["bun", ".output/server/index.mjs"]
