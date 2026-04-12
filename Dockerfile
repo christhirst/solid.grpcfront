@@ -24,6 +24,7 @@ COPY --from=base /app/package.json ./
 
 # Umgebungsvariablen Standardwerte (können beim Start überschrieben werden)
 ENV PORT=3000
+ENV HOST=0.0.0.0
 ENV GRPC_BACKEND_URL="http://grpc-backend:50051"
 ENV NODE_ENV=production
 
