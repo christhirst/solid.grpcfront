@@ -42,6 +42,9 @@ ENV OIDC_CLIENT_ID="mock-client-id"
 ENV OIDC_CLIENT_SECRET="mock-client-secret"
 ENV OIDC_ISSUER="https://oauth.wiremockapi.cloud"
 
+ENV APP_ORIGIN=http://raynkami-solid-grpcfront.sliplane.app
+
+
 EXPOSE 3000
 
 # Startbefehl: SolidStart nutzt den .output/server/index.mjs Entrypoint
