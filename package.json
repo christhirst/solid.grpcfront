@@ -29,14 +29,14 @@
     "srvx": "^0.11.15",
     "surrealdb": "^2.0.3",
     "uuid": "^13.0.0",
-    "vite": "^8.0.8"
+    "vite": "^7.3.0"
   },
   "devDependencies": {
-    "@tailwindcss/vite": "^4.2.2",
+    "@tailwindcss/vite": "^4.1.0",
     "@types/lodash.get": "^4.4.9",
     "@types/node-cron": "^3.0.11",
     "@types/uuid": "^10.0.0",
-    "tailwindcss": "^4.2.2"
+    "tailwindcss": "^4.1.0"
   },
   "engines": {
     "node": ">=22"
