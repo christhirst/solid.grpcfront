@@ -6,13 +6,30 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const serverPath = path.join(__dirname, '..', '.output', 'server', 'index.mjs');
+const authWebPath = path.join(__dirname, '..', '.output', 'server', 'node_modules', '@auth', 'core', 'lib', 'utils', 'web.js');
 
 console.log('Server path:', serverPath);
-console.log('File exists:', fs.existsSync(serverPath));
+console.log('Auth web path:', authWebPath);
+console.log('Server file exists:', fs.existsSync(serverPath));
+console.log('Auth web file exists:', fs.existsSync(authWebPath));
+
+// Patch the auth library first
+if (fs.existsSync(authWebPath)) {
+  let authCode = fs.readFileSync(authWebPath, 'utf8');
+  console.log('Auth code original size:', authCode.length);
+  
+  authCode = authCode.replace(
+    /headers: Object\.fromEntries\(req\.headers\)/,
+    `headers: Object.fromEntries(typeof req.headers.entries === 'function' ? req.headers.entries() : Object.entries(req.headers || {}))`
+  );
+  
+  fs.writeFileSync(authWebPath, authCode);
+  console.log('Auth library patched successfully');
+}
 
 // Read the server bundle
 let serverCode = fs.readFileSync(serverPath, 'utf8');
-console.log('Original file size:', serverCode.length);
+console.log('Server code original size:', serverCode.length);
 
 // Replace the parseCookies function implementation
 const parseCookiesRegex = /function parseCookies\(event\) \{\s*return parse\(event\.req\.headers\.get\("cookie"\) \|\| ""\);\s*\}/;
@@ -32,6 +49,12 @@ const parseCookiesReplacement = `function parseCookies(event) {
 }`;
 
 serverCode = serverCode.replace(parseCookiesRegex, parseCookiesReplacement);
+
+// Remove the auth patch from server code since we're patching the auth library directly
+serverCode = serverCode.replace(
+  /headers: Object\.fromEntries\(typeof req\.headers\.entries === 'function' \? req\.headers\.entries\(\) : Object\.entries\(req\.headers \|\| \{\}\)\)/,
+  `headers: Object.fromEntries(req.headers)`
+);
 
 // Inject the URL patch at the very beginning
 const patchCode = `
