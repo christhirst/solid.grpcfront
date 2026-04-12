@@ -63,7 +63,7 @@ jobs:
           tags: |
             raynkami/solid.grpcfront:latest
             raynkami/solid.grpcfront:${{ github.sha }}
-            raynkami/solid.grpcfront:v0.0.10
+            raynkami/solid.grpcfront:v0.0.11
           labels: solid.grpcfront
 
   del_runs:
