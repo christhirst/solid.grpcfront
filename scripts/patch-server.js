@@ -13,7 +13,25 @@ console.log('File exists:', fs.existsSync(serverPath));
 // Read the server bundle
 let serverCode = fs.readFileSync(serverPath, 'utf8');
 console.log('Original file size:', serverCode.length);
-console.log('Original first 100 chars:', serverCode.substring(0, 100));
+
+// Replace the parseCookies function implementation
+const parseCookiesRegex = /function parseCookies\(event\) \{\s*return parse\(event\.req\.headers\.get\("cookie"\) \|\| ""\);\s*\}/;
+const parseCookiesReplacement = `function parseCookies(event) {
+        let cookieHeader;
+        const headers = event.req.headers;
+        if (typeof headers.get === 'function') {
+                // Headers object
+                cookieHeader = headers.get("cookie") || "";
+        } else if (typeof headers === 'object' && headers !== null) {
+                // Plain object
+                cookieHeader = headers.cookie || headers["cookie"] || "";
+        } else {
+                cookieHeader = "";
+        }
+        return parse(cookieHeader);
+}`;
+
+serverCode = serverCode.replace(parseCookiesRegex, parseCookiesReplacement);
 
 // Inject the URL patch at the very beginning
 const patchCode = `
