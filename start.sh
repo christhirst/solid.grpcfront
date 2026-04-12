@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Patch the URL constructor to handle relative paths before starting the server
-node -e "
+# Run the patch and server in the same Bun process
+bun -e "
 // Patch URL constructor to handle relative paths
 const originalURL = globalThis.URL;
 globalThis.URL = function(input, base) {
@@ -13,7 +13,7 @@ globalThis.URL = function(input, base) {
 globalThis.URL.prototype = originalURL.prototype;
 Object.setPrototypeOf(globalThis.URL, originalURL);
 Object.defineProperty(globalThis.URL, '_relativePathNormalized', { value: true });
-"
 
-# Start the server
-exec bun .output/server/index.mjs
+// Now import and run the server
+import('./.output/server/index.mjs');
+"
