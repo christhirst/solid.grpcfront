@@ -1,29 +1,63 @@
 // @refresh reload
 import { createHandler, StartServer } from "@solidjs/start/server";
 
-export default createHandler((event) => {
-  // Reconstruct the proper URL when behind a reverse proxy
-  if (!event.request.url.includes("://")) {
-    const proto = event.request.headers.get("x-forwarded-proto") || "https";
-    const host = event.request.headers.get("x-forwarded-host") || 
-                 event.request.headers.get("host") || 
-                 "localhost";
-    const pathname = new URL(event.request.url, "http://localhost").pathname;
-    const search = new URL(event.request.url, "http://localhost").search;
-    const url = `${proto}://${host}${pathname}${search}`;
-    
-    const newRequest = new Request(url, {
-      method: event.request.method,
-      headers: event.request.headers,
-      body: event.request.body,
-    });
-    
-    Object.defineProperty(event, "request", {
-      value: newRequest,
-      writable: true,
-    });
+// Patch server globals so relative URLs work when the incoming request is path-only.
+// This is needed behind reverse proxies / app service runtimes that pass requests like "/about".
+const NativeURL = globalThis.URL as any;
+if (typeof NativeURL === "function" && !NativeURL._relativePathNormalized) {
+  class URLWithRelativeBase extends NativeURL {
+    constructor(input: any, base?: any) {
+      if (typeof input === "string" && input.startsWith("/") && base == null) {
+        input = `http://localhost${input}`;
+      }
+      super(input, base);
+    }
   }
+  Object.defineProperty(URLWithRelativeBase, "_relativePathNormalized", {
+    value: true,
+  });
+  globalThis.URL = URLWithRelativeBase as unknown as typeof URL;
+}
 
+const NativeRequest = globalThis.Request as any;
+if (typeof NativeRequest === "function" && !NativeRequest._relativePathNormalized) {
+  class RequestWithRelativeBase extends NativeRequest {
+    constructor(input: any, init?: any) {
+      if (typeof input === "string" && input.startsWith("/")) {
+        input = `http://localhost${input}`;
+      } else if (
+        input instanceof NativeRequest &&
+        typeof input.url === "string" &&
+        input.url.startsWith("/")
+      ) {
+        const url = `http://localhost${input.url}`;
+        super(url, {
+          method: input.method,
+          headers: input.headers,
+          body: init?.body ?? input.body,
+          signal: init?.signal ?? input.signal,
+          redirect: init?.redirect ?? input.redirect,
+          credentials: init?.credentials,
+          cache: init?.cache,
+          integrity: init?.integrity,
+          keepalive: init?.keepalive,
+          referrer: init?.referrer,
+          referrerPolicy: init?.referrerPolicy,
+          mode: init?.mode,
+          ...init,
+        });
+        return;
+      }
+      super(input, init);
+    }
+  }
+  Object.defineProperty(RequestWithRelativeBase, "_relativePathNormalized", {
+    value: true,
+  });
+  globalThis.Request = RequestWithRelativeBase as unknown as typeof Request;
+}
+
+export default createHandler((event) => {
   return (
     <StartServer
       document={({ assets, children, scripts }) => (
