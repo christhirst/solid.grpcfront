@@ -162,7 +162,7 @@ export default function GrpcClient() {
   });
 
   const parsedChartData = () => {
-    if (!response() || !response().data) return null;
+    if (!response() || !response().data) return { labels: [], datasets: [] };
     let dataArray = response().data;
     
     if (chartDataPath()) {
@@ -170,7 +170,7 @@ export default function GrpcClient() {
     }
 
     if (!Array.isArray(dataArray) || dataArray.length === 0) {
-      return null;
+      return { labels: [], datasets: [] };
     }
 
     const labels = [];
@@ -957,7 +957,7 @@ export default function GrpcClient() {
                   </div>
 
                   <Show
-                    when={parsedChartData() !== null}
+                    when={parsedChartData().datasets?.length > 0}
                     fallback={
                       <div class="flex flex-col items-center justify-center py-12 text-center rounded-xl bg-[#12121a] border border-[#1e1e2e] border-dashed">
                         <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#3a3a4e" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="mb-3">

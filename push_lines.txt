@@ -1,0 +1,6 @@
+396:      current.push(end);
+535:      if (node.nodeType === 8 && node.data.slice(0, 2) === "!$") node.remove();else cleaned.push(node);
+584:      while ((node = node.nextSibling) !== marker) nodes.push(node);
+618:      normalized.push(item);
+626:        normalized.push(item);
+631:      if (prev && prev.nodeType === 3 && prev.data === value) normalized.push(prev);else normalized.push(document.createTextNode(value));

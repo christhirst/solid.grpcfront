@@ -93,9 +93,9 @@ function DashTable(props: { data: any[]; columns?: string[] }) {
 function DashChart(props: { data: any[]; xKey?: string; yKey?: string; chartType?: string }) {
   const cType = () => props.chartType || "bar";
 
-  const chartData = () => {
-    const d = props.data;
-    if (!Array.isArray(d) || !d.length) return null;
+  const buildData = () => {
+    const data = props.data;
+    if (!Array.isArray(data) || !data.length) return { labels: [], datasets: [] };
     
     const type = cType();
     const isPie = type === "pie" || type === "doughnut";
@@ -104,7 +104,7 @@ function DashChart(props: { data: any[]; xKey?: string; yKey?: string; chartType
 
     if (isScatter) {
       const points: {x: number, y: number}[] = [];
-      d.forEach((item, i) => {
+      data.forEach((item, i) => {
         if (item && typeof item === "object") {
            points.push({
              x: Number(props.xKey ? get(item, props.xKey) : i) || 0,
@@ -127,7 +127,7 @@ function DashChart(props: { data: any[]; xKey?: string; yKey?: string; chartType
 
     const labels: any[] = [];
     const points: number[] = [];
-    d.forEach((item, i) => {
+    data.forEach((item, i) => {
       if (item && typeof item === "object") {
         labels.push(props.xKey ? String(get(item, props.xKey) ?? i) : i);
         points.push(Number(props.yKey ? get(item, props.yKey) : i) || 0);
@@ -183,10 +183,10 @@ function DashChart(props: { data: any[]; xKey?: string; yKey?: string; chartType
   };
 
   return (
-    <div class="h-[260px] bg-[#0a0a0f] p-3 rounded-xl border border-[#2a2a3a]/60">
-      <Show when={chartData()} fallback={<p class="text-xs text-[#5a5a6e]">No chart data</p>}>
+    <div class="h-[250px] bg-[#101015] p-3 rounded border border-[#2a2a3a]/50">
+      <Show when={Array.isArray(props.data) && props.data.length > 0} fallback={<p class="text-xs text-[#5a5a6e]">No valid array data for chart</p>}>
         {/* @ts-ignore */}
-        <DefaultChart type={cType() as any} data={chartData()} options={chartOptions()} />
+        <DefaultChart type={cType() as any} data={buildData()} options={chartOptions()} />
       </Show>
     </div>
   );

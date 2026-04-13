@@ -63,7 +63,7 @@ function LogChart(props: { data: any[]; xKey?: string; yKey?: string; chartType?
   
   const buildData = () => {
     const data = props.data;
-    if (!Array.isArray(data) || !data.length) return null;
+    if (!Array.isArray(data) || !data.length) return { labels: [], datasets: [] };
     
     const type = cType();
     const isPie = type === "pie" || type === "doughnut";
@@ -154,7 +154,7 @@ function LogChart(props: { data: any[]; xKey?: string; yKey?: string; chartType?
 
   return (
     <div class="h-[250px] bg-[#101015] p-3 rounded border border-[#2a2a3a]/50">
-      <Show when={buildData()} fallback={<p class="text-xs text-[#5a5a6e]">No valid array data for chart</p>}>
+      <Show when={Array.isArray(props.data) && props.data.length > 0} fallback={<p class="text-xs text-[#5a5a6e]">No valid array data for chart</p>}>
         {/* @ts-ignore */}
         <DefaultChart type={cType() as any} data={buildData()} options={chartOptions()} />
       </Show>
