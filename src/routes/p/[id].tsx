@@ -115,6 +115,7 @@ function DashChart(props: { data: any[]; xKey?: string; yKey?: string; chartType
         }
       });
       return {
+        labels: [],
         datasets: [{
           label: props.yKey || "Value",
           data: points,
