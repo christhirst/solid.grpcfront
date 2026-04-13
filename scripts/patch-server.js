@@ -23,6 +23,16 @@ if (fs.existsSync(authWebPath)) {
     `headers: Object.fromEntries(typeof req.headers.entries === 'function' ? req.headers.entries() : Object.entries(req.headers || {}))`
   );
   
+  authCode = authCode.replace(
+    /req\.headers\.get\((['"])cookie\1\)/g,
+    `(typeof req.headers.get === 'function' ? req.headers.get("cookie") : (req.headers.cookie || req.headers["cookie"]))`
+  );
+  
+  authCode = authCode.replace(
+    /req\.headers\.get\((['"])content-type\1\)/gi,
+    `(typeof req.headers.get === 'function' ? req.headers.get("content-type") : req.headers["content-type"])`
+  );
+  
   fs.writeFileSync(authWebPath, authCode);
   console.log('Auth library patched successfully');
 }
