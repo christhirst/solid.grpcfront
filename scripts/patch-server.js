@@ -7,11 +7,14 @@ const __dirname = path.dirname(__filename);
 
 const serverPath = path.join(__dirname, '..', '.output', 'server', 'index.mjs');
 const authWebPath = path.join(__dirname, '..', '.output', 'server', 'node_modules', '@auth', 'core', 'lib', 'utils', 'web.js');
+const authIndexPath = path.join(__dirname, '..', '.output', 'server', 'node_modules', '@auth', 'core', 'index.js');
 
 console.log('Server path:', serverPath);
 console.log('Auth web path:', authWebPath);
+console.log('Auth index path:', authIndexPath);
 console.log('Server file exists:', fs.existsSync(serverPath));
 console.log('Auth web file exists:', fs.existsSync(authWebPath));
+console.log('Auth index file exists:', fs.existsSync(authIndexPath));
 
 // Patch the auth library first
 if (fs.existsSync(authWebPath)) {
@@ -35,6 +38,19 @@ if (fs.existsSync(authWebPath)) {
   
   fs.writeFileSync(authWebPath, authCode);
   console.log('Auth library patched successfully');
+}
+
+if (fs.existsSync(authIndexPath)) {
+  let indexCode = fs.readFileSync(authIndexPath, 'utf8');
+  console.log('Auth index original size:', indexCode.length);
+  
+  indexCode = indexCode.replace(
+    /request\.headers\?\.has\((['"])X-Auth-Return-Redirect\1\)/g,
+    `(typeof request.headers?.has === 'function' ? request.headers.has("X-Auth-Return-Redirect") : ("x-auth-return-redirect" in (request.headers || {})))`
+  );
+  
+  fs.writeFileSync(authIndexPath, indexCode);
+  console.log('Auth index patched successfully');
 }
 
 // Read the server bundle
