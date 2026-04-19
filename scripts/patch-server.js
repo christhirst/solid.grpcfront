@@ -117,9 +117,7 @@ console.log('Verified first 200 chars:', verifyCode.substring(0, 200));
 // ---------------------------------------------------------------------------
 const instrumentPath = path.join(__dirname, '..', '.output', 'server', 'instrument.server.mjs');
 const instrumentCode = `// Sentry server-side instrumentation — loaded via --import flag before app code
-import { createRequire } from 'module';
-const require = createRequire(import.meta.url);
-const Sentry = require('@sentry/node');
+import * as Sentry from '@sentry/node';
 
 Sentry.init({
   dsn: process.env.SENTRY_DSN,
