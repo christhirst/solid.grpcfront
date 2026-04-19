@@ -111,3 +111,25 @@ console.log('Server bundle patched successfully');
 const verifyCode = fs.readFileSync(serverPath, 'utf8');
 console.log('Verified file size:', verifyCode.length);
 console.log('Verified first 200 chars:', verifyCode.substring(0, 200));
+
+// ---------------------------------------------------------------------------
+// Generate instrument.server.mjs for Sentry --import flag
+// ---------------------------------------------------------------------------
+const instrumentPath = path.join(__dirname, '..', '.output', 'server', 'instrument.server.mjs');
+const instrumentCode = `// Sentry server-side instrumentation — loaded via --import flag before app code
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const Sentry = require('@sentry/node');
+
+Sentry.init({
+  dsn: process.env.SENTRY_DSN,
+  tracesSampleRate: parseFloat(process.env.SENTRY_TRACES_SAMPLE_RATE || '1.0'),
+  sendDefaultPii: true,
+  environment: process.env.NODE_ENV || 'development',
+});
+
+console.log('[Sentry] Instrumentation loaded. DSN:', process.env.SENTRY_DSN ? 'configured' : 'NOT SET');
+`;
+
+fs.writeFileSync(instrumentPath, instrumentCode);
+console.log('Generated instrument.server.mjs at:', instrumentPath);

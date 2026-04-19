@@ -3,6 +3,7 @@ import { getDb } from "~/lib/db";
 import { executeGrpcCall } from "~/lib/grpcExecutor";
 import { parseProtoContent } from "~/lib/protoParser";
 import { RecordId } from "surrealdb";
+import * as Sentry from "@sentry/node";
 
 export interface WorkflowStep {
   id: string;
@@ -127,6 +128,22 @@ function evaluatePayload(templateObj: any, context: Record<string, any>): any {
 }
 
 export async function runWorkflowBackground(workflow: WorkflowDefinition, runId: string, customContext: Record<string, any> = {}) {
+  return Sentry.startSpan(
+    {
+      name: `workflow.run: ${workflow.name}`,
+      op: "workflow.run",
+      attributes: {
+        "workflow.id": workflow.id || "",
+        "workflow.name": workflow.name,
+        "workflow.run_id": runId,
+        "workflow.step_count": workflow.steps.length,
+      },
+    },
+    async () => _runWorkflowBackground(workflow, runId, customContext),
+  );
+}
+
+async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: string, customContext: Record<string, any> = {}) {
   const db = await getDb();
   
   const runRecord: WorkflowRun = {
@@ -224,6 +241,20 @@ export async function runWorkflowBackground(workflow: WorkflowDefinition, runId:
     }
 
     for (const step of steps) {
+      // Each step runs inside a Sentry span. The callback returns a signal
+      // ("continue" | "abort") so we can control the outer loop without
+      // using continue/return across the function boundary.
+      const stepResult: "continue" | "abort" = await Sentry.startSpan(
+        {
+          name: `step: ${step.id} (${step.type || "grpc"})`,
+          op: "workflow.step",
+          attributes: {
+            "workflow.step.id": step.id,
+            "workflow.step.type": step.type || "grpc",
+          },
+        },
+        async (): Promise<"continue" | "abort"> => {
+
       if (step.type === "table" || step.type === "chart") {
         let payload;
         try {
@@ -267,7 +298,7 @@ export async function runWorkflowBackground(workflow: WorkflowDefinition, runId:
         const { id: _t_v, ...data_v } = runRecord;
         const sId_v = new RecordId("workflow_run", dbId);
         await db.query("UPDATE $id CONTENT $data", { id: sId_v, data: data_v });
-        continue;
+        return "continue";
       }
 
       if (step.type === "database") {
@@ -326,9 +357,9 @@ export async function runWorkflowBackground(workflow: WorkflowDefinition, runId:
           const { id: _t2, ...data2 } = runRecord;
           const sId2 = new RecordId("workflow_run", dbId);
           await db.query("UPDATE $id CONTENT $data", { id: sId2, data: data2 });
-          return;
+          return "abort";
         }
-        continue;
+        return "continue";
       }
 
       if (step.type === "rest") {
@@ -441,9 +472,9 @@ export async function runWorkflowBackground(workflow: WorkflowDefinition, runId:
            const { id: _t2, ...data2 } = runRecord;
            const sId2 = new RecordId("workflow_run", dbId);
            await db.query("UPDATE $id CONTENT $data", { id: sId2, data: data2 });
-           return;
+           return "abort";
         }
-        continue;
+        return "continue";
       }
 
       let requestPayload;
@@ -527,8 +558,14 @@ export async function runWorkflowBackground(workflow: WorkflowDefinition, runId:
         const { id: _t2, ...data2 } = runRecord;
         const sId2 = new RecordId("workflow_run", dbId);
         await db.query("UPDATE $id CONTENT $data", { id: sId2, data: data2 });
-        return;
+        return "abort";
       }
+
+      return "continue";
+
+      }); // end Sentry.startSpan for step
+
+      if (stepResult === "abort") return;
     }
 
     // All steps successful
@@ -538,6 +575,7 @@ export async function runWorkflowBackground(workflow: WorkflowDefinition, runId:
     const sId3 = new RecordId("workflow_run", dbId);
     await db.query("UPDATE $id CONTENT $data", { id: sId3, data: data3 });
   } catch (error: any) {
+    Sentry.captureException(error);
     runRecord.status = "failed";
     runRecord.endTime = new Date().toISOString();
     runRecord.logs.push({

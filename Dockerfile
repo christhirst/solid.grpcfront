@@ -44,8 +44,12 @@ ENV OIDC_ISSUER="https://oauth.wiremockapi.cloud"
 
 ENV APP_ORIGIN=http://raynkami-solid-grpcfront.sliplane.app
 
+# Sentry
+ENV SENTRY_DSN=""
+
 
 EXPOSE 3000
 
 # Startbefehl: SolidStart nutzt den .output/server/index.mjs Entrypoint
-CMD ["bun", ".output/server/index.mjs"]
+# --import loads Sentry instrumentation before any app code
+CMD ["bun", "--import", "./.output/server/instrument.server.mjs", ".output/server/index.mjs"]

@@ -1,7 +1,8 @@
 #!/bin/bash
 
 # Run the patch and server in the same Bun process
-bun -e "
+# --import loads Sentry instrumentation before any app code
+bun --import ./.output/server/instrument.server.mjs -e "
 // Patch URL constructor to handle relative paths
 const originalURL = globalThis.URL;
 globalThis.URL = function(input, base) {
