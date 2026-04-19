@@ -23,6 +23,7 @@ WORKDIR /app
 # Nur den gebauten 'dist' Ordner und notwendige Dateien kopieren
 COPY --from=base /app/.output ./.output
 COPY --from=base /app/package.json ./
+COPY --from=base /app/node_modules ./node_modules
 
 # Umgebungsvariablen Standardwerte (können beim Start überschrieben werden)
 ENV PORT=3000
