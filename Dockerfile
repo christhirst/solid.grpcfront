@@ -26,14 +26,14 @@ COPY --from=base /app/package.json ./
 COPY --from=base /app/node_modules ./node_modules
 
 # Umgebungsvariablen Standardwerte (können beim Start überschrieben werden)
-ENV PORT=3000
-ENV HOST=0.0.0.0
+ARG PORT=3000
+ARG HOST=0.0.0.0
 ENV GRPC_BACKEND_URL="http://grpc-backend:50051"
 ENV NODE_ENV=production
 
 ENV SURREALDB_URL="ws://ux-ti-069ps2e29luilf8m9qq0o620g0.aws-euw1.surreal.cloud/"
-ENV SURREALDB_USER="admin"
-ENV SURREALDB_PASS=""
+ARG SURREALDB_USER="admin"
+ARG SURREALDB_PASS=""
 ENV SURREALDB_NS="solidflow"
 ENV SURREALDB_DB="main"
 
