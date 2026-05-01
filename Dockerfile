@@ -1,5 +1,5 @@
 # Stage 1: Build
-FROM oven/bun:latest AS base
+FROM docker.io/oven/bun:latest AS base
 WORKDIR /app
 
 # Copy all source files first (including scripts/)
@@ -17,7 +17,7 @@ RUN bun install --frozen-lockfile
 RUN bun run build
 
 # Stage 2: Runtime
-FROM oven/bun:latest AS release
+FROM docker.io/oven/bun:latest AS release
 WORKDIR /app
 
 # Nur den gebauten 'dist' Ordner und notwendige Dateien kopieren
