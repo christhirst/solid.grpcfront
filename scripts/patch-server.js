@@ -224,6 +224,16 @@ globalThis.URL = function(input, base) {
 };
 globalThis.URL.prototype = originalURL.prototype;
 Object.setPrototypeOf(globalThis.URL, originalURL);
+
+const originalFetch = globalThis.fetch;
+globalThis.fetch = function(input, init) {
+  if (typeof input === 'string' && input.startsWith('/')) {
+    input = \`http://localhost:\${process.env.PORT || 3000}\${input}\`;
+  } else if (input instanceof URL && input.pathname.startsWith('/') && input.hostname === 'localhost' && !input.port) {
+    input.port = process.env.PORT || "3000";
+  }
+  return originalFetch.call(this, input, init);
+};
 `;
 
 if (fs.existsSync(serverDir)) {
