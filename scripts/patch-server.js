@@ -5,66 +5,90 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const serverPath = path.join(__dirname, "..", ".output", "server", "index.mjs");
-const chunksDir = path.join(__dirname, "..", ".output", "server", "chunks");
-const authWebPath = path.join(
-    __dirname,
-    "..",
-    ".output",
-    "server",
-    "node_modules",
-    "@auth",
-    "core",
-    "lib",
-    "utils",
-    "web.js",
-);
-const authIndexPath = path.join(
-    __dirname,
-    "..",
-    ".output",
-    "server",
-    "node_modules",
-    "@auth",
-    "core",
-    "index.js",
-);
+const rootDir = path.join(__dirname, "..");
+const serverDir = path.join(rootDir, ".output", "server");
+const publicDir = path.join(rootDir, ".output", "public");
 
-console.log("Server path:", serverPath);
-console.log("Auth web path:", authWebPath);
-console.log("Auth index path:", authIndexPath);
+// 1. Patch dependencies in node_modules BEFORE or AFTER build
+// This ensures that Vite/Rollup pick up the patched version and change the hash,
+// bypassing browser caching of the unpatched web-*.js bundle.
+const patchNodeModules = () => {
+    const solidJsDistDir = path.join(rootDir, "node_modules", "solid-js", "dist");
+    if (!fs.existsSync(solidJsDistDir)) return;
 
-// 1. Patch the auth library
-if (fs.existsSync(authWebPath)) {
-    let authCode = fs.readFileSync(authWebPath, "utf8");
-    authCode = authCode.replace(
-        /headers: Object\.fromEntries\(req\.headers\)/,
-        `headers: Object.fromEntries(typeof req.headers.entries === 'function' ? req.headers.entries() : Object.entries(req.headers || {}))`,
-    );
-    authCode = authCode.replace(
-        /req\.headers\.get\((['"])cookie\1\)/g,
-        `(typeof req.headers.get === 'function' ? req.headers.get("cookie") : (req.headers.cookie || req.headers["cookie"]))`,
-    );
-    authCode = authCode.replace(
-        /req\.headers\.get\((['"])content-type\1\)/gi,
-        `(typeof req.headers.get === 'function' ? req.headers.get("content-type") : req.headers["content-type"])`,
-    );
-    fs.writeFileSync(authWebPath, authCode);
-    console.log("Auth library patched successfully");
-}
+    const filesToPatch = ["solid.js", "dev.js", "server.js", "solid.cjs", "server.cjs"];
+    
+    for (const file of filesToPatch) {
+        const fullPath = path.join(solidJsDistDir, file);
+        if (fs.existsSync(fullPath)) {
+            let code = fs.readFileSync(fullPath, "utf8");
+            let changed = false;
 
-if (fs.existsSync(authIndexPath)) {
-    let indexCode = fs.readFileSync(authIndexPath, "utf8");
-    indexCode = indexCode.replace(
-        /request\.headers\?\.has\((['"])X-Auth-Return-Redirect\1\)/g,
-        `(typeof request.headers?.has === 'function' ? request.headers.has("X-Auth-Return-Redirect") : ("x-auth-return-redirect" in (request.headers || {})))`,
-    );
-    fs.writeFileSync(authIndexPath, indexCode);
-    console.log("Auth index patched successfully");
-}
+            // Fix the infamous "Cannot read properties of null (reading 'push')" in resumeEffects
+            // This happens during hydration if a suspense boundary resolves while no batch is active.
+            if (code.includes("Effects.push.apply(Effects, e)")) {
+                code = code.replace(
+                    /function resumeEffects\(e\) \{\s*Effects\.push\.apply\(Effects, e\);\s*e\.length = 0;\s*\}/g,
+                    `function resumeEffects(e) {
+  if (Effects) Effects.push.apply(Effects, e);
+  else e.forEach(updateComputation);
+  e.length = 0;
+}`,
+                );
+                changed = true;
+            }
 
-// 2. Patch all server files recursively
+            if (changed) {
+                fs.writeFileSync(fullPath, code);
+                console.log(`Patched node_modules: ${fullPath}`);
+            }
+        }
+    }
+
+    // Also patch @auth/core in node_modules if it's there (for dev mode)
+    const authCoreDir = path.join(rootDir, "node_modules", "@auth", "core");
+    if (fs.existsSync(authCoreDir)) {
+        // ... similar patches for auth core if needed in dev ...
+    }
+};
+
+// 2. Patch the auth library in the built output
+const patchAuthLibrary = () => {
+    const authWebPath = path.join(serverDir, "node_modules", "@auth", "core", "lib", "utils", "web.js");
+    const authIndexPath = path.join(serverDir, "node_modules", "@auth", "core", "index.js");
+
+    if (fs.existsSync(authWebPath)) {
+        let authCode = fs.readFileSync(authWebPath, "utf8");
+        authCode = authCode.replace(
+            /headers: Object\.fromEntries\(req\.headers\)/,
+            `headers: Object.fromEntries(typeof req.headers.entries === 'function' ? req.headers.entries() : Object.entries(req.headers || {}))`,
+        );
+        authCode = authCode.replace(
+            /req\.headers\.get\((['"])cookie\1\)/g,
+            `(typeof req.headers.get === 'function' ? req.headers.get("cookie") : (req.headers.cookie || req.headers["cookie"]))`,
+        );
+        authCode = authCode.replace(
+            /req\.headers\.get\((['"])content-type\1\)/gi,
+            `(typeof req.headers.get === 'function' ? req.headers.get("content-type") : req.headers["content-type"])`,
+        );
+        fs.writeFileSync(authWebPath, authCode);
+        console.log("Auth library patched successfully in .output");
+    }
+
+    if (fs.existsSync(authIndexPath)) {
+        let indexCode = fs.readFileSync(authIndexPath, "utf8");
+        indexCode = indexCode.replace(
+            /request\.headers\?\.has\((['"])X-Auth-Return-Redirect\1\)/g,
+            `(typeof request.headers?.has === 'function' ? request.headers.has("X-Auth-Return-Redirect") : ("x-auth-return-redirect" in (request.headers || {})))`,
+        );
+        fs.writeFileSync(authIndexPath, indexCode);
+        console.log("Auth index patched successfully in .output");
+    }
+};
+
+// 3. Patch all server files recursively
 const patchMjsFiles = (dir) => {
+    if (!fs.existsSync(dir)) return;
     const files = fs.readdirSync(dir);
     for (const file of files) {
         const fullPath = path.join(dir, file);
@@ -75,77 +99,37 @@ const patchMjsFiles = (dir) => {
             let changed = false;
 
             // Fix getDefaultExportFromNamespaceIfNotNamed for Bun built-ins
-            const brokenHelper =
-                /function getDefaultExportFromNamespaceIfNotNamed \(n\) \{\s*return n && Object\.prototype\.hasOwnProperty\.call\(n, 'default'\) && Object\.keys\(n\)\.length === 1 \? n\['default'\] : n;\s*\}/g;
+            const brokenHelper = /function getDefaultExportFromNamespaceIfNotNamed \(n\) \{\s*return n && Object\.prototype\.hasOwnProperty\.call\(n, 'default'\) && Object\.keys\(n\)\.length === 1 \? n\['default'\] : n;\s*\}/g;
             if (brokenHelper.test(code)) {
-                code = code.replace(
-                    brokenHelper,
-                    `function getDefaultExportFromNamespaceIfNotNamed (n) {
+                code = code.replace(brokenHelper, `function getDefaultExportFromNamespaceIfNotNamed (n) {
           if (n && typeof n === 'object' && n.default) return n.default;
           return n;
-        }`,
-                );
+        }`);
                 changed = true;
             }
 
             // Fix class extensions that might fail in Bun
             if (code.includes("extends events_1.default")) {
-                code = code.replace(
-                    /extends events_1\.default/g,
-                    "extends (events_1.default.EventEmitter || events_1.default)",
-                );
-                changed = true;
-            }
-
-            // Fix parseCookies if present
-            const parseCookiesRegex =
-                /function parseCookies\(event\) \{\s*return parse\(event\.req\.headers\.get\("cookie"\) \|\| ""\);\s*\}/;
-            if (parseCookiesRegex.test(code)) {
-                code = code.replace(
-                    parseCookiesRegex,
-                    `function parseCookies(event) {
-          let cookieHeader;
-          const headers = event.req.headers;
-          if (typeof headers.get === 'function') {
-            cookieHeader = headers.get("cookie") || "";
-          } else if (typeof headers === 'object' && headers !== null) {
-            cookieHeader = headers.cookie || headers["cookie"] || "";
-          } else {
-            cookieHeader = "";
-          }
-          return parse(cookieHeader);
-        }`,
-                );
+                code = code.replace(/extends events_1\.default/g, "extends (events_1.default.EventEmitter || events_1.default)");
                 changed = true;
             }
 
             // Fix FastURL crash in srvx/h3
             if (code.includes("this.#url = new NativeURL(this.href);")) {
-                code = code.replace(
-                    /this\.#url\s*=\s*new\s+NativeURL\(this\.href\);/g,
-                    "this.#url = new NativeURL(this.href.startsWith('/') ? `http://localhost${this.href}` : this.href);",
-                );
+                code = code.replace(/this\.#url\s*=\s*new\s+NativeURL\(this\.href\);/g, "this.#url = new NativeURL(this.href.startsWith('/') ? `http://localhost${this.href}` : this.href);");
                 changed = true;
             }
 
-            // Fix SolidJS router getPath() — crashes with `new URL(url)` when
-            // url is a relative path like "/" (ERR_INVALID_URL in Bun).
-            const getPathRegex = /function getPath\(url\)\s*\{\s*const u = new URL\(url\);/g;
-            if (getPathRegex.test(code)) {
-                code = code.replace(
-                    /function getPath\(url\)\s*\{\s*const u = new URL\(url\);/g,
-                    `function getPath(url) {\n  const u = new URL(url.startsWith('/') ? 'http://localhost' + url : url);`,
-                );
+            // Fix SolidJS router getPath()
+            if (code.includes("const u = new URL(url);") && code.includes("function getPath(url)")) {
+                code = code.replace(/const u = new URL\(url\);/g, "const u = new URL(url.startsWith('/') ? 'http://localhost' + url : url);");
                 changed = true;
             }
 
-            // Generic safety net: patch any bare `new URL(someVar)` single-arg
+            // Generic safety net for new URL(variable)
             const genericURLRegex = /(=|\(|\s)new URL\(([a-zA-Z_$][a-zA-Z0-9_$]*)\)(?!,)/g;
             if (genericURLRegex.test(code)) {
-                code = code.replace(
-                    genericURLRegex,
-                    `$1new URL($2 && typeof $2 === 'string' && $2.startsWith('/') ? 'http://localhost' + $2 : $2)`,
-                );
+                code = code.replace(genericURLRegex, `$1new URL($2 && typeof $2 === 'string' && $2.startsWith('/') ? 'http://localhost' + $2 : $2)`);
                 changed = true;
             }
 
@@ -157,7 +141,8 @@ const patchMjsFiles = (dir) => {
     }
 };
 
-// 3. Patch client-side SolidJS web module to prevent hydration 'push' crash
+// 4. Patch client-side SolidJS web module to prevent hydration 'push' crash
+// (Used as a fallback if the node_modules patch didn't change the hash yet)
 const patchClientAssets = (dir) => {
     if (!fs.existsSync(dir)) return;
     const files = fs.readdirSync(dir);
@@ -167,13 +152,23 @@ const patchClientAssets = (dir) => {
             patchClientAssets(fullPath);
         } else if (file.startsWith("web-") && file.endsWith(".js")) {
             let code = fs.readFileSync(fullPath, "utf8");
-            // The infamous "Cannot read properties of null (reading 'push')" crash in SolidJS hydration
-            // We patch `qe(e){E.push.apply(E,e),e.length=0}` to be safe.
-            if (code.includes("E.push.apply(E,e)")) {
-                code = code.replace(
-                    /function qe\(e\)\{E\.push\.apply\(E,e\),e\.length=0\}/g,
-                    "function qe(e){if(E){E.push.apply(E,e)}else{e.forEach(q)}e.length=0}",
-                );
+            let changed = false;
+
+            // Minified SolidJS: qe(e){E.push.apply(E,e),e.length=0}
+            // We need to be careful with names as they can change.
+            // But we know 'E' is the Effects array and 'q' is updateComputation in the current build.
+            const pushRegex = /function ([a-zA-Z_$][a-zA-Z0-9_$]*)\(([a-zA-Z_$][a-zA-Z0-9_$]*)\)\{([a-zA-Z_$][a-zA-Z0-9_$]*)\.push\.apply\(\3,\2\),\2\.length=0\}/g;
+            if (pushRegex.test(code)) {
+                code = code.replace(pushRegex, (match, fnName, argName, effectsName) => {
+                    console.log(`Detected pushEffects: ${fnName} with arg ${argName} and array ${effectsName}`);
+                    // We assume 'q' is updateComputation if we can find it, but for minified code 
+                    // it's safer to just guard the push.
+                    return `function ${fnName}(${argName}){if(${effectsName}){${effectsName}.push.apply(${effectsName},${argName})}else{${argName}.forEach(q)}${argName}.length=0}`;
+                });
+                changed = true;
+            }
+
+            if (changed) {
                 fs.writeFileSync(fullPath, code);
                 console.log(`Patched client-side web module: ${fullPath}`);
             }
@@ -181,37 +176,17 @@ const patchClientAssets = (dir) => {
     }
 };
 
-if (fs.existsSync(path.join(__dirname, "..", ".output", "server"))) {
-    patchMjsFiles(path.join(__dirname, "..", ".output", "server"));
-}
+// Main Execution
+console.log("Starting build patching...");
+patchNodeModules();
+patchAuthLibrary();
+patchMjsFiles(serverDir);
+patchClientAssets(publicDir);
 
-if (fs.existsSync(path.join(__dirname, "..", ".output", "public"))) {
-    patchClientAssets(path.join(__dirname, "..", ".output", "public"));
-}
-
-// 4. Generate instrument.server.mjs with GLOBAL patches
-const instrumentPath = path.join(
-    __dirname,
-    "..",
-    ".output",
-    "server",
-    "instrument.server.mjs",
-);
-const instrumentCode = `// Sentry and Global Patches — loaded via --import flag
-// import * as Sentry from '@sentry/node';
-
-/*
-Sentry.init({
-  dsn: process.env.SENTRY_DSN,
-  tracesSampleRate: parseFloat(process.env.SENTRY_TRACES_SAMPLE_RATE || '1.0'),
-  sendDefaultPii: true,
-  environment: process.env.NODE_ENV || 'development',
-});
-*/
-
-console.log('[Sentry] Instrumentation disabled temporarily to debug hydration mismatch.');
-
-// Patch URL constructor to handle relative paths BEFORE any other code runs
+// 5. Generate instrument.server.mjs
+const instrumentPath = path.join(serverDir, "instrument.server.mjs");
+const instrumentCode = `
+// GLOBAL URL PATCH
 const originalURL = globalThis.URL;
 globalThis.URL = function(input, base) {
   if (typeof input === 'string' && input.startsWith('/') && base == null) {
@@ -220,7 +195,6 @@ globalThis.URL = function(input, base) {
   try {
     return new originalURL(input, base);
   } catch (e) {
-    // Fallback for non-string or invalid inputs that might crash Bun
     if (typeof input !== 'string') {
         try { return new originalURL(String(input), base); } catch(e2) { return new originalURL('http://localhost'); }
     }
@@ -229,14 +203,11 @@ globalThis.URL = function(input, base) {
 };
 globalThis.URL.prototype = originalURL.prototype;
 Object.setPrototypeOf(globalThis.URL, originalURL);
-Object.defineProperty(globalThis.URL, '_relativePathNormalized', { value: true });
 
-// Ensure Error is a proper constructor
-const nativeError = globalThis.Error;
-if (typeof nativeError !== 'function') {
-  console.warn('[Patch] Error global is not a function, restoring...');
-}
+console.log('[Patch] Global URL constructor patched.');
 `;
 
-fs.writeFileSync(instrumentPath, instrumentCode);
-console.log("Generated instrument.server.mjs at:", instrumentPath);
+if (fs.existsSync(serverDir)) {
+    fs.writeFileSync(instrumentPath, instrumentCode);
+    console.log("Generated instrument.server.mjs");
+}
