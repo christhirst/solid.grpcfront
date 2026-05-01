@@ -8,7 +8,8 @@ export default function DatabaseOverview() {
 
   const fetchDatabases = async () => {
     try {
-      const res = await fetch("/api/database");
+      const url = isServer ? "http://127.0.0.1:3000/api/database" : "/api/database";
+      const res = await fetch(url);
       const text = await res.text();
       console.log("Database fetch response:", res.status, text);
       const json = JSON.parse(text);
@@ -103,6 +104,7 @@ export default function DatabaseOverview() {
             {(db) => (
               <a
                 href={`/database/${db}`}
+                target="_self"
                 class="card p-6 border-t-4 border-t-blue-500 hover:-translate-y-1 transition-transform group cursor-pointer"
               >
                 <div class="flex items-center justify-between mb-2">

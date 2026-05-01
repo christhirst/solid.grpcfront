@@ -3,7 +3,8 @@ import { isServer } from "solid-js/web";
 import { A } from "@solidjs/router";
 
 const fetchWorkflows = async () => {
-  const res = await fetch("/api/workflows");
+  const url = isServer ? "http://127.0.0.1:3000/api/workflows" : "/api/workflows";
+  const res = await fetch(url);
   const json = await res.json();
   if (json.success) {
     return json.data;
@@ -36,7 +37,7 @@ export default function Workflows() {
           <p class="text-[15px] text-[#8b8b9e]">Build, chain, and automate gRPC requests</p>
         </div>
         
-        <a href="/workflows/new" class="btn-primary hover-lift glow-effect group flex items-center gap-2">
+        <a href="/workflows/new" target="_self" class="btn-primary hover-lift glow-effect group flex items-center gap-2">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" class="transition-transform group-hover:scale-110" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <line x1="12" y1="5" x2="12" y2="19"></line>
             <line x1="5" y1="12" x2="19" y2="12"></line>
@@ -60,14 +61,14 @@ export default function Workflows() {
             <p class="mb-6 max-w-md text-[#8b8b9e]">
               You haven't created any automated gRPC workflows yet. Start building your first flow!
             </p>
-            <a href="/workflows/new" class="btn-primary">Create Your First Workflow</a>
+            <a href="/workflows/new" target="_self" class="btn-primary">Create Your First Workflow</a>
           </div>
         }
       >
         <div class="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
           <For each={workflows()}>
             {(workflow: any) => (
-              <a href={`/workflows/${workflow.id.split(":")[1]}`} class="card group flex flex-col justify-between p-6 transition-all duration-300 hover:-translate-y-1 hover:border-blue-500/50 hover:shadow-lg hover:shadow-blue-500/10">
+              <a href={`/workflows/${workflow.id.split(":")[1]}`} target="_self" class="card group flex flex-col justify-between p-6 transition-all duration-300 hover:-translate-y-1 hover:border-blue-500/50 hover:shadow-lg hover:shadow-blue-500/10">
                 <div>
                   <div class="mb-4 flex items-center justify-between">
                     <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500/20 to-purple-500/20 text-indigo-400 ring-1 ring-indigo-500/30">

@@ -9,8 +9,8 @@ export interface ProtoFile {
 }
 
 const fetchProtos = async () => {
-  if (isServer) return [];
-  const res = await fetch("/api/protos");
+  const url = isServer ? "http://127.0.0.1:3000/api/protos" : "/api/protos";
+  const res = await fetch(url);
   const json = await res.json();
   if (json.success) {
     return json.data as ProtoFile[];

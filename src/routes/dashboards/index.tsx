@@ -4,7 +4,8 @@ import { isServer } from "solid-js/web";
 export default function Dashboards() {
   const [dashboards, { refetch }] = createResource(async () => {
     try {
-      const res = await fetch("/api/dashboards");
+      const url = isServer ? "http://127.0.0.1:3000/api/dashboards" : "/api/dashboards";
+      const res = await fetch(url);
       const text = await res.text();
       console.log("Dashboards fetch response:", res.status, text);
       const json = JSON.parse(text);
@@ -32,7 +33,7 @@ export default function Dashboards() {
     <main class="mx-auto max-w-7xl px-6 py-12">
       <div class="mb-8 flex items-center justify-between">
         <h1 class="text-3xl font-extrabold tracking-tight text-white">Dashboards</h1>
-        <a href="/dashboards/new" class="btn-primary flex items-center gap-2">
+        <a href="/dashboards/new" target="_self" class="btn-primary flex items-center gap-2">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
           New Dashboard
         </a>
@@ -49,7 +50,7 @@ export default function Dashboards() {
 
           <For each={dashboards()}>
             {(d) => (
-              <a href={`/dashboards/${d.id.replace("dashboard:", "")}`} class="card card-hover group p-6 flex flex-col h-full border-l-4 border-l-purple-500">
+              <a href={`/dashboards/${d.id.replace("dashboard:", "")}`} target="_self" class="card card-hover group p-6 flex flex-col h-full border-l-4 border-l-purple-500">
                 <div class="flex justify-between items-start mb-4">
                   <h3 class="font-bold text-lg text-white truncate group-hover:text-purple-400 transition-colors">
                     {d.name || "Untitled Dashboard"}

@@ -42,64 +42,19 @@ export default function Nav() {
           </span>
         </a>
 
-        {/* Navigation Links - Using <a> for reliable container reloads */}
+        {/* Navigation Links - Using explicit native navigation to bypass router interception */}
         <ul class="flex items-center gap-1">
-          <li>
-            <a
-              href="/"
-              class={`rounded-lg px-4 py-2 text-sm font-medium transition-colors duration-200 ${active("/")}`}
-            >
-              Home
-            </a>
-          </li>
-          <li>
-            <a
-              href="/dashboards"
-              class={`rounded-lg px-4 py-2 text-sm font-medium transition-colors duration-200 ${active("/dashboards")}`}
-            >
-              Dashboards
-            </a>
-          </li>
-          <li>
-            <a
-              href="/workflows"
-              class={`rounded-lg px-4 py-2 text-sm font-medium transition-colors duration-200 ${active("/workflows")}`}
-            >
-              Workflows
-            </a>
-          </li>
-          <li>
-            <a
-              href="/protos"
-              class={`rounded-lg px-4 py-2 text-sm font-medium transition-colors duration-200 ${active("/protos")}`}
-            >
-              Protos
-            </a>
-          </li>
-          <li>
-            <a
-              href="/database"
-              class={`rounded-lg px-4 py-2 text-sm font-medium transition-colors duration-200 ${active("/database")}`}
-            >
-              Database
-            </a>
-          </li>
-          <li>
-            <a
-              href="/grpc"
-              class={`rounded-lg px-4 py-2 text-sm font-medium transition-colors duration-200 ${active("/grpc")}`}
-            >
-              gRPC Client
-            </a>
-          </li>
-          <li>
-            <a
-              href="/about"
-              class={`rounded-lg px-4 py-2 text-sm font-medium transition-colors duration-200 ${active("/about")}`}
-            >
-              About
-            </a>
-          </li>
+          {["/", "/dashboards", "/workflows", "/protos", "/database", "/grpc", "/about"].map((path) => (
+            <li>
+              <a
+                href={path}
+                onClick={(e) => { e.preventDefault(); window.location.href = path; }}
+                class={`rounded-lg px-4 py-2 text-sm font-medium transition-colors duration-200 ${active(path)}`}
+              >
+                {path === "/" ? "Home" : path.replace("/", "").charAt(0).toUpperCase() + path.replace("/", "").slice(1).replace("Grpc", "gRPC Client")}
+              </a>
+            </li>
+          ))}
         </ul>
 
         {/* Right Corner (Status + Auth) */}
