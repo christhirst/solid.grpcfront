@@ -83,7 +83,7 @@ serverCode = serverCode.replace(
 );
 
 // Inject the URL patch at the very beginning
-const patchCode_unused = `
+const patchCode = `
 // Patch URL constructor to handle relative paths
 const originalURL = globalThis.URL;
 globalThis.URL = function(input, base) {
@@ -98,7 +98,7 @@ Object.defineProperty(globalThis.URL, '_relativePathNormalized', { value: true }
 
 `;
 
-// serverCode = patchCode + serverCode;
+serverCode = patchCode + serverCode;
 console.log('New file size:', serverCode.length);
 console.log('New first 200 chars:', serverCode.substring(0, 200));
 
