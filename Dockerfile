@@ -31,11 +31,11 @@ ARG HOST=0.0.0.0
 ENV GRPC_BACKEND_URL="http://grpc-backend:50051"
 ENV NODE_ENV=production
 
-ENV SURREALDB_URL="ws://ux-ti-069ps2e29luilf8m9qq0o620g0.aws-euw1.surreal.cloud/"
+ARG SURREALDB_URL="wss://ux-ti-069ps2e29luilf8m9qq0o620g0.aws-euw1.surreal.cloud"
 ARG SURREALDB_USER="admin"
-ARG SURREALDB_PASS=""
-ENV SURREALDB_NS="solidflow"
-ENV SURREALDB_DB="main"
+ARG SURREALDB_PASS="test"
+ARG SURREALDB_NS="solidflow"
+ARG SURREALDB_DB="main"
 
 # Authentication (pass real secrets at runtime)
 ENV AUTH_SECRET=""
