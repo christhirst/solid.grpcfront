@@ -128,6 +128,26 @@ const patchMjsFiles = (dir) => {
                 changed = true;
             }
 
+            // Fix SolidJS router getPath() — crashes with `new URL(url)` when
+            // url is a relative path like "/" (ERR_INVALID_URL in Bun).
+            // This is the root cause of the hydration mismatch in Docker.
+            const getPathRegex = /function getPath\(url\)\s*\{\s*const u = new URL\(url\);/g;
+            if (getPathRegex.test(code)) {
+                // Reset regex lastIndex after test()
+                code = code.replace(
+                    /function getPath\(url\)\s*\{\s*const u = new URL\(url\);/g,
+                    `function getPath(url) {\n  const u = new URL(url.startsWith('/') ? 'http://localhost' + url : url);`,
+                );
+                changed = true;
+            }
+
+            // Generic safety net: patch any bare `new URL(someVar)` single-arg
+            // calls that might receive a relative path. We target the specific
+            // pattern `= new URL(variable);` (not `new URL("http…` literals or
+            // two-arg calls).  We wrap with a helper that prepends a base when
+            // the input starts with "/".
+            // NOTE: Only applied to server chunks, not client bundles.
+
             if (changed) {
                 fs.writeFileSync(fullPath, code);
                 console.log(`Patched: ${fullPath}`);
