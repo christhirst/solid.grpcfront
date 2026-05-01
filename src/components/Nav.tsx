@@ -5,9 +5,14 @@ import { signIn, signOut } from "@auth/solid-start/client";
 
 const fetchSession = async () => {
   if (isServer) return null;
-  const res = await fetch("/api/auth/session");
-  const session = await res.json();
-  return Object.keys(session).length > 0 ? session : null;
+  try {
+    const res = await fetch("/api/auth/session");
+    if (!res.ok) return null;
+    const session = await res.json();
+    return session && typeof session === "object" && Object.keys(session).length > 0 ? session : null;
+  } catch (e) {
+    return null;
+  }
 };
 
 
@@ -116,7 +121,7 @@ export default function Nav() {
               </button>
             }
           >
-            {(s) => (
+            {(s: any) => (
               <div class="flex items-center gap-3">
                 <div class="flex items-center gap-2">
                   <Show
