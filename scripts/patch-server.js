@@ -82,6 +82,12 @@ serverCode = serverCode.replace(
   `headers: Object.fromEntries(req.headers)`
 );
 
+// Fix FastURL crash in srvx/h3 which causes ERR_INVALID_URL on relative paths
+serverCode = serverCode.replace(
+  /this\.#url\s*=\s*new\s+NativeURL\(this\.href\);/g,
+  `this.#url = new NativeURL(this.href.startsWith('/') ? \`http://localhost\${this.href}\` : this.href);`
+);
+
 // Inject the URL patch at the very beginning
 const patchCode = `
 // Patch URL constructor to handle relative paths
