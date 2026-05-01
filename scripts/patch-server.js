@@ -130,10 +130,8 @@ const patchMjsFiles = (dir) => {
 
             // Fix SolidJS router getPath() — crashes with `new URL(url)` when
             // url is a relative path like "/" (ERR_INVALID_URL in Bun).
-            // This is the root cause of the hydration mismatch in Docker.
             const getPathRegex = /function getPath\(url\)\s*\{\s*const u = new URL\(url\);/g;
             if (getPathRegex.test(code)) {
-                // Reset regex lastIndex after test()
                 code = code.replace(
                     /function getPath\(url\)\s*\{\s*const u = new URL\(url\);/g,
                     `function getPath(url) {\n  const u = new URL(url.startsWith('/') ? 'http://localhost' + url : url);`,
@@ -142,7 +140,6 @@ const patchMjsFiles = (dir) => {
             }
 
             // Generic safety net: patch any bare `new URL(someVar)` single-arg
-            // calls that might receive a relative path.
             const genericURLRegex = /(=|\(|\s)new URL\(([a-zA-Z_$][a-zA-Z0-9_$]*)\)(?!,)/g;
             if (genericURLRegex.test(code)) {
                 code = code.replace(
@@ -160,11 +157,39 @@ const patchMjsFiles = (dir) => {
     }
 };
 
+// 3. Patch client-side SolidJS web module to prevent hydration 'push' crash
+const patchClientAssets = (dir) => {
+    if (!fs.existsSync(dir)) return;
+    const files = fs.readdirSync(dir);
+    for (const file of files) {
+        const fullPath = path.join(dir, file);
+        if (fs.statSync(fullPath).isDirectory()) {
+            patchClientAssets(fullPath);
+        } else if (file.startsWith("web-") && file.endsWith(".js")) {
+            let code = fs.readFileSync(fullPath, "utf8");
+            // The infamous "Cannot read properties of null (reading 'push')" crash in SolidJS hydration
+            // We patch `qe(e){E.push.apply(E,e),e.length=0}` to be safe.
+            if (code.includes("E.push.apply(E,e)")) {
+                code = code.replace(
+                    /function qe\(e\)\{E\.push\.apply\(E,e\),e\.length=0\}/g,
+                    "function qe(e){if(E){E.push.apply(E,e)}else{e.forEach(q)}e.length=0}",
+                );
+                fs.writeFileSync(fullPath, code);
+                console.log(`Patched client-side web module: ${fullPath}`);
+            }
+        }
+    }
+};
+
 if (fs.existsSync(path.join(__dirname, "..", ".output", "server"))) {
     patchMjsFiles(path.join(__dirname, "..", ".output", "server"));
 }
 
-// 3. Generate instrument.server.mjs with GLOBAL patches
+if (fs.existsSync(path.join(__dirname, "..", ".output", "public"))) {
+    patchClientAssets(path.join(__dirname, "..", ".output", "public"));
+}
+
+// 4. Generate instrument.server.mjs with GLOBAL patches
 const instrumentPath = path.join(
     __dirname,
     "..",
@@ -197,7 +222,7 @@ globalThis.URL = function(input, base) {
   } catch (e) {
     // Fallback for non-string or invalid inputs that might crash Bun
     if (typeof input !== 'string') {
-        return new originalURL(String(input), base);
+        try { return new originalURL(String(input), base); } catch(e2) { return new originalURL('http://localhost'); }
     }
     throw e;
   }
