@@ -14,10 +14,17 @@ export async function GET(event: APIEvent) {
       if (!e.message?.includes("does not exist")) throw e;
     }
 
-    return new Response(JSON.stringify({ success: true, data: dashboards }), {
-      headers: { "Content-Type": "application/json" },
-    });
+    try {
+      const responseBody = JSON.stringify({ success: true, data: dashboards });
+      return new Response(responseBody, {
+        headers: { "Content-Type": "application/json" },
+      });
+    } catch (stringifyErr: any) {
+      console.error("[API Dashboards] Stringification error:", stringifyErr);
+      throw stringifyErr;
+    }
   } catch (err: any) {
+    console.error("[API Dashboards] General error:", err);
     return new Response(JSON.stringify({ success: false, error: err.message }), {
       status: 500,
       headers: { "Content-Type": "application/json" },

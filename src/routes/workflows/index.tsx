@@ -3,7 +3,6 @@ import { isServer } from "solid-js/web";
 import { A } from "@solidjs/router";
 
 const fetchWorkflows = async () => {
-  if (isServer) return [];
   const res = await fetch("/api/workflows");
   const json = await res.json();
   if (json.success) {

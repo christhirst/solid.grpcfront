@@ -3,12 +3,14 @@ import { isServer } from "solid-js/web";
 
 export default function Dashboards() {
   const [dashboards, { refetch }] = createResource(async () => {
-    if (isServer) return [];
     try {
       const res = await fetch("/api/dashboards");
-      const json = await res.json();
+      const text = await res.text();
+      console.log("Dashboards fetch response:", res.status, text);
+      const json = JSON.parse(text);
       return json.success ? json.data : [];
-    } catch {
+    } catch (e: any) {
+      console.error("Dashboards fetch failed:", e);
       return [];
     }
   });

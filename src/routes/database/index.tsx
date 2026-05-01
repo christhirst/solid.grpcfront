@@ -7,12 +7,14 @@ export default function DatabaseOverview() {
   const [errorMsg, setErrorMsg] = createSignal("");
 
   const fetchDatabases = async () => {
-    if (isServer) return [];
     try {
       const res = await fetch("/api/database");
-      const json = await res.json();
+      const text = await res.text();
+      console.log("Database fetch response:", res.status, text);
+      const json = JSON.parse(text);
       return json.success ? (json.data as string[]) : [];
-    } catch {
+    } catch (e: any) {
+      console.error("Database fetch failed:", e);
       return [];
     }
   };
