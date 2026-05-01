@@ -10,8 +10,6 @@ const serverDir = path.join(rootDir, ".output", "server");
 const publicDir = path.join(rootDir, ".output", "public");
 
 // 1. Patch dependencies in node_modules BEFORE or AFTER build
-// This ensures that Vite/Rollup pick up the patched version and change the hash,
-// bypassing browser caching of the unpatched web-*.js bundle.
 const patchNodeModules = () => {
     const solidJsDistDir = path.join(rootDir, "node_modules", "solid-js", "dist");
     if (!fs.existsSync(solidJsDistDir)) return;
@@ -24,8 +22,6 @@ const patchNodeModules = () => {
             let code = fs.readFileSync(fullPath, "utf8");
             let changed = false;
 
-            // Fix the infamous "Cannot read properties of null (reading 'push')" in resumeEffects
-            // This happens during hydration if a suspense boundary resolves while no batch is active.
             if (code.includes("Effects.push.apply(Effects, e)")) {
                 code = code.replace(
                     /function resumeEffects\(e\) \{\s*Effects\.push\.apply\(Effects, e\);\s*e\.length = 0;\s*\}/g,
@@ -43,12 +39,6 @@ const patchNodeModules = () => {
                 console.log(`Patched node_modules: ${fullPath}`);
             }
         }
-    }
-
-    // Also patch @auth/core in node_modules if it's there (for dev mode)
-    const authCoreDir = path.join(rootDir, "node_modules", "@auth", "core");
-    if (fs.existsSync(authCoreDir)) {
-        // ... similar patches for auth core if needed in dev ...
     }
 };
 
@@ -98,6 +88,24 @@ const patchMjsFiles = (dir) => {
             let code = fs.readFileSync(fullPath, "utf8");
             let changed = false;
 
+            // Fix parseCookies crash in Bun
+            const parseCookiesRegex = /function parseCookies\(event\) \{\s*return parse\(event\.req\.headers\.get\("cookie"\) \|\| ""\);\s*\}/g;
+            if (parseCookiesRegex.test(code)) {
+                code = code.replace(parseCookiesRegex, `function parseCookies(event) {
+          let cookieHeader;
+          const headers = event.req.headers;
+          if (headers && typeof headers.get === 'function') {
+            cookieHeader = headers.get("cookie") || "";
+          } else if (headers && typeof headers === 'object') {
+            cookieHeader = headers.cookie || headers["cookie"] || "";
+          } else {
+            cookieHeader = "";
+          }
+          return parse(cookieHeader);
+        }`);
+                changed = true;
+            }
+
             // Fix getDefaultExportFromNamespaceIfNotNamed for Bun built-ins
             const brokenHelper = /function getDefaultExportFromNamespaceIfNotNamed \(n\) \{\s*return n && Object\.prototype\.hasOwnProperty\.call\(n, 'default'\) && Object\.keys\(n\)\.length === 1 \? n\['default'\] : n;\s*\}/g;
             if (brokenHelper.test(code)) {
@@ -141,8 +149,7 @@ const patchMjsFiles = (dir) => {
     }
 };
 
-// 4. Patch client-side SolidJS web module to prevent hydration 'push' crash
-// (Used as a fallback if the node_modules patch didn't change the hash yet)
+// 4. Patch client-side SolidJS web module
 const patchClientAssets = (dir) => {
     if (!fs.existsSync(dir)) return;
     const files = fs.readdirSync(dir);
@@ -154,15 +161,9 @@ const patchClientAssets = (dir) => {
             let code = fs.readFileSync(fullPath, "utf8");
             let changed = false;
 
-            // Minified SolidJS: qe(e){E.push.apply(E,e),e.length=0}
-            // We need to be careful with names as they can change.
-            // But we know 'E' is the Effects array and 'q' is updateComputation in the current build.
             const pushRegex = /function ([a-zA-Z_$][a-zA-Z0-9_$]*)\(([a-zA-Z_$][a-zA-Z0-9_$]*)\)\{([a-zA-Z_$][a-zA-Z0-9_$]*)\.push\.apply\(\3,\2\),\2\.length=0\}/g;
             if (pushRegex.test(code)) {
                 code = code.replace(pushRegex, (match, fnName, argName, effectsName) => {
-                    console.log(`Detected pushEffects: ${fnName} with arg ${argName} and array ${effectsName}`);
-                    // We assume 'q' is updateComputation if we can find it, but for minified code 
-                    // it's safer to just guard the push.
                     return `function ${fnName}(${argName}){if(${effectsName}){${effectsName}.push.apply(${effectsName},${argName})}else{${argName}.forEach(q)}${argName}.length=0}`;
                 });
                 changed = true;
@@ -179,14 +180,17 @@ const patchClientAssets = (dir) => {
 // Main Execution
 console.log("Starting build patching...");
 patchNodeModules();
-patchAuthLibrary();
-patchMjsFiles(serverDir);
-patchClientAssets(publicDir);
+if (fs.existsSync(serverDir)) {
+    patchAuthLibrary();
+    patchMjsFiles(serverDir);
+}
+if (fs.existsSync(publicDir)) {
+    patchClientAssets(publicDir);
+}
 
 // 5. Generate instrument.server.mjs
 const instrumentPath = path.join(serverDir, "instrument.server.mjs");
 const instrumentCode = `
-// GLOBAL URL PATCH
 const originalURL = globalThis.URL;
 globalThis.URL = function(input, base) {
   if (typeof input === 'string' && input.startsWith('/') && base == null) {
@@ -203,8 +207,6 @@ globalThis.URL = function(input, base) {
 };
 globalThis.URL.prototype = originalURL.prototype;
 Object.setPrototypeOf(globalThis.URL, originalURL);
-
-console.log('[Patch] Global URL constructor patched.');
 `;
 
 if (fs.existsSync(serverDir)) {
