@@ -106,6 +106,22 @@ const patchMjsFiles = (dir) => {
                 changed = true;
             }
 
+            // Fix handleServerFunction headers.get crash
+            if (code.includes("request.headers.get(\"X-Server-Id\")")) {
+                code = code.replace(
+                    /request\.headers\.get\((['"])X-Server-(Id|Instance)\1\)/g,
+                    `(typeof request.headers.get === 'function' ? request.headers.get("X-Server-$2") : (request.headers["x-server-$2.toLowerCase()"] || request.headers["x-server-$2"] || request.headers["X-Server-$2"]))`
+                );
+                // Fix for the replacement above which might not work with $2 in the middle of a string if regex was slightly different
+                code = code.replace(/X-Server-Id/g, "X-Server-Id"); // noop, but keep logic clean
+                
+                // Let's do a simpler replacement for clarity
+                code = code.replace(/request\.headers\.get\("X-Server-Id"\)/g, `(typeof request.headers.get === 'function' ? request.headers.get("X-Server-Id") : (request.headers["x-server-id"] || request.headers["X-Server-Id"]))`);
+                code = code.replace(/request\.headers\.get\("X-Server-Instance"\)/g, `(typeof request.headers.get === 'function' ? request.headers.get("X-Server-Instance") : (request.headers["x-server-instance"] || request.headers["X-Server-Instance"]))`);
+                code = code.replace(/request\.headers\.has\("X-Single-Flight"\)/g, `(typeof request.headers.has === 'function' ? request.headers.has("X-Single-Flight") : ("x-single-flight" in request.headers || "X-Single-Flight" in request.headers))`);
+                changed = true;
+            }
+
             // Fix getDefaultExportFromNamespaceIfNotNamed for Bun built-ins
             const brokenHelper = /function getDefaultExportFromNamespaceIfNotNamed \(n\) \{\s*return n && Object\.prototype\.hasOwnProperty\.call\(n, 'default'\) && Object\.keys\(n\)\.length === 1 \? n\['default'\] : n;\s*\}/g;
             if (brokenHelper.test(code)) {
