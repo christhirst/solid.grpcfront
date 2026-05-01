@@ -3,7 +3,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite dev",
-    "build": "node scripts/patch-server.js && vite build && node scripts/patch-server.js",
+    "build": "bun scripts/patch-server.js && vite build && bun scripts/patch-server.js",
     "start": "vite start",
     "preview": "vite preview"
   },
