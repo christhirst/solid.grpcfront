@@ -1,4 +1,3 @@
-import { useLocation } from "@solidjs/router";
 import { createResource, Show } from "solid-js";
 import { isServer } from "solid-js/web";
 import { signIn, signOut } from "@auth/solid-start/client";
@@ -18,11 +17,14 @@ const fetchSession = async () => {
 
 export default function Nav() {
   const [session] = createResource(fetchSession);
-  const location = useLocation();
-  const active = (path: string) =>
-    path === location.pathname
+  
+  // Use a simpler active check that doesn't rely on useLocation to avoid router context issues
+  const active = (path: string) => {
+    if (isServer) return "text-[#8b8b9e]";
+    return window.location.pathname === path
       ? "text-white"
       : "text-[#8b8b9e] hover:text-white";
+  }
 
   return (
     <nav class="sticky top-0 z-50 border-b border-[#1e1e2e] bg-[#0a0a0f]/90 backdrop-blur-xl">
@@ -40,7 +42,7 @@ export default function Nav() {
           </span>
         </a>
 
-        {/* Navigation Links */}
+        {/* Navigation Links - Using <a> for reliable container reloads */}
         <ul class="flex items-center gap-1">
           <li>
             <a
