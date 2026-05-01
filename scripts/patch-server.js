@@ -142,11 +142,15 @@ const patchMjsFiles = (dir) => {
             }
 
             // Generic safety net: patch any bare `new URL(someVar)` single-arg
-            // calls that might receive a relative path. We target the specific
-            // pattern `= new URL(variable);` (not `new URL("http…` literals or
-            // two-arg calls).  We wrap with a helper that prepends a base when
-            // the input starts with "/".
-            // NOTE: Only applied to server chunks, not client bundles.
+            // calls that might receive a relative path.
+            const genericURLRegex = /(=|\(|\s)new URL\(([a-zA-Z_$][a-zA-Z0-9_$]*)\)(?!,)/g;
+            if (genericURLRegex.test(code)) {
+                code = code.replace(
+                    genericURLRegex,
+                    `$1new URL($2 && typeof $2 === 'string' && $2.startsWith('/') ? 'http://localhost' + $2 : $2)`,
+                );
+                changed = true;
+            }
 
             if (changed) {
                 fs.writeFileSync(fullPath, code);
@@ -169,16 +173,18 @@ const instrumentPath = path.join(
     "instrument.server.mjs",
 );
 const instrumentCode = `// Sentry and Global Patches — loaded via --import flag
-import * as Sentry from '@sentry/node';
+// import * as Sentry from '@sentry/node';
 
+/*
 Sentry.init({
   dsn: process.env.SENTRY_DSN,
   tracesSampleRate: parseFloat(process.env.SENTRY_TRACES_SAMPLE_RATE || '1.0'),
   sendDefaultPii: true,
   environment: process.env.NODE_ENV || 'development',
 });
+*/
 
-console.log('[Sentry] Instrumentation loaded. DSN:', process.env.SENTRY_DSN ? 'configured' : 'NOT SET');
+console.log('[Sentry] Instrumentation disabled temporarily to debug hydration mismatch.');
 
 // Patch URL constructor to handle relative paths BEFORE any other code runs
 const originalURL = globalThis.URL;
@@ -186,17 +192,24 @@ globalThis.URL = function(input, base) {
   if (typeof input === 'string' && input.startsWith('/') && base == null) {
     input = 'http://localhost' + input;
   }
-  return new originalURL(input, base);
+  try {
+    return new originalURL(input, base);
+  } catch (e) {
+    // Fallback for non-string or invalid inputs that might crash Bun
+    if (typeof input !== 'string') {
+        return new originalURL(String(input), base);
+    }
+    throw e;
+  }
 };
 globalThis.URL.prototype = originalURL.prototype;
 Object.setPrototypeOf(globalThis.URL, originalURL);
 Object.defineProperty(globalThis.URL, '_relativePathNormalized', { value: true });
 
-// Ensure Error is a proper constructor (sometimes shadowed or messed with)
+// Ensure Error is a proper constructor
 const nativeError = globalThis.Error;
 if (typeof nativeError !== 'function') {
-  console.warn('[Patch] Error global is not a function, restoring from constructor prototype...');
-  // This is a desperate fallback
+  console.warn('[Patch] Error global is not a function, restoring...');
 }
 `;
 
