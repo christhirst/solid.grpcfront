@@ -106,19 +106,20 @@ const patchMjsFiles = (dir) => {
                 changed = true;
             }
 
-            // Fix handleServerFunction headers.get crash
-            if (code.includes("request.headers.get(\"X-Server-Id\")")) {
-                code = code.replace(
-                    /request\.headers\.get\((['"])X-Server-(Id|Instance)\1\)/g,
-                    `(typeof request.headers.get === 'function' ? request.headers.get("X-Server-$2") : (request.headers["x-server-$2.toLowerCase()"] || request.headers["x-server-$2"] || request.headers["X-Server-$2"]))`
-                );
-                // Fix for the replacement above which might not work with $2 in the middle of a string if regex was slightly different
-                code = code.replace(/X-Server-Id/g, "X-Server-Id"); // noop, but keep logic clean
-                
-                // Let's do a simpler replacement for clarity
-                code = code.replace(/request\.headers\.get\("X-Server-Id"\)/g, `(typeof request.headers.get === 'function' ? request.headers.get("X-Server-Id") : (request.headers["x-server-id"] || request.headers["X-Server-Id"]))`);
-                code = code.replace(/request\.headers\.get\("X-Server-Instance"\)/g, `(typeof request.headers.get === 'function' ? request.headers.get("X-Server-Instance") : (request.headers["x-server-instance"] || request.headers["X-Server-Instance"]))`);
-                code = code.replace(/request\.headers\.has\("X-Single-Flight"\)/g, `(typeof request.headers.has === 'function' ? request.headers.has("X-Single-Flight") : ("x-single-flight" in request.headers || "X-Single-Flight" in request.headers))`);
+            // Global safety net for request.headers.get and request.headers.has
+            // This covers handleServerFunction, handleNoJS, and others
+            const headerGetRegex = /request\.headers\.get\((['"])([^'"]+)\1\)/g;
+            if (headerGetRegex.test(code)) {
+                code = code.replace(headerGetRegex, (match, quote, name) => {
+                    return `(typeof request.headers.get === 'function' ? request.headers.get("${name}") : (request.headers["${name.toLowerCase()}"] || request.headers["${name}"]))`;
+                });
+                changed = true;
+            }
+            const headerHasRegex = /request\.headers\.has\((['"])([^'"]+)\1\)/g;
+            if (headerHasRegex.test(code)) {
+                code = code.replace(headerHasRegex, (match, quote, name) => {
+                    return `(typeof request.headers.has === 'function' ? request.headers.has("${name}") : ("${name.toLowerCase()}" in request.headers || "${name}" in request.headers))`;
+                });
                 changed = true;
             }
 
