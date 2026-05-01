@@ -106,19 +106,19 @@ const patchMjsFiles = (dir) => {
                 changed = true;
             }
 
-            // Global safety net for request.headers.get and request.headers.has
-            // This covers handleServerFunction, handleNoJS, and others
-            const headerGetRegex = /request\.headers\.get\((['"])([^'"]+)\1\)/g;
+            // Global safety net for *.headers.get and *.headers.has
+            // Precise regex to avoid breaking sourceEvent.request.headers.get
+            const headerGetRegex = /([a-zA-Z_$][a-zA-Z0-9_$]*(?:\.[a-zA-Z_$][a-zA-Z0-9_$]*)*)\.headers\.get\((['"])([^'"]+)\2\)/g;
             if (headerGetRegex.test(code)) {
-                code = code.replace(headerGetRegex, (match, quote, name) => {
-                    return `(typeof request.headers.get === 'function' ? request.headers.get("${name}") : (request.headers["${name.toLowerCase()}"] || request.headers["${name}"]))`;
+                code = code.replace(headerGetRegex, (match, obj, quote, name) => {
+                    return `(typeof ${obj}.headers.get === 'function' ? ${obj}.headers.get("${name}") : (${obj}.headers["${name.toLowerCase()}"] || ${obj}.headers["${name}"]))`;
                 });
                 changed = true;
             }
-            const headerHasRegex = /request\.headers\.has\((['"])([^'"]+)\1\)/g;
+            const headerHasRegex = /([a-zA-Z_$][a-zA-Z0-9_$]*(?:\.[a-zA-Z_$][a-zA-Z0-9_$]*)*)\.headers\.has\((['"])([^'"]+)\2\)/g;
             if (headerHasRegex.test(code)) {
-                code = code.replace(headerHasRegex, (match, quote, name) => {
-                    return `(typeof request.headers.has === 'function' ? request.headers.has("${name}") : ("${name.toLowerCase()}" in request.headers || "${name}" in request.headers))`;
+                code = code.replace(headerHasRegex, (match, obj, quote, name) => {
+                    return `(typeof ${obj}.headers.has === 'function' ? ${obj}.headers.has("${name}") : ("${name.toLowerCase()}" in ${obj}.headers || "${name}" in ${obj}.headers))`;
                 });
                 changed = true;
             }
