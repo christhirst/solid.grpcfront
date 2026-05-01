@@ -1,10 +1,7 @@
 import { createResource, Show, For, Suspense } from "solid-js";
-import { useNavigate } from "@solidjs/router";
 import { isServer } from "solid-js/web";
 
 export default function Dashboards() {
-  const navigate = useNavigate();
-
   const [dashboards, { refetch }] = createResource(async () => {
     if (isServer) return [];
     try {
