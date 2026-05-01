@@ -76,6 +76,7 @@ class TracedDb {
     /** Forward .select() with a Sentry span */
     async select(thing: any): Promise<any> {
         const resource = resourceName(thing);
+        console.log(`[DB] SELECT ${resource}`);
         return Sentry.startSpan(
             {
                 name: `SELECT ${resource}`,
@@ -90,10 +91,12 @@ class TracedDb {
                 try {
                     const result = await (this.inner as any).select(thing);
                     if (Array.isArray(result)) {
+                        console.log(`[DB] SELECT ${resource} returned ${result.length} rows`);
                         span.setAttribute("db.row_count", result.length);
                     }
                     return result;
-                } catch (err) {
+                } catch (err: any) {
+                    console.error(`[DB] SELECT ${resource} failed: ${err.message}`);
                     Sentry.captureException(err);
                     throw err;
                 }
@@ -104,6 +107,7 @@ class TracedDb {
     /** Forward .create() with a Sentry span */
     async create(thing: any, data?: any): Promise<any> {
         const resource = resourceName(thing);
+        console.log(`[DB] CREATE ${resource}`);
         return Sentry.startSpan(
             {
                 name: `CREATE ${resource}`,
@@ -116,8 +120,11 @@ class TracedDb {
             },
             async () => {
                 try {
-                    return await (this.inner as any).create(thing, data);
-                } catch (err) {
+                    const res = await (this.inner as any).create(thing, data);
+                    console.log(`[DB] CREATE ${resource} successful`);
+                    return res;
+                } catch (err: any) {
+                    console.error(`[DB] CREATE ${resource} failed: ${err.message}`);
                     Sentry.captureException(err);
                     throw err;
                 }
@@ -128,6 +135,7 @@ class TracedDb {
     /** Forward .update() with a Sentry span */
     async update(thing: any, data?: any): Promise<any> {
         const resource = resourceName(thing);
+        console.log(`[DB] UPDATE ${resource}`);
         return Sentry.startSpan(
             {
                 name: `UPDATE ${resource}`,
@@ -140,8 +148,11 @@ class TracedDb {
             },
             async () => {
                 try {
-                    return await (this.inner as any).update(thing, data);
-                } catch (err) {
+                    const res = await (this.inner as any).update(thing, data);
+                    console.log(`[DB] UPDATE ${resource} successful`);
+                    return res;
+                } catch (err: any) {
+                    console.error(`[DB] UPDATE ${resource} failed: ${err.message}`);
                     Sentry.captureException(err);
                     throw err;
                 }
@@ -152,6 +163,7 @@ class TracedDb {
     /** Forward .delete() with a Sentry span */
     async delete(thing: any): Promise<any> {
         const resource = resourceName(thing);
+        console.log(`[DB] DELETE ${resource}`);
         return Sentry.startSpan(
             {
                 name: `DELETE ${resource}`,
@@ -164,8 +176,11 @@ class TracedDb {
             },
             async () => {
                 try {
-                    return await (this.inner as any).delete(thing);
-                } catch (err) {
+                    const res = await (this.inner as any).delete(thing);
+                    console.log(`[DB] DELETE ${resource} successful`);
+                    return res;
+                } catch (err: any) {
+                    console.error(`[DB] DELETE ${resource} failed: ${err.message}`);
                     Sentry.captureException(err);
                     throw err;
                 }
@@ -175,6 +190,7 @@ class TracedDb {
 
     /** Forward .use() with a Sentry span */
     async use(opts: { namespace?: string; database?: string }): Promise<any> {
+        console.log(`[DB] USE NS:${opts.namespace} DB:${opts.database}`);
         return Sentry.startSpan(
             {
                 name: `USE ${opts.namespace || ""}/${opts.database || ""}`,
@@ -188,7 +204,8 @@ class TracedDb {
             async () => {
                 try {
                     return await this.inner.use(opts);
-                } catch (err) {
+                } catch (err: any) {
+                    console.error(`[DB] USE failed: ${err.message}`);
                     Sentry.captureException(err);
                     throw err;
                 }
@@ -229,12 +246,13 @@ export async function getDb(): Promise<TracedDb> {
             connectSpan.setAttribute("db.namespace", namespace);
             connectSpan.setAttribute("db.name", database);
 
-            console.log(`[DB] Connecting to SurrealDB at ${url}...`);
+            console.log(`[DB] [INIT] Connecting to SurrealDB at ${url}...`);
 
             try {
                 const db = new Surreal();
 
                 // Open a connection and authenticate
+                console.log(`[DB] [INIT] Authenticating as user: ${user}`);
                 await db.connect(url, {
                     authentication: {
                         username: user,
@@ -243,26 +261,30 @@ export async function getDb(): Promise<TracedDb> {
                 });
 
                 // Ensure namespace and database exist, then use them
+                console.log(`[DB] [INIT] Ensuring namespace exists: ${namespace}`);
                 await db.query(`DEFINE NAMESPACE IF NOT EXISTS ${namespace}`);
                 await db.use({ namespace });
+                
+                console.log(`[DB] [INIT] Ensuring database exists: ${database}`);
                 await db.query(`DEFINE DATABASE IF NOT EXISTS ${database}`);
                 await db.use({ namespace, database });
 
                 console.log(
-                    `[DB] Successfully connected to ${namespace}/${database}`,
+                    `[DB] [INIT] Successfully connected to ${namespace}/${database}`,
                 );
 
                 // Initialize workflow scheduler ONCE on the server
                 if (typeof window === "undefined") {
+                    console.log("[DB] [INIT] Initializing workflow scheduler...");
                     // Run in background so it doesn't block the first request
                     initWorkflowScheduler().catch((err) =>
-                        console.error("Failed to init scheduler:", err),
+                        console.error("[DB] [INIT] Failed to init scheduler:", err),
                     );
                 }
 
                 return new TracedDb(db, database);
-            } catch (err) {
-                console.error("[DB] Failed to connect to SurrealDB:", err);
+            } catch (err: any) {
+                console.error("[DB] [INIT] Failed to connect to SurrealDB:", err.message);
                 Sentry.captureException(err);
                 dbPromise = null;
                 throw err;
@@ -297,7 +319,7 @@ export async function getDynamicDb(dbName: string): Promise<TracedDb> {
             connectSpan.setAttribute("db.namespace", namespace);
 
             console.log(
-                `[DB] Connecting to dynamic SurrealDB database '${dbName}'...`,
+                `[DB] [DYNAMIC] Connecting to dynamic database '${dbName}' at ${url}...`,
             );
             try {
                 const s = new Surreal();
@@ -305,11 +327,12 @@ export async function getDynamicDb(dbName: string): Promise<TracedDb> {
                     authentication: { username: user, password: pass },
                 });
                 await s.use({ namespace, database: dbName });
+                console.log(`[DB] [DYNAMIC] Successfully connected to '${dbName}'`);
                 return new TracedDb(s, dbName);
-            } catch (err) {
+            } catch (err: any) {
                 console.error(
-                    `[DB] Failed to connect to dynamic database ${dbName}:`,
-                    err,
+                    `[DB] [DYNAMIC] Failed to connect to dynamic database ${dbName}:`,
+                    err.message,
                 );
                 Sentry.captureException(err);
                 dynamicDbs.delete(dbName);
