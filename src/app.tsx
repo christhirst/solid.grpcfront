@@ -8,7 +8,7 @@ export default function App() {
   return (
     <Router>
       <Route
-        path="*"
+        path=""
         component={(props) => (
           <>
             <Nav />
