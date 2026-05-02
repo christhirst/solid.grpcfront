@@ -48,7 +48,7 @@ export default function Nav() {
             <li>
               <a
                 href={path}
-                onClick={(e) => { e.preventDefault(); window.location.href = path; }}
+                rel="external"
                 class={`rounded-lg px-4 py-2 text-sm font-medium transition-colors duration-200 ${active(path)}`}
               >
                 {path === "/" ? "Home" : path.replace("/", "").charAt(0).toUpperCase() + path.replace("/", "").slice(1).replace("Grpc", "gRPC Client")}
