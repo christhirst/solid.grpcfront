@@ -3,7 +3,7 @@ import { isServer } from "solid-js/web";
 import { A } from "@solidjs/router";
 
 const fetchWorkflows = async () => {
-  const url = isServer ? "http://127.0.0.1:3000/api/workflows" : "/api/workflows";
+  const url = isServer ? `http://127.0.0.1:${process.env.PORT || 3000}/api/workflows` : "/api/workflows";
   const res = await fetch(url);
   const json = await res.json();
   if (json.success) {
@@ -97,7 +97,7 @@ export default function Workflows() {
                 </div>
                 
                 <div class="mt-6 flex items-center justify-between border-t border-[#1e1e2e] pt-4 text-xs text-[#5b5b6e]">
-                  <span>Last updated: {new Date(workflow.updated_at || Date.now()).toLocaleDateString()}</span>
+                  <span>Last updated: {new Date(workflow.updated_at || Date.now()).toISOString().split('T')[0]}</span>
                   <span class="flex items-center gap-1 group-hover:text-white transition-colors">
                     Edit Flow
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

@@ -1,10 +1,12 @@
 import { createResource, Show, For, Suspense } from "solid-js";
+import { useNavigate } from "@solidjs/router";
 import { isServer } from "solid-js/web";
 
 export default function Dashboards() {
+  const navigate = useNavigate();
   const [dashboards, { refetch }] = createResource(async () => {
     try {
-      const url = isServer ? "http://127.0.0.1:3000/api/dashboards" : "/api/dashboards";
+      const url = isServer ? `http://127.0.0.1:${process.env.PORT || 3000}/api/dashboards` : "/api/dashboards";
       const res = await fetch(url);
       const text = await res.text();
       console.log("Dashboards fetch response:", res.status, text);
@@ -50,7 +52,10 @@ export default function Dashboards() {
 
           <For each={dashboards()}>
             {(d) => (
-              <a href={`/dashboards/${d.id.replace("dashboard:", "")}`} target="_self" class="card card-hover group p-6 flex flex-col h-full border-l-4 border-l-purple-500">
+              <div 
+                onClick={() => navigate(`/dashboards/${d.id.replace("dashboard:", "")}`)}
+                class="card card-hover group p-6 flex flex-col h-full border-l-4 border-l-purple-500 cursor-pointer"
+              >
                 <div class="flex justify-between items-start mb-4">
                   <h3 class="font-bold text-lg text-white truncate group-hover:text-purple-400 transition-colors">
                     {d.name || "Untitled Dashboard"}
@@ -66,20 +71,33 @@ export default function Dashboards() {
                 
                 <div class="mt-6 flex items-center justify-between border-t border-[#2a2a3a] pt-4">
                   <div class="text-[10px] text-[#5b5b6e]">
-                    {new Date(d.updated_at).toLocaleDateString()}
+                    {d.updated_at ? new Date(d.updated_at).toISOString().split('T')[0] : "No date"}
                   </div>
                   <div class="flex gap-2">
                     <Show when={d.isPublic}>
-                      <a href={`/p/${d.id.replace("dashboard:", "")}`} target="_blank" onClick={(e: Event) => e.stopPropagation()} class="text-[#8b8b9e] hover:text-blue-400 p-1" title="View Public Board">
+                      <a 
+                        href={`/p/${d.id.replace("dashboard:", "")}`} 
+                        target="_blank" 
+                        onClick={(e: Event) => e.stopPropagation()} 
+                        class="text-[#8b8b9e] hover:text-blue-400 p-1" 
+                        title="View Public Board"
+                      >
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
                       </a>
                     </Show>
-                    <button onClick={(e) => deleteDashboard(d.id, e)} class="text-[#8b8b9e] hover:text-red-400 p-1" title="Delete">
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteDashboard(d.id, e);
+                      }} 
+                      class="text-[#8b8b9e] hover:text-red-400 p-1" 
+                      title="Delete"
+                    >
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
                     </button>
                   </div>
                 </div>
-              </a>
+              </div>
             )}
           </For>
         </Suspense>

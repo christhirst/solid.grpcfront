@@ -219,18 +219,21 @@ export default function GrpcClient() {
     }
 
     try {
+      console.log("Parsing proto content...");
       const parsed = parseProtoContent(content);
       setParsedProto(parsed);
       setParseError(null);
 
-      // Auto-select first service/method
+      // Auto-select first service/method if none selected or if we just loaded a sample
       if (parsed.services.length > 0) {
-        setSelectedService(parsed.services[0].fullName);
+        const firstService = parsed.services[0].fullName;
+        setSelectedService(firstService);
         if (parsed.services[0].methods.length > 0) {
           setSelectedMethod(parsed.services[0].methods[0].name);
         }
       }
     } catch (err: any) {
+      console.error("Proto parse error:", err);
       setParsedProto(null);
       setParseError(err.message || "Failed to parse proto file");
     }
@@ -310,7 +313,11 @@ export default function GrpcClient() {
   };
 
   const loadSample = () => {
-    setProtoContent(SAMPLE_PROTO);
+    console.log("Loading sample proto...");
+    setProtoContent(""); // Reset first to ensure effect triggers even if content is same
+    setTimeout(() => {
+      setProtoContent(SAMPLE_PROTO);
+    }, 0);
   };
 
   // Send gRPC request

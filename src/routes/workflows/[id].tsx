@@ -1,5 +1,5 @@
 import { createSignal, createEffect, onMount, For, Show, createResource } from "solid-js";
-import { createStore, reconcile } from "solid-js/store";
+import { createStore, reconcile, produce } from "solid-js/store";
 import { isServer } from "solid-js/web";
 import { useParams, useNavigate } from "@solidjs/router";
 import get from "lodash.get";
@@ -8,7 +8,9 @@ import { DefaultChart } from "solid-chartjs";
 import { Chart, registerables } from "chart.js";
 import { createSolidTable, getCoreRowModel, flexRender } from "@tanstack/solid-table";
 
-Chart.register(...registerables);
+if (!isServer) {
+  Chart.register(...registerables);
+}
 
 function LogTable(props: { data: any[]; columns?: string[] }) {
   const effectiveCols = () => {
@@ -247,6 +249,7 @@ export default function WorkflowBuilder() {
   const [authTestResult, setAuthTestResult] = createSignal<{ success: boolean; token?: string; error?: string } | null>(null);
   const [isTestingAuth, setIsTestingAuth] = createSignal(false);
   const [steps, setSteps] = createStore<any[]>([]);
+  const [showAddStepMenu, setShowAddStepMenu] = createSignal(false);
 
   // Parsed state
   const [parsedProto, setParsedProto] = createSignal<ParsedProto | null>(null);
@@ -364,10 +367,10 @@ export default function WorkflowBuilder() {
     }
   };
 
-  const addStep = () => {
-    setSteps([...steps, {
-      id: `step_${steps.length + 1}`,
-      type: "grpc",
+  const addStep = (type: string = "grpc") => {
+    const newStep: any = {
+      id: `step_${Math.random().toString(36).substr(2, 9)}`,
+      type: type,
       serviceName: "",
       methodName: "",
       requestBodyTemplate: "{}",
@@ -375,7 +378,18 @@ export default function WorkflowBuilder() {
       serverAddress: "",
       useTls: useTls(),
       dataPath: "", xKey: "", yKey: ""
-    }]);
+    };
+
+    // Defaults for visualization steps
+    if (type === "table" || type === "chart") {
+       newStep.requestBodyTemplate = ""; // Will select from source
+    }
+    if (type === "chart") {
+       newStep.chartType = "bar";
+    }
+
+    setSteps(produce((s: any[]) => s.push(newStep)));
+    setShowAddStepMenu(false);
   };
 
   const updateStep = (index: number, key: string, value: any) => {
@@ -394,7 +408,7 @@ export default function WorkflowBuilder() {
   };
 
   const removeStep = (index: number) => {
-    setSteps(steps.filter((_, i) => i !== index));
+    setSteps(produce((s: any[]) => s.splice(index, 1)));
   };
 
   const runWorkflow = async () => {
@@ -897,11 +911,40 @@ export default function WorkflowBuilder() {
             </div>
           </Show>
 
-          <div class="flex items-center justify-between">
+          <div class="flex items-center justify-between relative">
             <h2 class="text-xl font-bold text-white">Workflow Steps</h2>
-            <button onClick={addStep} class="text-sm font-medium text-blue-400 hover:text-blue-300 flex items-center gap-1">
-              + Add Step
-            </button>
+            <div class="relative">
+              <button 
+                type="button"
+                onClick={() => setShowAddStepMenu(!showAddStepMenu())} 
+                class="text-sm font-medium text-blue-400 hover:text-blue-300 flex items-center gap-1 bg-blue-500/10 px-3 py-1.5 rounded-lg border border-blue-500/20 transition-all hover:bg-blue-500/20"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                Add Step
+              </button>
+              
+              <Show when={showAddStepMenu()}>
+                <div class="absolute right-0 mt-2 w-56 rounded-xl bg-[#1e1e2e] border border-[#2a2a3a] shadow-2xl z-50 overflow-hidden fade-in py-1">
+                  <div class="px-3 py-2 text-[10px] font-bold text-[#5b5b6e] uppercase tracking-wider border-b border-[#2a2a3a]/50 mb-1">Select Step Type</div>
+                  <button type="button" onClick={() => addStep("grpc")} class="w-full text-left px-4 py-2 text-sm text-[#c8c8d8] hover:bg-blue-500/10 hover:text-blue-400 flex items-center gap-2 transition-colors">
+                    <span class="text-lg">⚡</span> gRPC Request
+                  </button>
+                  <button type="button" onClick={() => addStep("rest")} class="w-full text-left px-4 py-2 text-sm text-[#c8c8d8] hover:bg-blue-500/10 hover:text-blue-400 flex items-center gap-2 transition-colors">
+                    <span class="text-lg">🌐</span> REST Request
+                  </button>
+                  <button type="button" onClick={() => addStep("database")} class="w-full text-left px-4 py-2 text-sm text-[#c8c8d8] hover:bg-blue-500/10 hover:text-blue-400 flex items-center gap-2 transition-colors">
+                    <span class="text-lg">🛢️</span> Database Query
+                  </button>
+                  <div class="h-px bg-[#2a2a3a] my-1 mx-2"></div>
+                  <button type="button" onClick={() => addStep("table")} class="w-full text-left px-4 py-2 text-sm text-[#c8c8d8] hover:bg-blue-500/10 hover:text-blue-400 flex items-center gap-2 transition-colors">
+                    <span class="text-lg">📊</span> View Table
+                  </button>
+                  <button type="button" onClick={() => addStep("chart")} class="w-full text-left px-4 py-2 text-sm text-[#c8c8d8] hover:bg-blue-500/10 hover:text-blue-400 flex items-center gap-2 transition-colors">
+                    <span class="text-lg">📈</span> Chart
+                  </button>
+                </div>
+              </Show>
+            </div>
           </div>
 
           <div class="space-y-6">

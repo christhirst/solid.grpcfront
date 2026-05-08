@@ -9,7 +9,7 @@ export interface ProtoFile {
 }
 
 const fetchProtos = async () => {
-  const url = isServer ? "http://127.0.0.1:3000/api/protos" : "/api/protos";
+  const url = isServer ? `http://127.0.0.1:${process.env.PORT || 3000}/api/protos` : "/api/protos";
   const res = await fetch(url);
   const json = await res.json();
   if (json.success) {

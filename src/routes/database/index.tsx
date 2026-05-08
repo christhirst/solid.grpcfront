@@ -8,7 +8,7 @@ export default function DatabaseOverview() {
 
   const fetchDatabases = async () => {
     try {
-      const url = isServer ? "http://127.0.0.1:3000/api/database" : "/api/database";
+      const url = isServer ? `http://127.0.0.1:${process.env.PORT || 3000}/api/database` : "/api/database";
       const res = await fetch(url);
       const text = await res.text();
       console.log("Database fetch response:", res.status, text);
