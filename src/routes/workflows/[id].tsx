@@ -2,8 +2,16 @@ import { createSignal, createEffect, onMount, For, Show, createResource } from "
 import { createStore, reconcile, produce } from "solid-js/store";
 import { isServer } from "solid-js/web";
 import { useParams, useNavigate } from "@solidjs/router";
-import get from "lodash.get";
 import { parseProtoContent, generateSkeleton, ParsedProto } from "~/lib/protoParser";
+
+// Safe dot-path getter to avoid CJS interop issues in Vite prod builds
+function get(obj: any, path: string | string[], defValue?: any) {
+  if (!path) return obj;
+  const pathArray = Array.isArray(path) ? path : path.match(/([^[.\]])+/g);
+  const result = pathArray?.reduce((prevObj, key) => prevObj && prevObj[key], obj);
+  return result === undefined ? defValue : result;
+}
+
 import { DefaultChart } from "solid-chartjs";
 import { Chart, registerables } from "chart.js";
 import { createSolidTable, getCoreRowModel, flexRender } from "@tanstack/solid-table";
@@ -179,6 +187,11 @@ export default function WorkflowBuilder() {
 
   onMount(() => {
     if (isServer) return;
+    
+    // Fallback: If createResource didn't load during SSR properly, force fetch
+    if (!savedProtos()) refetchProtos();
+    if (!isNew && !workflow()) refetchWorkflow();
+
     document.addEventListener('focusin', (e) => {
       const t = e.target as HTMLElement;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) {
@@ -218,10 +231,10 @@ export default function WorkflowBuilder() {
   };
   
   // Fetch saved protos from Registry
-  const [savedProtos] = createResource(async () => {
-    if (isServer) return [];
+  const [savedProtos, { refetch: refetchProtos }] = createResource(async () => {
+    const url = isServer ? `http://127.0.0.1:${process.env.PORT || 3000}/api/protos` : "/api/protos";
     try {
-      const res = await fetch("/api/protos");
+      const res = await fetch(url);
       const json = await res.json();
       return json.success ? json.data : [];
     } catch {
@@ -260,46 +273,58 @@ export default function WorkflowBuilder() {
   const [runData, setRunData] = createSignal<any>(null);
   const [isRunning, setIsRunning] = createSignal(false);
 
-  // Fetch existing if not new
   const fetchWorkflow = async () => {
-    if (isNew || isServer) return null;
-    const res = await fetch(`/api/workflows/${params.id}`);
-    const json = await res.json();
-    if (json.success && json.data) {
-      setName(json.data.name || "Untitled");
-      setProtoContent(json.data.protoContent || "");
-      setServerAddress(json.data.serverAddress || "localhost:50051");
-      setUseTls(json.data.useTls || false);
-      setSchedule(json.data.schedule || "");
-        
-        const ac = json.data.authConfig;
-        if (ac) {
-          setAuthType(ac.type || "grpc");
-          if (ac.type === "static") {
-            setBearerToken(ac.bearerToken || "");
-          } else if (ac.type === "grpc") {
-            setAuthService(ac.serviceName || "");
-            setAuthMethod(ac.methodName || "");
-            setAuthRequestTemplate(ac.requestTemplate || "{}");
-          } else {
-            setAuthUrl(ac.url || "");
-            setAuthRestMethod(ac.method || "POST");
-            setAuthScheme(ac.authScheme || "basic");
-            setAuthUsername(ac.username || "");
-            setAuthPassword(ac.password || "");
-            setBearerToken(ac.bearerToken || "");
-            setAuthRestBody(ac.body || "{}");
-          }
-          setAuthTokenPath(ac.tokenPath || "accessToken");
-        }
-        
-        setSteps(reconcile(json.data.steps || []));
-      return json.data;
+    const url = isServer ? `http://127.0.0.1:${process.env.PORT || 3000}/api/workflows/${params.id}` : `/api/workflows/${params.id}`;
+    if (isNew) return null;
+    try {
+      const res = await fetch(url);
+      const json = await res.json();
+      if (json.success && json.data) {
+        return json.data;
+      }
+    } catch (e) {
+      console.error("fetchWorkflow error:", e);
     }
     return null;
   };
 
-  const [workflow] = createResource(params.id, fetchWorkflow);
+  const [workflow, { refetch: refetchWorkflow }] = createResource(params.id, fetchWorkflow);
+
+  // Sync resource data to local mutable state safely on the client
+  createEffect(() => {
+    const data = workflow();
+    if (data) {
+      setName(data.name || "Untitled");
+      setProtoContent(data.protoContent || "");
+      setServerAddress(data.serverAddress || "localhost:50051");
+      setUseTls(data.useTls || false);
+      setSchedule(data.schedule || "");
+        
+      const ac = data.authConfig;
+      if (ac) {
+        setAuthType(ac.type || "grpc");
+        if (ac.type === "static") {
+          setBearerToken(ac.bearerToken || "");
+        } else if (ac.type === "grpc") {
+          setAuthService(ac.serviceName || "");
+          setAuthMethod(ac.methodName || "");
+          setAuthRequestTemplate(ac.requestTemplate || "{}");
+        } else {
+          setAuthUrl(ac.url || "");
+          setAuthRestMethod(ac.method || "POST");
+          setAuthScheme(ac.authScheme || "basic");
+          setAuthUsername(ac.username || "");
+          setAuthPassword(ac.password || "");
+          setBearerToken(ac.bearerToken || "");
+          setAuthRestBody(ac.body || "{}");
+        }
+        setAuthTokenPath(ac.tokenPath || "accessToken");
+      }
+      
+      setSteps(reconcile(data.steps || []));
+    }
+  });
+
 
   // Re-parse proto content when it changes
   createEffect(() => {

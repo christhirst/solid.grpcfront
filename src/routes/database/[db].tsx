@@ -15,9 +15,9 @@ export default function DatabaseViewer() {
   const [copied, setCopied] = createSignal(false);
 
   const fetchTables = async () => {
-    if (isServer) return [];
+    const url = isServer ? `http://127.0.0.1:${process.env.PORT || 3000}/api/database/${dbName}/tables` : `/api/database/${dbName}/tables`;
     try {
-      const res = await fetch(`/api/database/${dbName}/tables`);
+      const res = await fetch(url);
       const json = await res.json();
       const tables = json.success ? (json.data as string[]) : [];
       if (tables.length > 0 && !selectedTable()) {
@@ -32,9 +32,10 @@ export default function DatabaseViewer() {
   const [tables] = createResource(fetchTables);
 
   const fetchRecords = async (table: string) => {
-    if (isServer || !table) return [];
+    if (!table) return [];
+    const url = isServer ? `http://127.0.0.1:${process.env.PORT || 3000}/api/database/${dbName}/${table}` : `/api/database/${dbName}/${table}`;
     try {
-      const res = await fetch(`/api/database/${dbName}/${table}`);
+      const res = await fetch(url);
       const json = await res.json();
       return json.success ? (json.data as any[]) : [];
     } catch {

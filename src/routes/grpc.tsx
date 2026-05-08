@@ -3,7 +3,13 @@ import { isServer } from "solid-js/web";
 import { parseProtoContent, generateSkeleton, type ParsedProto, type ProtoMethod } from "~/lib/protoParser";
 import { Line } from "solid-chartjs";
 import { Chart, registerables } from "chart.js";
-import get from "lodash.get";
+// Safe dot-path getter to avoid CJS interop issues in Vite prod builds
+function get(obj: any, path: string | string[], defValue?: any) {
+  if (!path) return obj;
+  const pathArray = Array.isArray(path) ? path : path.match(/([^[.\]])+/g);
+  const result = pathArray?.reduce((prevObj, key) => prevObj && prevObj[key], obj);
+  return result === undefined ? defValue : result;
+}
 import {
   createSolidTable,
   getCoreRowModel,
@@ -259,9 +265,9 @@ export default function GrpcClient() {
 
   // Fetch saved protos
   const [savedProtos] = createResource(async () => {
-    if (isServer) return [];
+    const url = isServer ? `http://127.0.0.1:${process.env.PORT || 3000}/api/protos` : "/api/protos";
     try {
-      const res = await fetch("/api/protos");
+      const res = await fetch(url);
       const json = await res.json();
       return json.success ? json.data : [];
     } catch {

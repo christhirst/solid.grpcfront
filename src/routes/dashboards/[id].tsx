@@ -46,9 +46,9 @@ export default function DashboardBuilder() {
 
   // Fetch all workflows for dropdowns
   const [workflows] = createResource(async () => {
-    if (isServer) return [];
+    const url = isServer ? `http://127.0.0.1:${process.env.PORT || 3000}/api/workflows` : "/api/workflows";
     try {
-      const res = await fetch("/api/workflows");
+      const res = await fetch(url);
       const json = await res.json();
       return json.success ? json.data : [];
     } catch {
