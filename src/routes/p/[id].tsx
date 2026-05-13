@@ -242,7 +242,7 @@ function extractLastStep(logs: any[]): { data: any[]; meta: any } {
 // ─── Auto-loading widget (table or chart) ─────────────────────────────────────
 
 function AutoWidget(props: { dashboardId: string; btn: any; workflow: any }) {
-  const kind = lastStepType(props.workflow);
+  const kind = props.btn.widgetType || lastStepType(props.workflow);
   const lastS = lastStep(props.workflow);
 
   const [status, setStatus] = createSignal<"loading" | "ready" | "error">("loading");
@@ -306,14 +306,14 @@ function AutoWidget(props: { dashboardId: string; btn: any; workflow: any }) {
 
       <Show when={status() === "ready"}>
         <Show when={kind === "table"}>
-          <DashTable data={tableData()} columns={stepMeta().columns} />
+          <DashTable data={tableData()} columns={props.btn.columns ? props.btn.columns.split(",").map((c: string) => c.trim()).filter(Boolean) : stepMeta().columns} />
         </Show>
         <Show when={kind === "chart"}>
           <DashChart
             data={tableData()}
-            xKey={stepMeta().xKey || lastS?.xKey}
-            yKey={stepMeta().yKey || lastS?.yKey}
-            chartType={stepMeta().chartType || (lastS as any)?.chartType || "bar"}
+            xKey={props.btn.xKey || stepMeta().xKey || lastS?.xKey}
+            yKey={props.btn.yKey || stepMeta().yKey || lastS?.yKey}
+            chartType={props.btn.chartType || stepMeta().chartType || (lastS as any)?.chartType || "bar"}
           />
         </Show>
       </Show>
@@ -453,10 +453,10 @@ export default function PublicDashboard() {
             <For each={dashboard().buttons || []}>
               {(btn) => {
                 const wf = () => workflowMap()[btn.workflowId];
-                const kind = () => wf() ? lastStepType(wf()) : "grpc";
+                const kind = () => btn.widgetType || (wf() ? lastStepType(wf()) : "button");
 
                 return (
-                  <Show when={kind() !== "grpc"} fallback={
+                  <Show when={kind() === "chart" || kind() === "table"} fallback={
                     /* ── Button widget ── */
                     (() => {
                       const state = () => executing()[btn.id] || "idle";
