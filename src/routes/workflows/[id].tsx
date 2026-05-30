@@ -1004,66 +1004,52 @@ export default function WorkflowBuilder() {
 
         {/* Right Col: Steps Builder & Run Results */}
         <div class="col-span-1 lg:col-span-2 space-y-6">
+          {/* Top-Level Run Status Banner */}
           <Show when={runData()}>
-            <div class={`card p-5 border ${runData().status === "completed" ? "border-emerald-500/30" : runData().status === "failed" ? "border-red-500/30" : "border-blue-500/30"}`}>
-              <div class="flex justify-between items-center mb-4">
-                <h3 class="text-lg font-bold text-white">Execution Result</h3>
-                <span class={`px-2 py-1 rounded text-xs font-bold uppercase tracking-wider ${runData().status === "completed" ? "bg-emerald-500/20 text-emerald-400" : runData().status === "failed" ? "bg-red-500/20 text-red-400" : "bg-blue-500/20 text-blue-400"}`}>
-                  {runData().status}
-                </span>
-              </div>
-              <div class="space-y-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
-                <For each={runData().logs}>
-                  {(log: any) => (
-                    <div class="rounded-lg bg-[#1e1e2e] border border-[#2a2a3a] p-4">
-                      <div class="flex items-center justify-between mb-2">
-                        <span class="font-mono text-white text-sm bg-[#2a2a3a] px-2 py-1 rounded flex items-center gap-2">
-                          Step: {log.stepId}
-                          <Show when={log.stepType && log.stepType !== "grpc"}>
-                            <span class="bg-blue-500/20 text-blue-400 text-[10px] px-1 py-0.5 rounded uppercase tracking-wider">{log.stepType}</span>
-                          </Show>
-                        </span>
-                        <span class={`text-xs ${log.status === "success" ? "text-emerald-400" : "text-red-400"}`}>
-                          {log.status.toUpperCase()} {log.latencyMs ? `(${log.latencyMs}ms)` : ""}
-                        </span>
-                      </div>
-                      
-                      {/* Standard gRPC, REST, and Database Logic */}
-                      <Show when={!log.stepType || log.stepType === "grpc" || log.stepType === "database" || log.stepType === "rest"}>
-                        <div class="grid grid-cols-2 gap-4">
-                          <div>
-                            <p class="text-[10px] text-[#8b8b9e] uppercase mb-1">Rendered Payload</p>
-                            <pre class="text-xs text-blue-300 font-mono overflow-x-auto bg-[#151520] p-2 rounded">{JSON.stringify(log.request, null, 2)}</pre>
-                          </div>
-                          <div>
-                            <p class="text-[10px] text-[#8b8b9e] uppercase mb-1">Response</p>
-                            <pre class={`text-xs font-mono overflow-x-auto bg-[#151520] p-2 rounded ${log.error ? "text-red-300" : "text-emerald-300"}`}>
-                              {log.error || JSON.stringify(log.response, null, 2)}
-                            </pre>
-                          </div>
-                        </div>
-                      </Show>
-                      
-                      {/* Table Render Logic */}
-                      <Show when={log.stepType === "table"}>
-                        <div class="mt-2">
-                          <p class="text-[10px] text-[#8b8b9e] uppercase mb-1">Rendered Table Data</p>
-                          <LogTable data={log.response} columns={log.meta?.columns} />
-                        </div>
-                      </Show>
-
-                      {/* Chart Render Logic */}
-                      <Show when={log.stepType === "chart"}>
-                        <div class="mt-2">
-                          <p class="text-[10px] text-[#8b8b9e] uppercase mb-1">Rendered Chart Data</p>
-                          <LogChart data={log.response} xKey={log.meta?.xKey} yKey={log.meta?.yKey} chartType={log.meta?.chartType} />
-                        </div>
-                      </Show>
+            {(() => {
+              const authError = (runData()?.logs || []).find((l: any) => l.stepId === "auth" && l.status === "error");
+              return (
+                <div class={`card p-4 flex flex-col md:flex-row md:items-center justify-between gap-3 border ${
+                  runData().status === "completed" 
+                    ? "border-emerald-500/20 bg-emerald-500/5 text-emerald-400" 
+                    : runData().status === "failed" 
+                      ? "border-red-500/20 bg-red-500/5 text-red-400" 
+                      : "border-blue-500/20 bg-blue-500/5 text-blue-400"
+                }`}>
+                  <div class="flex items-center gap-3">
+                    <span class="flex h-2 w-2 relative">
+                      <span class={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
+                        runData().status === "completed" ? "bg-emerald-400" : runData().status === "failed" ? "bg-red-400" : "bg-blue-400"
+                      }`}></span>
+                      <span class={`relative inline-flex rounded-full h-2 w-2 ${
+                        runData().status === "completed" ? "bg-emerald-500" : runData().status === "failed" ? "bg-red-500" : "bg-blue-500"
+                      }`}></span>
+                    </span>
+                    <span class="text-xs font-bold uppercase tracking-wider">
+                      Workflow Run Status: {runData().status}
+                    </span>
+                    <Show when={runData().endTime}>
+                      <span class="text-[10px] text-[#5b5b6e]">
+                        (Finished in {Math.max(0, new Date(runData().endTime!).getTime() - new Date(runData().startTime).getTime())}ms)
+                      </span>
+                    </Show>
+                  </div>
+                  
+                  <Show when={authError}>
+                    <div class="text-xs font-bold text-red-400 bg-red-500/10 border border-red-500/20 px-3 py-1.5 rounded-lg flex items-center gap-1.5">
+                      ⚠️ Authentication Failed: {authError.error}
                     </div>
-                  )}
-                </For>
-              </div>
-            </div>
+                  </Show>
+                  
+                  <button 
+                    onClick={() => setRunData(null)}
+                    class="text-[10px] font-semibold text-[#8b8b9e] hover:text-white transition-colors self-start md:self-auto"
+                  >
+                    Clear Results
+                  </button>
+                </div>
+              );
+            })()}
           </Show>
 
           <div class="flex items-center justify-between relative">
@@ -1104,11 +1090,23 @@ export default function WorkflowBuilder() {
 
           <div class="space-y-6">
             <For each={steps}>
-              {(step, index) => (
-                <div class="card p-5 relative border-l-4 border-l-blue-500">
-                  <div class="absolute -left-[14px] -top-[14px] flex h-6 w-6 items-center justify-center rounded-full bg-blue-500 text-xs font-bold text-white ring-4 ring-[#0a0a0f]">
-                    {index() + 1}
-                  </div>
+              {(step, index) => {
+                const [resultTab, setResultTab] = createSignal<"payload" | "response">("response");
+                const log = createMemo(() => (runData()?.logs || []).find((l: any) => l.stepId === step.id));
+                const stepData = createMemo(() => {
+                  const currentLog = log();
+                  if (!currentLog) return [];
+                  const resp = currentLog.response;
+                  return Array.isArray(resp) ? resp : (resp ? [resp] : []);
+                });
+                return (
+                  <div class="card p-5 relative border-l-4 border-l-blue-500">
+                    <div class="absolute -left-[14px] -top-[14px] flex h-6 w-6 items-center justify-center rounded-full bg-blue-500 text-xs font-bold text-white ring-4 ring-[#0a0a0f]">
+                      {index() + 1}
+                    </div>
+                    <div class={`grid grid-cols-1 ${runData() ? "lg:grid-cols-2" : ""} gap-6`}>
+                      {/* Left Column: Configuration */}
+                      <div class="space-y-4">
                   
                   <div class="flex justify-between items-start mb-4">
                     <div class="flex items-center gap-4 flex-1">
@@ -1494,53 +1492,120 @@ export default function WorkflowBuilder() {
                     </div>
                   </Show>
 
-                  {/* ── Inline preview panel (table / chart steps) ── */}
-                  <Show when={(step.type === "table" || step.type === "chart") && runData()}>
-                    {(() => {
-                      const log = (runData()?.logs || []).find((l: any) => l.stepId === step.id);
-                      const data: any[] = Array.isArray(log?.response) ? log.response : (log?.response ? [log.response] : []);
-                      const meta = log?.meta || {};
-                      return (
-                        <div class={`mt-4 pt-4 border-t ${step.type === "table" ? "border-emerald-500/20" : "border-purple-500/20"}`}>
-                          <div class="flex items-center justify-between mb-3">
-                            <span class={`text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 ${step.type === "table" ? "text-emerald-400" : "text-purple-400"}`}>
-                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <Show when={step.type === "table"}>
-                                  <rect x="3" y="3" width="18" height="18" rx="2"></rect><path d="M3 9h18M3 15h18M9 3v18"></path>
+                      </div> {/* Close Configuration Left Column */}
+
+                      {/* Right Column: Execution Result */}
+                      <Show when={runData()}>
+                        <div class="border-t lg:border-t-0 lg:border-l border-[#2a2a3a]/50 pt-4 lg:pt-0 lg:pl-6 flex flex-col h-full min-h-[220px]">
+                          <Show when={log()} fallback={
+                            <div class="flex flex-col items-center justify-center h-full py-8 text-center text-[#5b5b6e]">
+                              <Show when={isRunning() && !(runData()?.logs || []).some((l: any) => l.stepId === "auth" || l.status === "error")} fallback={
+                                <div class="flex flex-col items-center">
+                                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mb-2 text-[#3a3a4e]"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+                                  <span class="text-xs italic">Step not executed</span>
+                                </div>
+                              }>
+                                <svg class="animate-spin h-5 w-5 text-blue-500 mb-2" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                <span class="text-xs text-blue-400 animate-pulse font-medium">Waiting to execute...</span>
+                              </Show>
+                            </div>
+                          }>
+                            <div class="flex items-center justify-between mb-3 border-b border-[#2a2a3a]/30 pb-2">
+                              <div class="flex items-center gap-2">
+                                <span class={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                                  log()!.status === "success" ? "bg-emerald-500/20 text-emerald-400" : "bg-red-500/20 text-red-400"
+                                }`}>
+                                  {log()!.status}
+                                </span>
+                                <Show when={log()!.latencyMs}>
+                                  <span class="text-[10px] text-[#5b5b6e] font-mono">{log()!.latencyMs}ms</span>
                                 </Show>
-                                <Show when={step.type === "chart"}>
-                                  <rect x="2" y="3" width="4" height="18"></rect><rect x="9" y="8" width="4" height="13"></rect><rect x="16" y="14" width="4" height="7"></rect>
+                              </div>
+                              
+                              <Show when={!step.type || step.type === "grpc" || step.type === "rest" || step.type === "database"}>
+                                <div class="flex p-0.5 bg-[#12121a] border border-[#2a2a3a] rounded-lg shadow-sm">
+                                  <button
+                                    type="button"
+                                    onClick={() => setResultTab("response")}
+                                    class={`px-2.5 py-1 text-[10px] font-bold rounded-md transition-all ${
+                                      resultTab() === "response" ? "bg-emerald-500/10 text-emerald-400" : "text-[#5b5b6e] hover:text-[#8b8b9e]"
+                                    }`}
+                                  >
+                                    Response
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setResultTab("payload")}
+                                    class={`px-2.5 py-1 text-[10px] font-bold rounded-md transition-all ${
+                                      resultTab() === "payload" ? "bg-blue-500/10 text-blue-400" : "text-[#5b5b6e] hover:text-[#8b8b9e]"
+                                    }`}
+                                  >
+                                    Payload
+                                  </button>
+                                </div>
+                              </Show>
+                              
+                              <Show when={step.type === "table" || step.type === "chart"}>
+                                <span class="text-[10px] text-[#5b5b6e] font-mono">
+                                  {stepData().length} rows
+                                </span>
+                              </Show>
+                            </div>
+                            
+                            <div class="flex-1 flex flex-col justify-start overflow-hidden">
+                              <Show when={!step.type || step.type === "grpc" || step.type === "rest" || step.type === "database"}>
+                                <Show when={resultTab() === "payload"}>
+                                  <p class="text-[10px] text-[#5b5b6e] uppercase mb-1 font-semibold">Rendered Request Payload</p>
+                                  <pre class="text-[11px] text-blue-300 font-mono overflow-auto max-h-[220px] bg-[#0a0a0f] p-3 rounded-lg border border-[#2a2a3a]/40 custom-scrollbar whitespace-pre-wrap break-all flex-1">
+                                    {JSON.stringify(log()!.request, null, 2)}
+                                  </pre>
                                 </Show>
-                              </svg>
-                              Live Preview
-                            </span>
-                            <span class="text-[10px] text-[#5b5b6e]">{data.length} row{data.length !== 1 ? "s" : ""}</span>
-                          </div>
-                          <Show when={data.length === 0}>
-                            <div class="text-[11px] text-[#5b5b6e] italic py-3 text-center border border-dashed border-[#2a2a3a] rounded-lg">
-                              No data — run the workflow to see the preview
+                                <Show when={resultTab() === "response"}>
+                                  <p class="text-[10px] text-[#5b5b6e] uppercase mb-1 font-semibold">Response Content</p>
+                                  <pre class={`text-[11px] font-mono overflow-auto max-h-[220px] bg-[#0a0a0f] p-3 rounded-lg border border-[#2a2a3a]/40 custom-scrollbar whitespace-pre-wrap break-all flex-1 ${
+                                    log()!.error ? "text-red-300 border-red-500/20 bg-red-950/5" : "text-emerald-300"
+                                  }`}>
+                                    {log()!.error || JSON.stringify(log()!.response, null, 2)}
+                                  </pre>
+                                </Show>
+                              </Show>
+                              
+                              <Show when={step.type === "table"}>
+                                <div class="flex-1 overflow-hidden flex flex-col">
+                                  <Show when={stepData().length > 0} fallback={
+                                    <div class="text-[11px] text-[#5b5b6e] italic py-8 text-center border border-dashed border-[#2a2a3a] rounded-lg flex-1 flex items-center justify-center">
+                                      No table rows found
+                                    </div>
+                                  }>
+                                    <LogTable data={stepData()} columns={log()!.meta?.columns} />
+                                  </Show>
+                                </div>
+                              </Show>
+                              
+                              <Show when={step.type === "chart"}>
+                                <div class="flex-1 overflow-hidden flex flex-col justify-center">
+                                  <Show when={stepData().length > 0} fallback={
+                                    <div class="text-[11px] text-[#5b5b6e] italic py-8 text-center border border-dashed border-[#2a2a3a] rounded-lg flex-1 flex items-center justify-center">
+                                      No chart points found
+                                    </div>
+                                  }>
+                                    <LogChart
+                                      data={stepData()}
+                                      xKey={log()!.meta?.xKey}
+                                      yKey={log()!.meta?.yKey}
+                                      chartType={log()!.meta?.chartType || "bar"}
+                                    />
+                                  </Show>
+                                </div>
+                              </Show>
                             </div>
                           </Show>
-                          <Show when={data.length > 0}>
-                            <Show when={step.type === "table"}>
-                              <LogTable data={data} columns={(step as any).columns} />
-                            </Show>
-                            <Show when={step.type === "chart"}>
-                              <LogChart
-                                data={data}
-                                xKey={step.xKey}
-                                yKey={step.yKey}
-                                chartType={(step as any).chartType || "bar"}
-                              />
-                            </Show>
-                          </Show>
                         </div>
-                      );
-                    })()}
-                  </Show>
-
-                </div>
-              )}
+                      </Show>
+                    </div>
+                  </div>
+                );
+              }}
             </For>
 
             <Show when={steps.length === 0}>
