@@ -44,14 +44,14 @@ export default function Nav() {
 
         {/* Navigation Links - Using explicit native navigation to bypass router interception */}
         <ul class="flex items-center gap-1">
-          {["/", "/dashboards", "/workflows", "/protos", "/database", "/grpc", "/about"].map((path) => (
+          {["/", "/dashboards", "/workflows", "/protos", "/database", "/requests", "/about"].map((path) => (
             <li>
               <a
                 href={path}
                 rel="external"
                 class={`rounded-lg px-4 py-2 text-sm font-medium transition-colors duration-200 ${active(path)}`}
               >
-                {path === "/" ? "Home" : path.replace("/", "").charAt(0).toUpperCase() + path.replace("/", "").slice(1).replace("Grpc", "gRPC Client")}
+                {path === "/" ? "Home" : path.replace("/", "").charAt(0).toUpperCase() + path.replace("/", "").slice(1)}
               </a>
             </li>
           ))}

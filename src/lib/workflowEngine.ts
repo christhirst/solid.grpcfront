@@ -56,7 +56,7 @@ export interface WorkflowDefinition {
 
 export interface WorkflowRunLog {
   stepId: string;
-  stepType?: "grpc" | "table" | "chart";
+  stepType?: "grpc" | "table" | "chart" | "database" | "rest";
   status: "success" | "error";
   request: any;
   response?: any;
@@ -79,8 +79,8 @@ export interface WorkflowRun {
  * Replace {{ path.to.variable }} in a string using the context object.
  */
 function interpolateTemplate(template: string, context: Record<string, any>): string {
-  return template.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_, path) => {
-    const val = get(context, path);
+  return template.replace(/\{\{\s*([^{}]+?)\s*\}\}/g, (_, path) => {
+    const val = get(context, String(path).trim());
     if (val === undefined) {
       return ``; // Or throw? For now empty string
     }
@@ -104,9 +104,9 @@ function interpolateTemplate(template: string, context: Record<string, any>): st
 function evaluatePayload(templateObj: any, context: Record<string, any>): any {
   if (typeof templateObj === "string") {
     // Check if the entire string is exactly a template e.g. "{{ steps.foo.response }}"
-    const exactMatch = templateObj.match(/^\{\{\s*([\w.]+)\s*\}\}$/);
+    const exactMatch = templateObj.match(/^\{\{\s*([^{}]+?)\s*\}\}$/);
     if (exactMatch) {
-      return get(context, exactMatch[1]);
+      return get(context, exactMatch[1].trim());
     }
     // Otherwise it's a mixed string "bearer {{ token }}"
     return interpolateTemplate(templateObj, context);
@@ -125,6 +125,38 @@ function evaluatePayload(templateObj: any, context: Record<string, any>): any {
   }
 
   return templateObj;
+}
+
+function parseJsonString(value: any): any {
+  if (typeof value !== "string") return value;
+  const trimmed = value.trim();
+  if (!trimmed || !/^[\[{]/.test(trimmed)) return value;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return value;
+  }
+}
+
+function normalizeVisualData(value: any): any[] {
+  let data = parseJsonString(value);
+
+  if (data && typeof data === "object" && !Array.isArray(data)) {
+    const arrayKey = Object.keys(data).find((key) => Array.isArray(data[key]));
+    if (arrayKey) data = data[arrayKey];
+  }
+
+  if (!Array.isArray(data)) {
+    data = data !== undefined && data !== null ? [data] : [];
+  }
+
+  while (Array.isArray(data) && data.length === 1) {
+    const first = parseJsonString(data[0]);
+    if (!Array.isArray(first)) break;
+    data = first;
+  }
+
+  return data.map(parseJsonString);
 }
 
 export async function runWorkflowBackground(workflow: WorkflowDefinition, runId: string, customContext: Record<string, any> = {}) {
@@ -219,7 +251,14 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
             headers["Authorization"] = `Basic ${auth}`;
           }
 
-          const res = await fetch(authConfig.url!, {
+          let authUrl = authConfig.url || "";
+          if (authUrl && !authUrl.startsWith("http://") && !authUrl.startsWith("https://")) {
+            const separator = authUrl.startsWith("/") ? "" : "/";
+            const port = process.env.PORT || 3000;
+            authUrl = `http://127.0.0.1:${port}${separator}${authUrl}`;
+          }
+
+          const res = await fetch(authUrl, {
             method: authConfig.method || "POST",
             headers,
             body: authConfig.method !== "GET" ? (authConfig.body || "{}") : undefined,
@@ -258,9 +297,9 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
       if (step.type === "table" || step.type === "chart") {
         let payload;
         try {
-          const exactMatch = (step.requestBodyTemplate || "").trim().match(/^\{\{\s*([\w.]+)\s*\}\}$/);
+          const exactMatch = (step.requestBodyTemplate || "").trim().match(/^\{\{\s*([^{}]+?)\s*\}\}$/);
           if (exactMatch) {
-            payload = get(context, exactMatch[1]);
+            payload = get(context, exactMatch[1].trim());
           } else {
             payload = evaluatePayload(JSON.parse(step.requestBodyTemplate || "{}"), context);
           }
@@ -269,14 +308,11 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
         }
 
         // Apply dataPath to drill into nested JSON (e.g. "shares" inside the response)
-        let visData = payload;
-        if (step.dataPath && payload && typeof payload === "object") {
-          visData = get(payload, step.dataPath);
+        let visData = parseJsonString(payload);
+        if (step.dataPath && visData && typeof visData === "object") {
+          visData = get(visData, step.dataPath);
         }
-        // Ensure it's an array
-        if (!Array.isArray(visData)) {
-          visData = visData !== undefined && visData !== null ? [visData] : [];
-        }
+        visData = normalizeVisualData(visData);
 
         context.steps[step.id] = { request: step.requestBodyTemplate, response: visData };
         
@@ -329,9 +365,14 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
           execResult = { success: false, error: err.message };
         }
 
+        let responseData = execResult.success ? execResult.data : undefined;
+        if (Array.isArray(responseData) && responseData.length > 0 && Array.isArray(responseData[0])) {
+          responseData = responseData[0];
+        }
+
         context.steps[step.id] = {
           request: queryPayload,
-          response: execResult.success ? execResult.data : undefined,
+          response: responseData,
           error: !execResult.success ? execResult.error : undefined,
         };
 
@@ -340,7 +381,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
           stepType: "database" as any, // casting to avoid strict type error if not updated in other places
           status: execResult.success ? "success" : "error",
           request: queryPayload,
-          response: execResult.success ? execResult.data : undefined,
+          response: responseData,
           error: execResult.error,
           latencyMs,
         };
@@ -372,13 +413,19 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
           evaluatedUrl = step.restUrl || "";
         }
 
+        if (evaluatedUrl && !evaluatedUrl.startsWith("http://") && !evaluatedUrl.startsWith("https://")) {
+          const separator = evaluatedUrl.startsWith("/") ? "" : "/";
+          const port = process.env.PORT || 3000;
+          evaluatedUrl = `http://127.0.0.1:${port}${separator}${evaluatedUrl}`;
+        }
+
         const method = step.restMethod || "GET";
         const hasBody = method !== "GET" && method !== "DELETE";
 
         if (hasBody) {
-          const exactMatch = (step.requestBodyTemplate || "").trim().match(/^\{\{\s*([\w.]+)\s*\}\}$/);
+          const exactMatch = (step.requestBodyTemplate || "").trim().match(/^\{\{\s*([^{}]+?)\s*\}\}$/);
           if (exactMatch) {
-             requestPayload = get(context, exactMatch[1]);
+             requestPayload = get(context, exactMatch[1].trim());
           } else {
              try {
                 const parsedTemplate = JSON.parse(step.requestBodyTemplate || "{}");
@@ -432,7 +479,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
           if (contentType && contentType.includes("application/json")) {
              data = await res.json();
           } else {
-             data = await res.text();
+             data = parseJsonString(await res.text());
           }
 
           if (!res.ok) {
@@ -480,9 +527,9 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
       let requestPayload;
 
       // Check if the entire template is a single variable reference e.g. "{{ steps.step_1.response }}"
-      const exactMatch = (step.requestBodyTemplate || "").trim().match(/^\{\{\s*([\w.]+)\s*\}\}$/);
+      const exactMatch = (step.requestBodyTemplate || "").trim().match(/^\{\{\s*([^{}]+?)\s*\}\}$/);
       if (exactMatch) {
-        requestPayload = get(context, exactMatch[1]);
+        requestPayload = get(context, exactMatch[1].trim());
       } else {
         let parsedTemplate;
         try {

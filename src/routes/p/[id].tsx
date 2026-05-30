@@ -2,7 +2,6 @@ import { createSignal, For, Show, onMount, createEffect } from "solid-js";
 import { useParams } from "@solidjs/router";
 import { DefaultChart } from "solid-chartjs";
 import { Chart, registerables } from "chart.js";
-import { createSolidTable, getCoreRowModel, flexRender } from "@tanstack/solid-table";
 import get from "lodash.get";
 
 Chart.register(...registerables);
@@ -18,72 +17,152 @@ function lastStepType(workflow: any): "grpc" | "table" | "chart" {
   return (lastStep(workflow)?.type as any) || "grpc";
 }
 
+function valueToLabel(value: any, fallback: number) {
+  if (value === undefined || value === null || value === "") return String(fallback + 1);
+  return typeof value === "object" ? JSON.stringify(value) : String(value);
+}
+
+function valueToNumber(value: any, fallback = 0) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : fallback;
+  if (typeof value === "boolean") return value ? 1 : 0;
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  }
+  return fallback;
+}
+
+function parseJsonString(value: any) {
+  if (typeof value !== "string") return value;
+  const trimmed = value.trim();
+  if (!trimmed || !/^[\[{]/.test(trimmed)) return value;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return value;
+  }
+}
+
+function normalizeDataArray(value: any): any[] {
+  let data = parseJsonString(value);
+
+  if (data && typeof data === "object" && !Array.isArray(data)) {
+    const arrayKey = Object.keys(data).find((key) => Array.isArray(data[key]));
+    if (arrayKey) data = data[arrayKey];
+  }
+
+  if (!Array.isArray(data)) {
+    data = data !== undefined && data !== null ? [data] : [];
+  }
+
+  while (data.length === 1) {
+    const first = parseJsonString(data[0]);
+    if (!Array.isArray(first)) break;
+    data = first;
+  }
+
+  return data.map(parseJsonString);
+}
+
+function collectObjectKeys(data: any[]) {
+  const keys = new Set<string>();
+
+  const addKeys = (value: any, prefix = "") => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return;
+
+    for (const key of Object.keys(value)) {
+      const path = prefix ? `${prefix}.${key}` : key;
+      const nested = value[key];
+      if (nested && typeof nested === "object" && !Array.isArray(nested)) {
+        addKeys(nested, path);
+      } else {
+        keys.add(path);
+      }
+    }
+  };
+
+  for (const row of data) {
+    addKeys(row);
+  }
+  return [...keys];
+}
+
+function pickKey(keys: string[], preferred: string[]) {
+  const normalized = new Map(keys.map((key) => [key.toLowerCase(), key]));
+  for (const key of preferred) {
+    const match = normalized.get(key.toLowerCase());
+    if (match) return match;
+  }
+  return "";
+}
+
+function inferChartKeys(data: any[], explicitX?: string, explicitY?: string) {
+  const keys = collectObjectKeys(data);
+  const xKey = explicitX || pickKey(keys, ["x", "step", "label", "name", "title", "date", "time", "id"]);
+  let yKey = explicitY || pickKey(keys, ["y", "value", "metrics.value", "metrics.delta", "count", "total", "amount", "score", "completed"]);
+
+  if (!yKey) {
+    yKey = keys.find((key) => key !== xKey && data.some((row) => {
+      const value = row && typeof row === "object" ? get(row, key) : undefined;
+      return typeof value === "number" || typeof value === "boolean" || (typeof value === "string" && value.trim() !== "" && Number.isFinite(Number(value)));
+    })) || "";
+  }
+
+  return { xKey, yKey };
+}
+
 // ─── Mini table component ─────────────────────────────────────────────────────
 
 function DashTable(props: { data: any[]; columns?: string[] }) {
+  const rows = () => normalizeDataArray(props.data);
   const effectiveCols = () => {
     const explicit = (props.columns || []).filter(Boolean);
     if (explicit.length) return explicit;
-    const d = props.data;
-    if (!Array.isArray(d) || !d[0] || typeof d[0] !== "object") return [];
-    return Object.keys(d[0]);
+    const keys = collectObjectKeys(rows());
+    return keys.length ? keys : ["value"];
   };
 
-  const table = createSolidTable({
-    get data() { return Array.isArray(props.data) ? props.data : []; },
-    get columns() {
-      const cols = effectiveCols();
-      if (!cols.length) {
-        const d = props.data;
-        if (!Array.isArray(d) || !d[0]) return [];
-        if (typeof d[0] !== "object") return [{ id: "value", header: "Value", accessorFn: (r: any) => r }];
-      }
-      return cols.map((k) => ({
-        accessorKey: k,
-        header: k,
-        cell: (info: any) => {
-          const v = info.getValue();
-          return typeof v === "object" && v !== null ? JSON.stringify(v) : String(v ?? "");
-        },
-      }));
-    },
-    getCoreRowModel: getCoreRowModel(),
-  });
+  const cellValue = (row: any, key: string) => {
+    if (!row || typeof row !== "object" || Array.isArray(row)) return key === "value" ? row : undefined;
+    return Object.prototype.hasOwnProperty.call(row, key) ? row[key] : get(row, key);
+  };
+
+  const formatCell = (value: any) => {
+    if (value === undefined || value === null) return "";
+    return typeof value === "object" ? JSON.stringify(value) : String(value);
+  };
 
   return (
     <div class="overflow-auto max-h-[400px] rounded-xl border border-[#2a2a3a]/60 bg-[#0a0a0f]">
-      <table class="w-full text-left text-xs text-[#c8c8d8]">
-        <thead class="bg-[#1a1a24] text-[#8b8b9e] sticky top-0">
-          <For each={table.getHeaderGroups()}>
-            {(hg) => (
+      <Show when={rows().length > 0} fallback={<div class="p-4 text-xs text-[#5a5a6e]">No table data</div>}>
+        <table class="w-full text-left text-xs text-[#c8c8d8]">
+          <thead class="bg-[#1a1a24] text-[#8b8b9e] sticky top-0">
+            <tr>
+              <For each={effectiveCols()}>
+                {(col) => (
+                  <th class="px-4 py-2.5 font-semibold border-b border-[#2a2a3e] whitespace-nowrap uppercase text-[10px] tracking-wider">
+                    {col}
+                  </th>
+                )}
+              </For>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-[#1e1e2e]">
+            <For each={rows()}>
+              {(row) => (
               <tr>
-                <For each={hg.headers}>
-                  {(h) => (
-                    <th class="px-4 py-2.5 font-semibold border-b border-[#2a2a3e] whitespace-nowrap uppercase text-[10px] tracking-wider">
-                      {h.isPlaceholder ? null : flexRender(h.column.columnDef.header, h.getContext())}
-                    </th>
-                  )}
-                </For>
+                  <For each={effectiveCols()}>
+                    {(col) => {
+                      const text = formatCell(cellValue(row, col));
+                      return <td class="px-4 py-2 border-b border-[#1e1e2e]/50 max-w-[200px] truncate" title={text}>{text}</td>;
+                    }}
+                  </For>
               </tr>
-            )}
-          </For>
-        </thead>
-        <tbody class="divide-y divide-[#1e1e2e]">
-          <For each={table.getRowModel().rows}>
-            {(row) => (
-              <tr class="hover:bg-[#1a1a24]/60 transition-colors">
-                <For each={row.getVisibleCells()}>
-                  {(cell) => (
-                    <td class="px-4 py-2 border-b border-[#1e1e2e]/50 max-w-[200px] truncate" title={String(cell.getValue() ?? "")}>
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </td>
-                  )}
-                </For>
-              </tr>
-            )}
-          </For>
-        </tbody>
-      </table>
+              )}
+            </For>
+          </tbody>
+        </table>
+      </Show>
     </div>
   );
 }
@@ -94,21 +173,22 @@ function DashChart(props: { data: any[]; xKey?: string; yKey?: string; chartType
   const cType = () => props.chartType || "bar";
 
   const buildData = () => {
-    const data = props.data;
+    const data = normalizeDataArray(props.data);
     if (!Array.isArray(data) || !data.length) return { labels: [], datasets: [] };
     
     const type = cType();
     const isPie = type === "pie" || type === "doughnut";
     const isScatter = type === "scatter";
     const isBar = type === "bar";
+    const inferred = inferChartKeys(data, props.xKey, props.yKey);
 
     if (isScatter) {
       const points: {x: number, y: number}[] = [];
       data.forEach((item, i) => {
         if (item && typeof item === "object") {
            points.push({
-             x: Number(props.xKey ? get(item, props.xKey) : i) || 0,
-             y: Number(props.yKey ? get(item, props.yKey) : i) || 0
+             x: inferred.xKey ? valueToNumber(get(item, inferred.xKey), i) : i,
+             y: inferred.yKey ? valueToNumber(get(item, inferred.yKey), 0) : valueToNumber(item, 0)
            });
         } else {
            points.push({ x: i, y: Number(item) || 0 });
@@ -117,7 +197,7 @@ function DashChart(props: { data: any[]; xKey?: string; yKey?: string; chartType
       return {
         labels: [],
         datasets: [{
-          label: props.yKey || "Value",
+          label: inferred.yKey || "Value",
           data: points,
           backgroundColor: "#a855f7",
           pointRadius: 4,
@@ -129,11 +209,11 @@ function DashChart(props: { data: any[]; xKey?: string; yKey?: string; chartType
     const points: number[] = [];
     data.forEach((item, i) => {
       if (item && typeof item === "object") {
-        labels.push(props.xKey ? String(get(item, props.xKey) ?? i) : i);
-        points.push(Number(props.yKey ? get(item, props.yKey) : i) || 0);
+        labels.push(inferred.xKey ? valueToLabel(get(item, inferred.xKey), i) : String(i + 1));
+        points.push(inferred.yKey ? valueToNumber(get(item, inferred.yKey), 0) : i + 1);
       } else {
-        labels.push(i);
-        points.push(Number(item) || 0);
+        labels.push(String(i + 1));
+        points.push(valueToNumber(item, 0));
       }
     });
 
@@ -143,7 +223,7 @@ function DashChart(props: { data: any[]; xKey?: string; yKey?: string; chartType
       return {
         labels,
         datasets: [{
-          label: props.yKey || "Value",
+          label: inferred.yKey || "Value",
           data: points,
           backgroundColor: bgColors,
           borderWidth: 1,
@@ -155,7 +235,7 @@ function DashChart(props: { data: any[]; xKey?: string; yKey?: string; chartType
     return {
       labels,
       datasets: [{
-        label: props.yKey || "Value",
+        label: inferred.yKey || "Value",
         data: points,
         borderColor: isBar ? "#6366f1" : "#a855f7",
         backgroundColor: isBar ? "rgba(99,102,241,0.75)" : "rgba(168,85,247,0.1)",
@@ -184,7 +264,7 @@ function DashChart(props: { data: any[]; xKey?: string; yKey?: string; chartType
 
   return (
     <div class="h-[250px] bg-[#101015] p-3 rounded border border-[#2a2a3a]/50">
-      <Show when={Array.isArray(props.data) && props.data.length > 0} fallback={<p class="text-xs text-[#5a5a6e]">No valid array data for chart</p>}>
+      <Show when={normalizeDataArray(props.data).length > 0} fallback={<p class="text-xs text-[#5a5a6e]">No valid array data for chart</p>}>
         {/* @ts-ignore */}
         <DefaultChart type={cType() as any} data={buildData()} options={chartOptions()} />
       </Show>

@@ -1,4 +1,4 @@
-import { createSignal, createEffect, onMount, For, Show, createResource } from "solid-js";
+import { createSignal, createEffect, onMount, For, Show, createResource, createMemo } from "solid-js";
 import { createStore, reconcile, produce } from "solid-js/store";
 import { isServer } from "solid-js/web";
 import { useParams, useNavigate } from "@solidjs/router";
@@ -14,56 +14,151 @@ function get(obj: any, path: string | string[], defValue?: any) {
 
 import { DefaultChart } from "solid-chartjs";
 import { Chart, registerables } from "chart.js";
-import { createSolidTable, getCoreRowModel, flexRender } from "@tanstack/solid-table";
 
 if (!isServer) {
   Chart.register(...registerables);
 }
 
+function valueToLabel(value: any, fallback: number) {
+  if (value === undefined || value === null || value === "") return String(fallback + 1);
+  return typeof value === "object" ? JSON.stringify(value) : String(value);
+}
+
+function valueToNumber(value: any, fallback = 0) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : fallback;
+  if (typeof value === "boolean") return value ? 1 : 0;
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  }
+  return fallback;
+}
+
+function parseJsonString(value: any) {
+  if (typeof value !== "string") return value;
+  const trimmed = value.trim();
+  if (!trimmed || !/^[\[{]/.test(trimmed)) return value;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return value;
+  }
+}
+
+function normalizeDataArray(value: any): any[] {
+  let data = parseJsonString(value);
+
+  if (data && typeof data === "object" && !Array.isArray(data)) {
+    const arrayKey = Object.keys(data).find((key) => Array.isArray(data[key]));
+    if (arrayKey) data = data[arrayKey];
+  }
+
+  if (!Array.isArray(data)) {
+    data = data !== undefined && data !== null ? [data] : [];
+  }
+
+  while (data.length === 1) {
+    const first = parseJsonString(data[0]);
+    if (!Array.isArray(first)) break;
+    data = first;
+  }
+
+  return data.map(parseJsonString);
+}
+
+function collectObjectKeys(data: any[]) {
+  const keys = new Set<string>();
+
+  const addKeys = (value: any, prefix = "") => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return;
+
+    for (const key of Object.keys(value)) {
+      const path = prefix ? `${prefix}.${key}` : key;
+      const nested = value[key];
+      if (nested && typeof nested === "object" && !Array.isArray(nested)) {
+        addKeys(nested, path);
+      } else {
+        keys.add(path);
+      }
+    }
+  };
+
+  for (const row of data) {
+    addKeys(row);
+  }
+  return [...keys];
+}
+
+function pickKey(keys: string[], preferred: string[]) {
+  const normalized = new Map(keys.map((key) => [key.toLowerCase(), key]));
+  for (const key of preferred) {
+    const match = normalized.get(key.toLowerCase());
+    if (match) return match;
+  }
+  return "";
+}
+
+function inferChartKeys(data: any[], explicitX?: string, explicitY?: string) {
+  const keys = collectObjectKeys(data);
+  const xKey = explicitX || pickKey(keys, ["x", "step", "label", "name", "title", "date", "time", "id"]);
+  let yKey = explicitY || pickKey(keys, ["y", "value", "metrics.value", "metrics.delta", "count", "total", "amount", "score", "completed"]);
+
+  if (!yKey) {
+    yKey = keys.find((key) => key !== xKey && data.some((row) => {
+      const value = row && typeof row === "object" ? get(row, key) : undefined;
+      return typeof value === "number" || typeof value === "boolean" || (typeof value === "string" && value.trim() !== "" && Number.isFinite(Number(value)));
+    })) || "";
+  }
+
+  return { xKey, yKey };
+}
+
 function LogTable(props: { data: any[]; columns?: string[] }) {
+  const rows = () => normalizeDataArray(props.data);
   const effectiveCols = () => {
     const explicit = (props.columns || []).filter(Boolean);
     if (explicit.length) return explicit;
-    const d = props.data;
-    if (!Array.isArray(d) || !d[0] || typeof d[0] !== "object") return [];
-    return Object.keys(d[0]);
+    const keys = collectObjectKeys(rows());
+    return keys.length ? keys : ["value"];
   };
 
-  const table = createSolidTable({
-    get data() { return Array.isArray(props.data) ? props.data : []; },
-    get columns() {
-      const cols = effectiveCols();
-      if (!cols.length) {
-        const d = props.data;
-        if (!Array.isArray(d) || !d[0]) return [];
-        if (typeof d[0] !== "object") return [{ id: "value", header: "Value", accessorFn: (r: any) => r }];
-      }
-      return cols.map((k) => ({
-        accessorKey: k, header: k,
-        cell: (info: any) => {
-          const v = info.getValue();
-          if (typeof v === "object" && v !== null) return JSON.stringify(v);
-          return String(v ?? "");
-        }
-      }));
-    },
-    getCoreRowModel: getCoreRowModel(),
-  });
+  const cellValue = (row: any, key: string) => {
+    if (!row || typeof row !== "object" || Array.isArray(row)) return key === "value" ? row : undefined;
+    return Object.prototype.hasOwnProperty.call(row, key) ? row[key] : get(row, key);
+  };
+
+  const formatCell = (value: any) => {
+    if (value === undefined || value === null) return "";
+    return typeof value === "object" ? JSON.stringify(value) : String(value);
+  };
 
   return (
     <div class="overflow-auto max-h-[300px] border border-[#2a2a3a]/50 rounded bg-[#101015] custom-scrollbar">
-      <table class="w-full text-left text-xs text-[#c8c8d8]">
-        <thead class="bg-[#1a1a24] text-[#8b8b9e] sticky top-0 shadow-sm">
-          <For each={table.getHeaderGroups()}>
-            {(hg) => <tr><For each={hg.headers}>{(h) => <th class="px-3 py-2 font-medium border-b border-[#2a2a3e] whitespace-nowrap uppercase text-[10px] tracking-wider">{h.isPlaceholder ? null : flexRender(h.column.columnDef.header, h.getContext())}</th>}</For></tr>}
-          </For>
-        </thead>
-        <tbody class="divide-y divide-[#1e1e2e]">
-          <For each={table.getRowModel().rows}>
-            {(row) => <tr class="hover:bg-[#1a1a24]/50 transition-colors"><For each={row.getVisibleCells()}>{(cell) => <td class="px-3 py-2 border-b border-[#1e1e2e]/50 max-w-[150px] truncate" title={String(cell.getValue() ?? "")}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>}</For></tr>}
-          </For>
-        </tbody>
-      </table>
+      <Show when={rows().length > 0} fallback={<div class="p-3 text-xs text-[#5a5a6e]">No table data</div>}>
+        <table class="w-full text-left text-xs text-[#c8c8d8]">
+          <thead class="bg-[#1a1a24] text-[#8b8b9e] sticky top-0 shadow-sm">
+            <tr>
+              <For each={effectiveCols()}>
+                {(col) => <th class="px-3 py-2 font-medium border-b border-[#2a2a3e] whitespace-nowrap uppercase text-[10px] tracking-wider">{col}</th>}
+              </For>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-[#1e1e2e]">
+            <For each={rows()}>
+              {(row) => (
+                <tr class="hover:bg-[#1a1a24]/50 transition-colors">
+                  <For each={effectiveCols()}>
+                    {(col) => {
+                      const text = formatCell(cellValue(row, col));
+                      return <td class="px-3 py-2 border-b border-[#1e1e2e]/50 max-w-[150px] truncate" title={text}>{text}</td>;
+                    }}
+                  </For>
+                </tr>
+              )}
+            </For>
+          </tbody>
+        </table>
+      </Show>
     </div>
   );
 }
@@ -72,13 +167,14 @@ function LogChart(props: { data: any[]; xKey?: string; yKey?: string; chartType?
   const cType = () => props.chartType || "bar";
   
   const buildData = () => {
-    const data = props.data;
+    const data = normalizeDataArray(props.data);
     if (!Array.isArray(data) || !data.length) return { labels: [], datasets: [] };
     
     const type = cType();
     const isPie = type === "pie" || type === "doughnut";
     const isScatter = type === "scatter";
     const isBar = type === "bar";
+    const inferred = inferChartKeys(data, props.xKey, props.yKey);
     
     if (isScatter) {
       const points: {x: number, y: number}[] = [];
@@ -86,8 +182,8 @@ function LogChart(props: { data: any[]; xKey?: string; yKey?: string; chartType?
         const item = data[i];
         if (item && typeof item === "object") {
            points.push({
-             x: Number(props.xKey ? get(item, props.xKey) : i) || 0,
-             y: Number(props.yKey ? get(item, props.yKey) : i) || 0
+             x: inferred.xKey ? valueToNumber(get(item, inferred.xKey), i) : i,
+             y: inferred.yKey ? valueToNumber(get(item, inferred.yKey), 0) : valueToNumber(item, 0)
            });
         } else {
            points.push({ x: i, y: Number(item) || 0 });
@@ -96,7 +192,7 @@ function LogChart(props: { data: any[]; xKey?: string; yKey?: string; chartType?
       return {
         labels: [],
         datasets: [{
-          label: props.yKey || "Value",
+          label: inferred.yKey || "Value",
           data: points,
           backgroundColor: "#3b82f6",
           pointRadius: 4,
@@ -109,11 +205,11 @@ function LogChart(props: { data: any[]; xKey?: string; yKey?: string; chartType?
     for (let i = 0; i < data.length; i++) {
       const item = data[i];
       if (item && typeof item === "object") {
-        labels.push(props.xKey ? String(get(item, props.xKey) ?? i) : i);
-        points.push(Number(props.yKey ? get(item, props.yKey) : i) || 0);
+        labels.push(inferred.xKey ? valueToLabel(get(item, inferred.xKey), i) : String(i + 1));
+        points.push(inferred.yKey ? valueToNumber(get(item, inferred.yKey), 0) : i + 1);
       } else {
-        labels.push(i);
-        points.push(Number(item) || 0);
+        labels.push(String(i + 1));
+        points.push(valueToNumber(item, 0));
       }
     }
     
@@ -123,7 +219,7 @@ function LogChart(props: { data: any[]; xKey?: string; yKey?: string; chartType?
       return {
         labels,
         datasets: [{
-          label: props.yKey || "Value",
+          label: inferred.yKey || "Value",
           data: points,
           backgroundColor: bgColors,
           borderWidth: 1,
@@ -135,7 +231,7 @@ function LogChart(props: { data: any[]; xKey?: string; yKey?: string; chartType?
     return {
       labels,
       datasets: [{
-        label: props.yKey || "Value",
+        label: inferred.yKey || "Value",
         data: points,
         borderColor: isBar ? "#6366f1" : "#3b82f6",
         backgroundColor: isBar ? "rgba(99,102,241,0.7)" : "rgba(59,130,246,0.1)",
@@ -164,11 +260,44 @@ function LogChart(props: { data: any[]; xKey?: string; yKey?: string; chartType?
 
   return (
     <div class="h-[250px] bg-[#101015] p-3 rounded border border-[#2a2a3a]/50">
-      <Show when={Array.isArray(props.data) && props.data.length > 0} fallback={<p class="text-xs text-[#5a5a6e]">No valid array data for chart</p>}>
+      <Show when={normalizeDataArray(props.data).length > 0} fallback={<p class="text-xs text-[#5a5a6e]">No valid array data for chart</p>}>
         {/* @ts-ignore */}
         <DefaultChart type={cType() as any} data={buildData()} options={chartOptions()} />
       </Show>
     </div>
+  );
+}
+
+const DATA_SOURCE_STEP_TYPES = new Set(["grpc", "rest", "database"]);
+
+function isDataSourceStep(step: any) {
+  return !!step && (!step.type || DATA_SOURCE_STEP_TYPES.has(step.type));
+}
+
+function stepResponseTemplate(step: any) {
+  return `{{ steps.${step.id}.response }}`;
+}
+
+function SourceStepSelect(props: { steps: any[]; currentIndex: number; value: string; onChange: (val: string) => void }) {
+  const sourceSteps = createMemo(() => {
+    return props.steps.slice(0, props.currentIndex).filter(isDataSourceStep);
+  });
+
+  return (
+    <select
+      class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2.5 text-sm text-orange-300 font-mono focus:border-orange-500 focus:outline-none mb-3"
+      value={props.value}
+      onChange={(e) => props.onChange(e.currentTarget.value)}
+    >
+      <option value="">Select a source step…</option>
+      <For each={sourceSteps()}>
+        {(s) => (
+          <option value={stepResponseTemplate(s)}>
+            {s.type === "rest" ? "🌐" : s.type === "database" ? "🛢️" : "⚡"} {s.id}{s.type === "rest" ? ` (${s.restUrl || "REST"})` : (s.methodName ? ` (${s.methodName})` : "")}
+          </option>
+        )}
+      </For>
+    </select>
   );
 }
 
@@ -407,7 +536,8 @@ export default function WorkflowBuilder() {
 
     // Defaults for visualization steps
     if (type === "table" || type === "chart") {
-       newStep.requestBodyTemplate = ""; // Will select from source
+       const previousSource = [...steps].reverse().find(isDataSourceStep);
+       newStep.requestBodyTemplate = previousSource ? stepResponseTemplate(previousSource) : "";
     }
     if (type === "chart") {
        newStep.chartType = "bar";
@@ -1250,21 +1380,12 @@ export default function WorkflowBuilder() {
                           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg>
                           Data Source
                         </p>
-                        <label class="mb-1 block text-xs text-[#8b8b9e]">Source Step (previous gRPC step)</label>
-                        <select
-                          class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2.5 text-sm text-orange-300 font-mono focus:border-orange-500 focus:outline-none mb-3"
+                        <SourceStepSelect
+                          steps={steps}
+                          currentIndex={index()}
                           value={step.requestBodyTemplate || ""}
-                          onChange={(e) => updateStep(index(), "requestBodyTemplate", e.currentTarget.value)}
-                        >
-                          <option value="">Select a source step…</option>
-                          <For each={steps.slice(0, index()).filter((s: any) => !s.type || s.type === "grpc")}>
-                            {(s: any) => (
-                              <option value={`{{ steps.${s.id}.response }}`}>
-                                ⚡ {s.id}{s.methodName ? ` (${s.methodName})` : ""}
-                              </option>
-                            )}
-                          </For>
-                        </select>
+                          onChange={(val) => updateStep(index(), "requestBodyTemplate", val)}
+                        />
 
                         <div class="grid grid-cols-2 gap-3">
                           <div>
@@ -1291,25 +1412,25 @@ export default function WorkflowBuilder() {
                         <div class="rounded-lg border border-purple-500/20 bg-[#0d0a10] p-4">
                           <p class="text-[10px] font-bold text-purple-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
-                            Chart Configuration
+                            Chart Overrides
                           </p>
                           <div class="grid grid-cols-2 gap-3">
                             <div>
-                              <label class="mb-1 block text-xs text-[#8b8b9e]">X-Axis Property</label>
+                              <label class="mb-1 block text-xs text-[#8b8b9e]">X-Axis Property <span class="text-[10px] text-[#5b5b6e]">(optional)</span></label>
                               <input
                                 type="text"
                                 class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2.5 text-sm text-white font-mono focus:border-purple-500 focus:outline-none"
-                                placeholder="symbol"
+                                placeholder="Auto-detect"
                                 value={step.xKey || ""}
                                 onInput={(e) => updateStep(index(), "xKey", e.currentTarget.value)}
                               />
                             </div>
                             <div>
-                              <label class="mb-1 block text-xs text-[#8b8b9e]">Y-Axis Property</label>
+                              <label class="mb-1 block text-xs text-[#8b8b9e]">Y-Axis Property <span class="text-[10px] text-[#5b5b6e]">(optional)</span></label>
                               <input
                                 type="text"
                                 class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2.5 text-sm text-white font-mono focus:border-purple-500 focus:outline-none"
-                                placeholder="count"
+                                placeholder="Auto-detect"
                                 value={step.yKey || ""}
                                 onInput={(e) => updateStep(index(), "yKey", e.currentTarget.value)}
                               />
@@ -1328,9 +1449,9 @@ export default function WorkflowBuilder() {
                         <div class="rounded-lg border border-emerald-500/20 bg-[#080f0a] p-4">
                           <p class="text-[10px] font-bold text-emerald-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"></rect><path d="M3 9h18M3 15h18M9 3v18"></path></svg>
-                            Table Columns
+                            Table Column Overrides
                           </p>
-                          <p class="text-[10px] text-[#5b5b6e] mb-3">List the JSON keys to show as columns (e.g. <code class="text-emerald-400 font-mono">symbol</code>, <code class="text-emerald-400 font-mono">count</code>). Leave empty to auto-detect all keys.</p>
+                          <p class="text-[10px] text-[#5b5b6e] mb-3">Leave empty to show all keys found in the array. Add keys only when you want to limit or order columns.</p>
                           <div class="space-y-2">
                             <For each={(step as any).columns || []}>
                               {(col: string, ci) => (
