@@ -1,0 +1,31 @@
+{
+  "name": "REST + Table Test",
+  "protoContent": "",
+  "serverAddress": "localhost:50051",
+  "useTls": false,
+  "schedule": "",
+  "steps": [
+    {
+      "id": "step_rest1",
+      "type": "rest",
+      "restUrl": "https://jsonplaceholder.typicode.com/todos/1",
+      "restMethod": "GET",
+      "requestBodyTemplate": "{}",
+      "headersTemplate": "{}",
+      "serverAddress": "",
+      "useTls": false,
+      "dataPath": "",
+      "xKey": "",
+      "yKey": ""
+    },
+    {
+      "id": "step_table1",
+      "type": "table",
+      "requestBodyTemplate": "{{ steps.step_rest1.response }}",
+      "dataPath": "",
+      "columns": [],
+      "xKey": "",
+      "yKey": ""
+    }
+  ]
+}
