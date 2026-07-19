@@ -1,9 +1,8 @@
-import { createResource, Show } from "solid-js";
+import { createSignal, onMount, Show } from "solid-js";
 import { isServer } from "solid-js/web";
 import { signIn, signOut } from "@auth/solid-start/client";
 
 const fetchSession = async () => {
-  if (isServer) return null;
   try {
     const res = await fetch("/api/auth/session");
     if (!res.ok) return null;
@@ -16,7 +15,13 @@ const fetchSession = async () => {
 
 
 export default function Nav() {
-  const [session] = createResource(fetchSession);
+  // Do not serialize an anonymous SSR result: it briefly replaces an active
+  // browser session after every native navigation. Keep this state client-only.
+  const [session, setSession] = createSignal<any | null | undefined>(undefined);
+
+  onMount(async () => {
+    setSession(await fetchSession());
+  });
   
   // Use a simpler active check that doesn't rely on useLocation to avoid router context issues
   const active = (path: string) => {
@@ -44,7 +49,7 @@ export default function Nav() {
 
         {/* Navigation Links - Using explicit native navigation to bypass router interception */}
         <ul class="flex items-center gap-1">
-          {["/", "/dashboards", "/workflows", "/protos", "/database", "/requests", "/about"].map((path) => (
+          {["/", "/dashboards", "/workflows", "/connections", "/protos", "/database", "/requests", "/about"].map((path) => (
             <li>
               <a
                 href={path}
@@ -68,45 +73,32 @@ export default function Nav() {
           </div>
 
           <Show
-            when={session()}
-            fallback={
-              <button
-                onClick={() => signIn("oidc")}
-                class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors duration-200 hover:bg-blue-700"
-              >
-                Log In
-              </button>
-            }
+            when={session() !== undefined}
+            fallback={<div class="h-9 w-20" aria-label="Checking session" />}
           >
-            {(s: any) => (
+            <Show
+              when={session()}
+              fallback={
+                <button
+                  onClick={() => signIn("oidc")}
+                  class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors duration-200 hover:bg-blue-700"
+                >
+                  Log In
+                </button>
+              }
+            >
               <div class="flex items-center gap-3">
-                <div class="flex items-center gap-2">
-                  <Show
-                    when={s().user?.image}
-                    fallback={
-                      <div class="flex h-8 w-8 items-center justify-center rounded-full bg-blue-500/20 text-sm font-bold text-blue-400">
-                        {s().user?.name?.[0]?.toUpperCase() || "?"}
-                      </div>
-                    }
-                  >
-                    <img
-                      src={s().user?.image}
-                      alt="Profile"
-                      class="h-8 w-8 rounded-full border border-[#1e1e2e]"
-                    />
-                  </Show>
-                  <span class="text-sm font-medium text-white hidden sm:block">
-                    {s().user?.name}
-                  </span>
-                </div>
+                <span class="text-sm font-mono text-[#8b8b9e] bg-[#1e1e2e]/50 px-2 py-1 rounded">
+                  {session()?.user?.sub || "No Subject"}
+                </span>
                 <button
                   onClick={() => signOut()}
-                  class="rounded-lg border border-[#1e1e2e] bg-[#0a0a0f] px-3 py-1.5 text-xs font-medium text-[#8b8b9e] transition-colors duration-200 hover:text-white"
+                  class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors duration-200 hover:bg-blue-700"
                 >
                   Logout
                 </button>
               </div>
-            )}
+            </Show>
           </Show>
         </div>
       </div>

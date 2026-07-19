@@ -1,0 +1,119 @@
+import { ssr, ssrHydrationKey, escape, createComponent, ssrAttribute, isServer } from "solid-js/web";
+import { createResource, createSignal, Show, For } from "solid-js";
+var _tmpl$ = ["<button", ' class="btn-primary hover-lift glow-effect group flex items-center gap-2"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" class="transition-transform group-hover:scale-110" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>Add Connection</button>'], _tmpl$2 = ["<div", ' class="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-1">', "</div>"], _tmpl$3 = ["<div", ' class="grid grid-cols-2 gap-4 pt-2 border-t border-[#2a2a3a]/40"><div><label class="mb-1 block text-xs text-[#8b8b9e]">Username / Client ID</label><input type="text" class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-blue-500 focus:outline-none"', '></div><div><label class="mb-1 block text-xs text-[#8b8b9e]">Password / Client Secret</label><input type="password" class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-blue-500 focus:outline-none"', "></div></div>"], _tmpl$4 = ["<div", ' class="pt-2 border-t border-[#2a2a3a]/40"><label class="mb-1 block text-xs text-[#8b8b9e]">Bearer Token</label><input type="password" class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-blue-500 focus:outline-none"', "></div>"], _tmpl$5 = ["<div", '><label class="mb-1 block text-xs text-[#8b8b9e]">Request Body (raw JSON or URL encoded)</label><textarea class="w-full h-24 rounded-lg border border-[#2a2a3a] bg-[#0a0a0f] p-2.5 text-xs font-mono text-purple-300 focus:border-blue-500 focus:outline-none"', ' placeholder="{&quot;grant_type&quot;: &quot;client_credentials&quot;}"></textarea></div>'], _tmpl$6 = ["<div", ' class="', '"><div class="font-bold uppercase tracking-wider mb-1">', "</div><!--$-->", "<!--/--></div>"], _tmpl$7 = ["<svg", ' class="animate-spin h-3.5 w-3.5 text-blue-500" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>'], _tmpl$8 = ["<div", ' class="lg:col-span-6 card p-6 space-y-6"><div><h2 class="text-xl font-bold text-white mb-1">', '</h2><p class="text-xs text-[#8b8b9e]">Configure client credentials / OAuth endpoint parameters</p></div><div class="space-y-4"><div><label class="mb-1 block text-xs text-[#8b8b9e]">Name</label><input type="text" class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-blue-500 focus:outline-none"', ' placeholder="e.g. Stripe Client Auth"></div><div><label class="mb-1 block text-xs text-[#8b8b9e]">OAuth Endpoint URL</label><input type="text" class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white font-mono focus:border-blue-500 focus:outline-none"', ' placeholder="https://api.stripe.com/v1/oauth/token"></div><div class="grid grid-cols-2 gap-4"><div><label class="mb-1 block text-xs text-[#8b8b9e]">HTTP Method</label><select class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-blue-500 focus:outline-none"', '><option value="POST">POST</option><option value="GET">GET</option><option value="PUT">PUT</option></select></div><div><label class="mb-1 block text-xs text-[#8b8b9e]">Auth Scheme (for token retrieval)</label><select class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-blue-500 focus:outline-none"', '><option value="none">None (Body parameters only)</option><option value="basic">Basic (Username : Password)</option><option value="bearer">Static Bearer Token</option></select></div></div><!--$-->', "<!--/--><!--$-->", "<!--/--><!--$-->", '<!--/--><div class="grid grid-cols-2 gap-4"><div><label class="mb-1 block text-xs text-[#8b8b9e]">Custom Headers (JSON)</label><textarea class="w-full h-20 rounded-lg border border-[#2a2a3a] bg-[#0a0a0f] p-2.5 text-xs font-mono text-purple-300 focus:border-blue-500 focus:outline-none"', ' placeholder="{&quot;Content-Type&quot;: &quot;application/x-www-form-urlencoded&quot;}"></textarea></div><div><label class="mb-1 block text-xs text-[#8b8b9e]">Token JSON Path</label><input type="text" class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white font-mono focus:border-blue-500 focus:outline-none"', ' placeholder="e.g. access_token"><p class="text-[9px] text-[#5b5b6e] mt-1">Nested lookup: e.g. <code class="font-mono bg-[#1a1a24] p-0.5">data.auth.token</code></p></div></div><!--$-->', '<!--/--><div class="pt-4 border-t border-[#2a2a3a]/60 flex items-center justify-between"><button', ' class="btn-secondary text-xs flex items-center gap-2 disabled:opacity-40"><!--$-->', '<!--/-->Test Connection</button><div class="flex items-center gap-3"><button class="btn-secondary text-xs">Cancel</button><button', ' class="btn-primary bg-purple-600 hover:bg-purple-500 text-white text-xs disabled:opacity-40">Save Connection</button></div></div></div></div>'], _tmpl$9 = ["<main", ' class="mx-auto max-w-7xl px-6 py-12"><div class="mb-10 flex items-end justify-between"><div><h1 class="text-4xl font-extrabold tracking-tight text-white mb-2">Connections</h1><p class="text-[15px] text-[#8b8b9e]">Manage OAuth access tokens and credentials globally</p></div><!--$-->', '<!--/--></div><div class="grid grid-cols-1 lg:grid-cols-12 gap-8"><div', ">", "</div><!--$-->", "<!--/--></div></main>"], _tmpl$0 = ["<div", ' class="space-y-4"><div class="h-24 bg-[#111118]/80 rounded-xl animate-pulse"></div><div class="h-24 bg-[#111118]/80 rounded-xl animate-pulse"></div></div>'], _tmpl$1 = ["<div", ' class="card flex flex-col items-center justify-center p-16 text-center border-dashed border-[#2a2a3a]"><div class="mb-6 rounded-full bg-[#1e1e2e] p-6 text-[#5b5b6e]"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg></div><h3 class="mb-2 text-xl font-bold text-white">No connections configured</h3><p class="mb-6 max-w-md text-[#8b8b9e]">Configure an OAuth endpoint to fetch access tokens and wire them to workflow HTTP/gRPC steps.</p><button class="btn-primary">Add Connection</button></div>'], _tmpl$10 = ["<div", ' class="', '"><div class="flex items-start gap-4"><div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500/20 to-purple-500/20 text-indigo-400 ring-1 ring-indigo-500/30"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg></div><div><h3 class="text-lg font-bold text-white mb-1">', '</h3><p class="text-xs text-[#8b8b9e] font-mono break-all line-clamp-1">', '</p><div class="flex items-center gap-2 mt-2"><span class="text-[10px] font-bold px-2 py-0.5 bg-[#1e1e2e] text-[#8b8b9e] rounded border border-[#2a2a3a] uppercase">', '</span><span class="text-[10px] font-bold px-2 py-0.5 bg-blue-500/10 text-blue-400 rounded border border-blue-500/20"><!--$-->', '<!--/--> auth</span></div></div></div><button class="text-[#5b5b6e] hover:text-red-400 transition-colors p-1"', '><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg></button></div>'], _tmpl$11 = ["<div", ' class="break-all font-mono mt-1">Extracted Token: <!--$-->', "<!--/--></div>"], _tmpl$12 = ["<div", ' class="break-words mt-1">', "</div>"];
+const id$$ = "src/routes/connections/index.tsx?pick=default&pick=$css";
+const fetchConnections = async () => {
+  const url = isServer ? `http://127.0.0.1:${process.env.PORT || 3e3}/api/connections` : "/api/connections";
+  const res = await fetch(url);
+  const json = await res.json();
+  return json.success ? json.data : [];
+};
+function Connections() {
+  const [connections, {
+    refetch
+  }] = createResource(fetchConnections);
+  const [selectedConnection, setSelectedConnection] = createSignal(null);
+  const [isEditing, setIsEditing] = createSignal(false);
+  const [isNew, setIsNew] = createSignal(false);
+  const [name, setName] = createSignal("");
+  const [url, setUrl] = createSignal("");
+  const [method, setMethod] = createSignal("POST");
+  const [authScheme, setAuthScheme] = createSignal("none");
+  const [username, setUsername] = createSignal("");
+  const [password, setPassword] = createSignal("");
+  const [bearerToken, setBearerToken] = createSignal("");
+  const [body, setBody] = createSignal("{}");
+  const [headers, setHeaders] = createSignal("{}");
+  const [tokenPath, setTokenPath] = createSignal("access_token");
+  const [testResult, setTestResult] = createSignal(null);
+  const [isTesting, setIsTesting] = createSignal(false);
+  const [isSaving, setIsSaving] = createSignal(false);
+  const [isDeleting, setIsDeleting] = createSignal(null);
+  return ssr(_tmpl$9, ssrHydrationKey(), escape(createComponent(Show, {
+    get when() {
+      return !isEditing();
+    },
+    get children() {
+      return ssr(_tmpl$, ssrHydrationKey());
+    }
+  })), ssrAttribute("class", isEditing() ? "lg:col-span-6 space-y-6" : "lg:col-span-12 space-y-6", false), escape(createComponent(Show, {
+    get when() {
+      return !connections.loading;
+    },
+    get fallback() {
+      return ssr(_tmpl$0, ssrHydrationKey());
+    },
+    get children() {
+      return createComponent(Show, {
+        get when() {
+          return connections() && connections().length > 0;
+        },
+        get fallback() {
+          return createComponent(Show, {
+            get when() {
+              return !isEditing();
+            },
+            get children() {
+              return ssr(_tmpl$1, ssrHydrationKey());
+            }
+          });
+        },
+        get children() {
+          return ssr(_tmpl$2, ssrHydrationKey(), escape(createComponent(For, {
+            get each() {
+              return connections();
+            },
+            children: (conn) => ssr(_tmpl$10, ssrHydrationKey(), `card p-6 flex items-start justify-between cursor-pointer transition-all duration-300 hover:shadow-lg ${selectedConnection()?.id === conn.id ? "border-blue-500 bg-blue-500/5 shadow-blue-500/5" : "hover:border-[#3a3a4a] hover:-translate-y-0.5"}`, escape(conn.name), escape(conn.url), escape(conn.method) || "POST", escape(conn.authScheme) || "none", ssrAttribute("disabled", isDeleting() === conn.id, true))
+          })));
+        }
+      });
+    }
+  })), escape(createComponent(Show, {
+    get when() {
+      return isEditing();
+    },
+    get children() {
+      return ssr(_tmpl$8, ssrHydrationKey(), isNew() ? "New Connection" : "Edit Connection", ssrAttribute("value", escape(name(), true), false), ssrAttribute("value", escape(url(), true), false), ssrAttribute("value", escape(method(), true), false), ssrAttribute("value", escape(authScheme(), true), false), escape(createComponent(Show, {
+        get when() {
+          return authScheme() === "basic";
+        },
+        get children() {
+          return ssr(_tmpl$3, ssrHydrationKey(), ssrAttribute("value", escape(username(), true), false), ssrAttribute("value", escape(password(), true), false));
+        }
+      })), escape(createComponent(Show, {
+        get when() {
+          return authScheme() === "bearer";
+        },
+        get children() {
+          return ssr(_tmpl$4, ssrHydrationKey(), ssrAttribute("value", escape(bearerToken(), true), false));
+        }
+      })), escape(createComponent(Show, {
+        get when() {
+          return method() !== "GET";
+        },
+        get children() {
+          return ssr(_tmpl$5, ssrHydrationKey(), ssrAttribute("value", escape(body(), true), false));
+        }
+      })), ssrAttribute("value", escape(headers(), true), false), ssrAttribute("value", escape(tokenPath(), true), false), escape(createComponent(Show, {
+        get when() {
+          return testResult();
+        },
+        get children() {
+          return ssr(_tmpl$6, ssrHydrationKey(), `p-3 rounded-lg border text-xs ${testResult().success ? "bg-emerald-500/10 border-emerald-500/25 text-emerald-400" : "bg-red-500/10 border-red-500/25 text-red-400"}`, testResult().success ? "✓ Test Succeeded" : "✗ Test Failed", testResult().success ? ssr(_tmpl$11, ssrHydrationKey(), escape(testResult().token)) : ssr(_tmpl$12, ssrHydrationKey(), escape(testResult().error)));
+        }
+      })), ssrAttribute("disabled", isTesting() || !url().trim(), true), escape(createComponent(Show, {
+        get when() {
+          return isTesting();
+        },
+        get children() {
+          return ssr(_tmpl$7, ssrHydrationKey());
+        }
+      })), ssrAttribute("disabled", isSaving() || !name().trim() || !url().trim(), true));
+    }
+  })));
+}
+export {
+  Connections as default,
+  id$$
+};
+//# sourceMappingURL=index-DdxNxgBB.js.map

@@ -5,10 +5,85 @@ import { parseProtoContent } from "~/lib/protoParser";
 import { RecordId } from "surrealdb";
 import * as Sentry from "@sentry/node";
 
+async function getStepAuthHeader(step: any, db: any): Promise<string | undefined> {
+  const authType = step.authType || "none";
+  if (authType === "basic" && (step.authUsername || step.authPassword)) {
+    const auth = Buffer.from(`${step.authUsername || ""}:${step.authPassword || ""}`).toString("base64");
+    return `Basic ${auth}`;
+  }
+  
+  if (authType === "oauth" && step.connectionId) {
+    console.log(`[STEP AUTH] Fetching connection details for ID: ${step.connectionId}`);
+    try {
+      const connDbId = step.connectionId.includes(":") ? step.connectionId.split(":")[1] : step.connectionId;
+      const connRecord = await db.select(new RecordId("connection", connDbId));
+      const connection = Array.isArray(connRecord) ? connRecord[0] : connRecord;
+      
+      if (connection) {
+        console.log(`[STEP AUTH] Executing REST auth call for connection: ${connection.name}`);
+        const headers: Record<string, string> = {
+          "Content-Type": "application/json",
+        };
+
+        if (connection.headers) {
+           try {
+              const parsedHeaders = JSON.parse(connection.headers);
+              Object.assign(headers, parsedHeaders);
+           } catch (e) {
+              console.error(`[STEP AUTH] Failed to parse custom headers for connection:`, e);
+           }
+        }
+
+        if (connection.authScheme === "basic" && (connection.username || connection.password)) {
+          const auth = Buffer.from(`${connection.username || ""}:${connection.password || ""}`).toString("base64");
+          headers["Authorization"] = `Basic ${auth}`;
+        } else if (connection.authScheme === "bearer" && connection.bearerToken) {
+          headers["Authorization"] = `Bearer ${connection.bearerToken}`;
+        }
+
+        let authUrl = connection.url || "";
+        if (authUrl && !authUrl.startsWith("http://") && !authUrl.startsWith("https://")) {
+          const separator = authUrl.startsWith("/") ? "" : "/";
+          const port = process.env.PORT || 3000;
+          authUrl = `http://127.0.0.1:${port}${separator}${authUrl}`;
+        }
+
+        const res = await fetch(authUrl, {
+          method: connection.method || "POST",
+          headers,
+          body: connection.method !== "GET" ? (connection.body || "{}") : undefined,
+        });
+
+        if (!res.ok) {
+          const errText = await res.text();
+          throw new Error(`HTTP ${res.status}: ${errText}`);
+        }
+
+        const authData = await res.json();
+        const token = get(authData, connection.tokenPath || "access_token");
+        if (!token) {
+          throw new Error(`Token not found at JSON path '${connection.tokenPath || "access_token"}'`);
+        }
+        return `Bearer ${token}`;
+      } else {
+        throw new Error(`Connection ${step.connectionId} not found in database`);
+      }
+    } catch (err: any) {
+      throw new Error(`Step Connection Setup Error: ${err.message}`);
+    }
+  }
+  
+  return undefined;
+}
+
 export interface WorkflowStep {
   id: string;
   type?: "grpc" | "table" | "chart" | "database" | "rest";
   databaseName?: string; // target dynamic DB for 'database' step type
+  databaseUrl?: string;
+  databaseUser?: string;
+  databasePass?: string;
+  databaseNs?: string;
   serviceName?: string;
   methodName?: string;
   restUrl?: string;
@@ -22,6 +97,10 @@ export interface WorkflowStep {
   yKey?: string;       // property for Y axis
   chartType?: "bar" | "line"; // chart rendering type
   columns?: string[];  // optional explicit columns for table step
+  authType?: "none" | "basic" | "oauth";
+  authUsername?: string;
+  authPassword?: string;
+  connectionId?: string;
 }
 
 export interface AuthConfig {
@@ -47,11 +126,13 @@ export interface WorkflowDefinition {
   id?: string;
   name: string;
   protoContent: string;
+  protoId?: string;
   serverAddress: string;
   useTls: boolean;
   steps: WorkflowStep[];
   schedule?: string; // cron expression
   authConfig?: AuthConfig;
+  connectionId?: string;
 }
 
 export interface WorkflowRunLog {
@@ -198,14 +279,93 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
   console.log("Proto content exists?", !!workflow.protoContent, "Length:", workflow.protoContent?.length);
   
   try {
-    const { protoContent, serverAddress, useTls, steps, authConfig } = workflow;
+    const { protoContent: storedProtoContent, protoId, serverAddress, useTls, steps, authConfig, connectionId } = workflow;
+
+    let protoContent = storedProtoContent || "";
+    if (protoId) {
+      console.log(`[ENGINE] Fetching workflow proto by ID: ${protoId}`);
+      try {
+        const protoDbId = protoId.includes(":") ? protoId.split(":")[1] : protoId;
+        const protoRecord = await db.select(new RecordId("proto_file", protoDbId));
+        const protoFile = Array.isArray(protoRecord) ? protoRecord[0] : protoRecord;
+        if (protoFile && protoFile.content) {
+          protoContent = protoFile.content;
+        }
+      } catch (err: any) {
+        console.error(`[ENGINE] Failed to resolve proto file by ID ${protoId}:`, err);
+      }
+    }
 
     const parsedProto = parseProtoContent(protoContent);
-    const context = { steps: {} as any, auth: {} as any, ...customContext };
+    const formPayload = customContext.form || {};
+    const context = {
+      steps: {} as any,
+      auth: {} as any,
+      form: formPayload,
+      dashboard_form: formPayload,
+      ...customContext
+    };
 
     // 1. Perform Authentication if configured
     let authToken: string | undefined;
-    if (authConfig) {
+    if (connectionId) {
+      console.log(`[AUTH] Fetching connection details for ID: ${connectionId}`);
+      try {
+        const connDbId = connectionId.includes(":") ? connectionId.split(":")[1] : connectionId;
+        const connRecord = await db.select(new RecordId("connection", connDbId));
+        const connection = Array.isArray(connRecord) ? connRecord[0] : connRecord;
+        
+        if (connection) {
+          console.log(`[AUTH] Executing REST auth call for connection: ${connection.name}`);
+          const headers: Record<string, string> = {
+            "Content-Type": "application/json",
+          };
+
+          if (connection.headers) {
+             try {
+                const parsedHeaders = JSON.parse(connection.headers);
+                Object.assign(headers, parsedHeaders);
+             } catch (e) {
+                console.error(`[AUTH] Failed to parse custom headers for connection:`, e);
+             }
+          }
+
+          if (connection.authScheme === "basic" && (connection.username || connection.password)) {
+            const auth = Buffer.from(`${connection.username || ""}:${connection.password || ""}`).toString("base64");
+            headers["Authorization"] = `Basic ${auth}`;
+          } else if (connection.authScheme === "bearer" && connection.bearerToken) {
+            headers["Authorization"] = `Bearer ${connection.bearerToken}`;
+          }
+
+          let authUrl = connection.url || "";
+          if (authUrl && !authUrl.startsWith("http://") && !authUrl.startsWith("https://")) {
+            const separator = authUrl.startsWith("/") ? "" : "/";
+            const port = process.env.PORT || 3000;
+            authUrl = `http://127.0.0.1:${port}${separator}${authUrl}`;
+          }
+
+          const res = await fetch(authUrl, {
+            method: connection.method || "POST",
+            headers,
+            body: connection.method !== "GET" ? (connection.body || "{}") : undefined,
+          });
+
+          if (!res.ok) {
+            const errText = await res.text();
+            throw new Error(`HTTP ${res.status}: ${errText}`);
+          }
+
+          const authData = await res.json();
+          authToken = get(authData, connection.tokenPath || "access_token");
+          context.auth = { token: authToken, response: authData };
+          console.log(`[AUTH] Success. Connection token obtained.`);
+        } else {
+          throw new Error(`Connection ${connectionId} not found in database`);
+        }
+      } catch (err: any) {
+        throw new Error(`Connection Setup Error: ${err.message}`);
+      }
+    } else if (authConfig) {
       if (authConfig.type === "static") {
         console.log(`[AUTH] Using static token`);
         authToken = authConfig.bearerToken;
@@ -293,6 +453,10 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
           },
         },
         async (): Promise<"continue" | "abort"> => {
+          let stepAuthHeader = await getStepAuthHeader(step, db);
+          if (!stepAuthHeader && authToken) {
+            stepAuthHeader = `Bearer ${authToken}`;
+          }
 
       if (step.type === "table" || step.type === "chart") {
         let payload;
@@ -351,11 +515,21 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
         let latencyMs = 0;
         try {
           const startTimeMs = Date.now();
-          const targetDbName = interpolateTemplate(step.databaseName || "", context) || "main";
+          const targetDbName = interpolateTemplate(step.databaseName || "", context) || undefined;
+          const targetDbUrl = interpolateTemplate(step.databaseUrl || "", context) || undefined;
+          const targetDbUser = interpolateTemplate(step.databaseUser || "", context) || undefined;
+          const targetDbPass = interpolateTemplate(step.databasePass || "", context) || undefined;
+          const targetDbNs = interpolateTemplate(step.databaseNs || "", context) || undefined;
           
           // Import here to avoid circular dependency if one existed, but it's fine at top-level
-          const { getDynamicDb } = await import("~/lib/db");
-          const ddb = await getDynamicDb(targetDbName);
+          const { getCustomDb } = await import("~/lib/db");
+          const ddb = await getCustomDb({
+            url: targetDbUrl,
+            user: targetDbUser,
+            pass: targetDbPass,
+            namespace: targetDbNs,
+            database: targetDbName,
+          });
           
           const surrealResult = await ddb.query(queryPayload);
           latencyMs = Date.now() - startTimeMs;
@@ -436,16 +610,15 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
           }
         }
 
-        let metadata: Record<string, string> | undefined;
-        if (authToken) {
-          metadata = { "Authorization": `Bearer ${authToken}` };
+        let metadata: Record<string, string> = {};
+        if (stepAuthHeader) {
+          metadata["Authorization"] = stepAuthHeader;
         }
 
         if (step.headersTemplate) {
           try {
             const parsedHeaders = JSON.parse(step.headersTemplate);
             const evaluatedHeaders = evaluatePayload(parsedHeaders, context);
-            metadata = metadata || {};
             for (const [key, value] of Object.entries(evaluatedHeaders)) {
               metadata[key] = String(value);
             }
@@ -542,18 +715,16 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
       }
 
       // Evaluate headers if present
-      let metadata: Record<string, string> | undefined;
+      let metadata: Record<string, string> = {};
       
-      // Auto-inject Auth Token if available
-      if (authToken) {
-        metadata = { "Authorization": `Bearer ${authToken}` };
+      if (stepAuthHeader) {
+        metadata["Authorization"] = stepAuthHeader;
       }
 
       if (step.headersTemplate) {
         try {
           const parsedHeaders = JSON.parse(step.headersTemplate);
           const evaluatedHeaders = evaluatePayload(parsedHeaders, context);
-          metadata = metadata || {};
           for (const [key, value] of Object.entries(evaluatedHeaders)) {
             metadata[key] = String(value);
           }

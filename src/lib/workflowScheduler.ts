@@ -2,6 +2,13 @@ import cron, { ScheduledTask } from "node-cron";
 import { getDb } from "~/lib/db";
 import { runWorkflowBackground, WorkflowDefinition } from "~/lib/workflowEngine";
 import { v4 as uuidv4 } from "uuid";
+import { logger } from "./logger";
+
+const console = {
+  log: (...args: any[]) => logger.info(...args),
+  error: (...args: any[]) => logger.error(...args),
+  warn: (...args: any[]) => logger.warn(...args),
+};
 
 // Store scheduled jobs to allow stopping/updating them
 const scheduledJobs = new Map<string, ScheduledTask>();

@@ -342,13 +342,18 @@ export default function WorkflowBuilder() {
   const insertVariable = () => {
     const input = activeInput();
     if (!input) return;
-    const varName = prompt("Enter new variable name (e.g. account_id):");
+    const varName = prompt("Enter variable name (e.g. sales or dashboard_form.sales):");
     if (!varName) return;
 
     const start = input.selectionStart || 0;
     const end = input.selectionEnd || 0;
     const val = input.value;
-    const injection = `{{ form.${varName} }}`;
+    
+    let injection = `{{ dashboard_form.${varName} }}`;
+    if (varName.startsWith("form.") || varName.startsWith("dashboard_form.")) {
+      injection = `{{ ${varName} }}`;
+    }
+    
     const newVal = val.substring(0, start) + injection + val.substring(end);
     
     input.value = newVal;
@@ -374,6 +379,7 @@ export default function WorkflowBuilder() {
   const [serverAddress, setServerAddress] = createSignal("localhost:50051");
   const [useTls, setUseTls] = createSignal(false);
   const [schedule, setSchedule] = createSignal("");
+  const [protoId, setProtoId] = createSignal("");
   const [authType, setAuthType] = createSignal<"grpc" | "rest" | "static">("grpc");
   const [authService, setAuthService] = createSignal("");
   const [authMethod, setAuthMethod] = createSignal("");
@@ -392,6 +398,20 @@ export default function WorkflowBuilder() {
   const [isTestingAuth, setIsTestingAuth] = createSignal(false);
   const [steps, setSteps] = createStore<any[]>([]);
   const [showAddStepMenu, setShowAddStepMenu] = createSignal(false);
+  
+  const [connectionId, setConnectionId] = createSignal<string>("");
+  const [showSettings, setShowSettings] = createSignal(false);
+  const [connections] = createResource(async () => {
+    try {
+      const url = isServer ? `http://127.0.0.1:${process.env.PORT || 3000}/api/connections` : "/api/connections";
+      const res = await fetch(url);
+      const json = await res.json();
+      return json.success ? json.data : [];
+    } catch (e) {
+      console.error("fetchConnections error:", e);
+      return [];
+    }
+  });
 
   // Parsed state
   const [parsedProto, setParsedProto] = createSignal<ParsedProto | null>(null);
@@ -424,10 +444,14 @@ export default function WorkflowBuilder() {
     const data = workflow();
     if (data) {
       setName(data.name || "Untitled");
-      setProtoContent(data.protoContent || "");
+      setProtoId(data.protoId || "");
+      if (data.protoContent) {
+        setProtoContent(data.protoContent);
+      }
       setServerAddress(data.serverAddress || "localhost:50051");
       setUseTls(data.useTls || false);
       setSchedule(data.schedule || "");
+      setConnectionId(data.connectionId || "");
         
       const ac = data.authConfig;
       if (ac) {
@@ -451,6 +475,17 @@ export default function WorkflowBuilder() {
       }
       
       setSteps(reconcile(data.steps || []));
+    }
+  });
+
+  createEffect(() => {
+    const id = protoId();
+    const protos = savedProtos();
+    if (id && protos) {
+      const p = protos.find((x: any) => x.id === id);
+      if (p) {
+        setProtoContent(p.content || "");
+      }
     }
   });
 
@@ -478,24 +513,11 @@ export default function WorkflowBuilder() {
     const payload = {
       id: isNew ? undefined : `workflow:${params.id}`,
       name: name(),
-      protoContent: protoContent(),
+      protoId: protoId() || undefined,
       serverAddress: serverAddress(),
       useTls: useTls(),
       schedule: schedule(),
-      authConfig: (authType() === "grpc" ? authService() : (authType() === "rest" ? authUrl() : bearerToken())) ? {
-        type: authType(),
-        serviceName: authType() === "grpc" ? authService() : undefined,
-        methodName: authType() === "grpc" ? authMethod() : undefined,
-        requestTemplate: authType() === "grpc" ? authRequestTemplate() : undefined,
-        url: authType() === "rest" ? authUrl() : undefined,
-        method: authType() === "rest" ? authRestMethod() : undefined,
-        authScheme: authType() === "rest" ? authScheme() : undefined,
-        username: authType() === "rest" ? authUsername() : undefined,
-        password: authType() === "rest" ? authPassword() : undefined,
-        bearerToken: authType() === "static" || (authType() === "rest" && authScheme() === "bearer") ? bearerToken() : undefined,
-        body: authType() === "rest" ? authRestBody() : undefined,
-        tokenPath: authTokenPath()
-      } : undefined,
+      connectionId: connectionId() || undefined,
       steps: steps.map(s => ({
         ...s,
         type: s.type || "grpc"
@@ -689,6 +711,11 @@ export default function WorkflowBuilder() {
           
           <div class="w-px h-6 bg-[#2a2a3a] mx-1"></div>
 
+          <button onClick={() => setShowSettings(true)} class="btn-secondary flex items-center gap-1.5">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+            Settings
+          </button>
+          
           <button onClick={saveWorkflow} class="btn-secondary">Save Flow</button>
           <button onClick={runWorkflow} class="btn-primary flex items-center gap-2" disabled={isNew || isRunning()}>
             {isRunning() ? (
@@ -704,306 +731,9 @@ export default function WorkflowBuilder() {
         </div>
       </div>
 
-      <div class="grid grid-cols-1 gap-8 lg:grid-cols-3">
-        {/* Left Col: Setup & Proto */}
-        <div class="col-span-1 space-y-6">
-          <div class="card p-5">
-            <h3 class="mb-4 text-lg font-bold text-white flex items-center gap-2">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>
-              Connection
-            </h3>
-            
-            <label class="mb-1 block text-sm font-medium text-[#8b8b9e]">Server Address</label>
-            <input
-              type="text"
-              class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-3 text-sm text-white focus:border-blue-500 focus:outline-none"
-              placeholder="e.g. localhost:50051"
-              value={serverAddress()}
-              onInput={(e) => setServerAddress(e.currentTarget.value)}
-            />
-
-            <label class="mt-4 flex items-center gap-3 cursor-pointer">
-              <div class="relative">
-                <input
-                  type="checkbox"
-                  class="peer sr-only"
-                  checked={useTls()}
-                  onChange={(e) => setUseTls(e.currentTarget.checked)}
-                />
-                <div class="h-6 w-11 rounded-full bg-[#2a2a3a] after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-[#8b8b9e] after:transition-all after:content-[''] peer-checked:bg-blue-500 peer-checked:after:translate-x-full peer-checked:after:border-white peer-checked:after:bg-white peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-500/50"></div>
-              </div>
-              <span class="text-sm font-medium text-[#8b8b9e] peer-checked:text-white transition-colors">Use TLS Encryption</span>
-            </label>
-
-            <div class="mt-6 border-t border-[#2a2a3a] pt-6">
-              <label class="mb-1 block text-sm font-medium text-[#8b8b9e]">
-                Schedule (Cron)
-                <span class="ml-1 text-[10px] text-[#5b5b6e]">e.g. */5 * * * *</span>
-              </label>
-              <input
-                type="text"
-                class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-3 text-sm text-white focus:border-blue-500 focus:outline-none placeholder:text-[#5b5b6e]"
-                placeholder="Leave empty for manual only"
-                value={schedule()}
-                onInput={(e) => setSchedule(e.currentTarget.value)}
-              />
-              <p class="mt-2 text-[10px] text-[#5b5b6e]">
-                Uses standard cron syntax (min hour day month weekday).
-              </p>
-            </div>
-
-            <div class="mt-6 border-t border-[#2a2a3a] pt-6">
-              <h3 class="mb-4 text-sm font-bold text-white flex items-center gap-2">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
-                Authentication
-              </h3>
-
-              <div class="space-y-4">
-                <div class="flex p-1 bg-[#1e1e2e] rounded-lg">
-                  <button
-                    onClick={() => setAuthType("grpc")}
-                    class={`flex-1 py-1.5 text-xs font-bold rounded-md transition-all ${authType() === "grpc" ? "bg-blue-600 text-white shadow-lg" : "text-[#8b8b9e] hover:text-white"}`}
-                  >
-                    gRPC
-                  </button>
-                  <button
-                    onClick={() => setAuthType("rest")}
-                    class={`flex-1 py-1.5 text-xs font-bold rounded-md transition-all ${authType() === "rest" ? "bg-blue-600 text-white shadow-lg" : "text-[#8b8b9e] hover:text-white"}`}
-                  >
-                    REST
-                  </button>
-                  <button
-                    onClick={() => setAuthType("static")}
-                    class={`flex-1 py-1.5 text-xs font-bold rounded-md transition-all ${authType() === "static" ? "bg-blue-600 text-white shadow-lg" : "text-[#8b8b9e] hover:text-white"}`}
-                  >
-                    Static Token
-                  </button>
-                </div>
-
-                <Show when={authType() === "grpc"}>
-                  <div>
-                    <label class="mb-1 block text-xs text-[#8b8b9e]">Auth Service</label>
-                    <select
-                      class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2 text-sm text-white focus:border-blue-500 focus:outline-none"
-                      value={authService()}
-                      onChange={(e) => setAuthService(e.currentTarget.value)}
-                    >
-                      <option value="">None (No Auth)</option>
-                      <For each={parsedProto()?.services || []}>
-                        {(svc) => <option value={svc.fullName}>{svc.fullName}</option>}
-                      </For>
-                    </select>
-                  </div>
-
-                  <Show when={authService()}>
-                    <div>
-                      <label class="mb-1 block text-xs text-[#8b8b9e]">Auth Method</label>
-                      <select
-                        class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2 text-sm text-white focus:border-blue-500 focus:outline-none"
-                        value={authMethod()}
-                        onChange={(e) => setAuthMethod(e.currentTarget.value)}
-                      >
-                        <option value="" disabled>Select method...</option>
-                        <For each={parsedProto()?.services.find(s => s.fullName === authService())?.methods || []}>
-                          {(m) => <option value={m.name}>{m.name}</option>}
-                        </For>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label class="mb-1 block text-xs text-[#8b8b9e]">Request Template (JSON)</label>
-                      <textarea
-                        class="w-full rounded-lg border border-[#2a2a3a] bg-[#1b1b26] p-2 text-xs font-mono text-emerald-300 focus:border-emerald-500 focus:outline-none"
-                        rows={3}
-                        value={authRequestTemplate()}
-                        onInput={(e) => setAuthRequestTemplate(e.currentTarget.value)}
-                      />
-                    </div>
-                  </Show>
-                </Show>
-
-                <Show when={authType() === "rest"}>
-                  <div class="space-y-3">
-                    <div>
-                      <label class="mb-1 block text-xs text-[#8b8b9e]">URL</label>
-                      <input
-                        type="text"
-                        class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2 text-xs text-white focus:border-blue-500 focus:outline-none"
-                        placeholder="https://auth.example.com/token"
-                        value={authUrl()}
-                        onInput={(e) => setAuthUrl(e.currentTarget.value)}
-                      />
-                    </div>
-                    <div class="grid grid-cols-2 gap-2">
-                       <div>
-                        <label class="mb-1 block text-xs text-[#8b8b9e]">Method</label>
-                        <select
-                          class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2 text-xs text-white focus:border-blue-500 focus:outline-none"
-                          value={authRestMethod()}
-                          onChange={(e) => setAuthRestMethod(e.currentTarget.value)}
-                        >
-                          <option value="POST">POST</option>
-                          <option value="GET">GET</option>
-                          <option value="PUT">PUT</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label class="mb-1 block text-xs text-[#8b8b9e]">Auth Scheme</label>
-                        <select
-                          class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2 text-xs text-white focus:border-blue-500 focus:outline-none"
-                          value={authScheme()}
-                          onChange={(e) => setAuthScheme(e.currentTarget.value as any)}
-                        >
-                          <option value="basic">Basic (User:Pass)</option>
-                          <option value="bearer">Bearer Token</option>
-                          <option value="none">None</option>
-                        </select>
-                      </div>
-                    </div>
-                    <Show when={authScheme() === "basic"}>
-                      <div class="grid grid-cols-2 gap-2">
-                        <div>
-                          <label class="mb-1 block text-xs text-[#8b8b9e]">Username (Basic)</label>
-                          <input
-                            type="text"
-                            class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2 text-xs text-white focus:border-blue-500 focus:outline-none"
-                            value={authUsername()}
-                            onInput={(e) => setAuthUsername(e.currentTarget.value)}
-                          />
-                        </div>
-                        <div>
-                          <label class="mb-1 block text-xs text-[#8b8b9e]">Password (Basic)</label>
-                          <input
-                            type="password"
-                            class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2 text-xs text-white focus:border-blue-500 focus:outline-none"
-                            value={authPassword()}
-                            onInput={(e) => setAuthPassword(e.currentTarget.value)}
-                          />
-                        </div>
-                      </div>
-                    </Show>
-                    <Show when={authScheme() === "bearer"}>
-                      <div>
-                        <label class="mb-1 block text-xs text-[#8b8b9e]">Bearer Token</label>
-                        <input
-                          type="password"
-                          class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2 text-xs text-white focus:border-blue-500 focus:outline-none"
-                          value={bearerToken()}
-                          onInput={(e) => setBearerToken(e.currentTarget.value)}
-                        />
-                      </div>
-                    </Show>
-                    <Show when={authRestMethod() !== "GET"}>
-                      <div>
-                        <label class="mb-1 block text-xs text-[#8b8b9e]">Body (JSON)</label>
-                        <textarea
-                          class="w-full rounded-lg border border-[#2a2a3a] bg-[#1b1b26] p-2 text-xs font-mono text-emerald-300 focus:border-emerald-500 focus:outline-none"
-                          rows={2}
-                          value={authRestBody()}
-                          onInput={(e) => setAuthRestBody(e.currentTarget.value)}
-                        />
-                      </div>
-                    </Show>
-                  </div>
-                </Show>
-
-                <Show when={authType() === "static"}>
-                  <div class="space-y-3">
-                    <div>
-                      <label class="mb-1 block text-xs text-[#8b8b9e]">Static Bearer Token</label>
-                      <input
-                        type="password"
-                        class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2 text-xs text-white focus:border-blue-500 focus:outline-none"
-                        placeholder="Paste your token here..."
-                        value={bearerToken()}
-                        onInput={(e) => setBearerToken(e.currentTarget.value)}
-                      />
-                      <p class="mt-2 text-[10px] text-[#5b5b6e]">
-                        This token will be injected directly as <code class="text-[#8b8b9e] font-mono">Authorization: Bearer &lt;token&gt;</code> into all gRPC steps. No Auth API request will be made.
-                      </p>
-                    </div>
-                  </div>
-                </Show>
-
-                <Show when={authType() !== "static"}>
-                  <div class="pt-2 border-t border-[#2a2a3a]/50">
-                    <label class="mb-1 block text-xs text-[#8b8b9e]">Token JSON Path</label>
-                    <input
-                      type="text"
-                      class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2 text-xs text-white focus:border-blue-500 focus:outline-none"
-                      placeholder="e.g. accessToken"
-                      value={authTokenPath()}
-                      onInput={(e) => setAuthTokenPath(e.currentTarget.value)}
-                    />
-                  </div>
-
-                  <button
-                    onClick={testAuth}
-                    disabled={isTestingAuth() || (authType() === "grpc" && !authMethod()) || (authType() === "rest" && !authUrl())}
-                    class="w-full rounded-lg bg-blue-600/20 py-2 text-xs font-bold text-blue-400 hover:bg-blue-600/30 transition-colors flex items-center justify-center gap-2 border border-blue-500/30"
-                  >
-                    <Show when={isTestingAuth()}>
-                      <svg class="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                    </Show>
-                    Test Authentication
-                  </button>
-                </Show>
-
-                <Show when={authTestResult()}>
-                  <div class={`mt-2 rounded p-2 text-[10px] ${authTestResult()!.success ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}`}>
-                    <div class="font-bold mb-1">{authTestResult()!.success ? "✓ Success" : "✗ Error"}</div>
-                    {authTestResult()!.success ? (
-                      <div class="break-all font-mono">Token: {authTestResult()!.token}</div>
-                    ) : (
-                      <div class="break-words">{authTestResult()!.error}</div>
-                    )}
-                  </div>
-                </Show>
-              </div>
-            </div>
-
-          </div>
-
-          <div class="card p-5">
-            <div class="flex items-center justify-between mb-4">
-              <h3 class="text-lg font-bold text-white flex items-center gap-2">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
-                Proto Definition
-              </h3>
-              <Show when={savedProtos() && savedProtos().length > 0}>
-                <select 
-                  class="rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] px-3 py-1.5 text-xs text-white focus:border-blue-500 focus:outline-none max-w-[150px] truncate"
-                  onChange={(e) => {
-                    const id = e.currentTarget.value;
-                    const p = savedProtos().find((x: any) => x.id === id);
-                    if (p) setProtoContent(p.content);
-                    // Reset selection to default option
-                    e.currentTarget.value = "";
-                  }}
-                >
-                  <option value="">Load saved proto...</option>
-                  <For each={savedProtos()}>
-                    {(p: any) => <option value={p.id}>{p.name}</option>}
-                  </For>
-                </select>
-              </Show>
-            </div>
-            <textarea
-              class="h-64 w-full resize-none font-mono text-sm rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-3 text-blue-100 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500/50"
-              placeholder="Paste your .proto schema here..."
-              value={protoContent()}
-              onInput={(e) => setProtoContent(e.currentTarget.value)}
-            />
-            <Show when={compileError()}>
-              <div class="mt-3 rounded-lg border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-400">
-                {compileError()}
-              </div>
-            </Show>
-          </div>
-        </div>
-
-        {/* Right Col: Steps Builder & Run Results */}
-        <div class="col-span-1 lg:col-span-2 space-y-6">
+      <div class="space-y-6">
+        {/* Steps Builder & Run Results */}
+        <div class="space-y-6">
           {/* Top-Level Run Status Banner */}
           <Show when={runData()}>
             {(() => {
@@ -1263,6 +993,13 @@ export default function WorkflowBuilder() {
                       />
                     </div>
 
+                    <StepAuthSettings 
+                      step={step} 
+                      index={index()} 
+                      updateStep={updateStep} 
+                      connections={connections() || []} 
+                    />
+
                     <div class="mt-4">
                       <div class="flex items-center justify-between mb-1">
                         <label class="text-xs text-[#8b8b9e]">Headers (Metadata) Template</label>
@@ -1307,6 +1044,13 @@ export default function WorkflowBuilder() {
                         </div>
                       </div>
                       
+                      <StepAuthSettings 
+                        step={step} 
+                        index={index()} 
+                        updateStep={updateStep} 
+                        connections={connections() || []} 
+                      />
+                      
                       <Show when={step.restMethod !== "GET" && step.restMethod !== "DELETE"}>
                         <div>
                           <div class="flex items-center justify-between mb-1">
@@ -1338,16 +1082,64 @@ export default function WorkflowBuilder() {
 
                   {/* Database Query Config */}
                   <Show when={step.type === "database"}>
-                    <div class="mb-4">
-                      <div class="mb-4">
-                        <label class="mb-1 block text-xs text-[#8b8b9e]">Target Database Name <span class="text-[10px] text-[#5b5b6e]">(supports {'{{ variables }}'})</span></label>
-                        <input
-                          type="text"
-                          class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2.5 text-sm text-white font-mono focus:border-red-500 focus:outline-none placeholder:text-[#5b5b6e]"
-                          placeholder="e.g. analytics_db or {{ steps.test.response.db_name }}"
-                          value={step.databaseName || ""}
-                          onInput={(e) => updateStep(index(), "databaseName", e.currentTarget.value)}
-                        />
+                    <div class="mb-4 space-y-4">
+                      <div class="grid grid-cols-2 gap-4">
+                        <div>
+                          <label class="mb-1 block text-xs text-[#8b8b9e]">Connection URL <span class="text-[10px] text-[#5b5b6e]">(supports {'{{ variables }}'})</span></label>
+                          <input
+                            type="text"
+                            class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2.5 text-sm text-white font-mono focus:border-red-500 focus:outline-none placeholder:text-[#5b5b6e]"
+                            placeholder="e.g. ws://127.0.0.1:8000/rpc (or leave blank)"
+                            value={step.databaseUrl || ""}
+                            onInput={(e) => updateStep(index(), "databaseUrl", e.currentTarget.value)}
+                          />
+                        </div>
+                        
+                        <div>
+                          <label class="mb-1 block text-xs text-[#8b8b9e]">Namespace <span class="text-[10px] text-[#5b5b6e]">(supports {'{{ variables }}'})</span></label>
+                          <input
+                            type="text"
+                            class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2.5 text-sm text-white font-mono focus:border-red-500 focus:outline-none placeholder:text-[#5b5b6e]"
+                            placeholder="e.g. solidflow (or leave blank)"
+                            value={step.databaseNs || ""}
+                            onInput={(e) => updateStep(index(), "databaseNs", e.currentTarget.value)}
+                          />
+                        </div>
+                      </div>
+
+                      <div class="grid grid-cols-3 gap-4">
+                        <div>
+                          <label class="mb-1 block text-xs text-[#8b8b9e]">Database Name <span class="text-[10px] text-[#5b5b6e]">(supports {'{{ variables }}'})</span></label>
+                          <input
+                            type="text"
+                            class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2.5 text-sm text-white font-mono focus:border-red-500 focus:outline-none placeholder:text-[#5b5b6e]"
+                            placeholder="e.g. main (or leave blank)"
+                            value={step.databaseName || ""}
+                            onInput={(e) => updateStep(index(), "databaseName", e.currentTarget.value)}
+                          />
+                        </div>
+
+                        <div>
+                          <label class="mb-1 block text-xs text-[#8b8b9e]">Username <span class="text-[10px] text-[#5b5b6e]">(supports {'{{ variables }}'})</span></label>
+                          <input
+                            type="text"
+                            class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2.5 text-sm text-white font-mono focus:border-red-500 focus:outline-none placeholder:text-[#5b5b6e]"
+                            placeholder="e.g. admin"
+                            value={step.databaseUser || ""}
+                            onInput={(e) => updateStep(index(), "databaseUser", e.currentTarget.value)}
+                          />
+                        </div>
+
+                        <div>
+                          <label class="mb-1 block text-xs text-[#8b8b9e]">Password <span class="text-[10px] text-[#5b5b6e]">(supports {'{{ variables }}'})</span></label>
+                          <input
+                            type="text"
+                            class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2.5 text-sm text-white font-mono focus:border-red-500 focus:outline-none placeholder:text-[#5b5b6e]"
+                            placeholder="e.g. admin"
+                            value={step.databasePass || ""}
+                            onInput={(e) => updateStep(index(), "databasePass", e.currentTarget.value)}
+                          />
+                        </div>
                       </div>
                       
                       <div>
@@ -1616,6 +1408,204 @@ export default function WorkflowBuilder() {
           </div>
         </div>
       </div>
+      {/* Settings Modal */}
+      <Show when={showSettings()}>
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 text-left">
+          <div class="card max-w-lg w-full p-6 space-y-6 shadow-2xl border border-[#2a2a3a] bg-[#0c0c12]">
+            <div class="flex items-center justify-between border-b border-[#2a2a3a] pb-4">
+              <h2 class="text-xl font-bold text-white flex items-center gap-2">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                Workflow Settings
+              </h2>
+              <button 
+                onClick={() => setShowSettings(false)}
+                class="text-[#8b8b9e] hover:text-white transition-colors"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+              </button>
+            </div>
+
+            <div class="space-y-4">
+              <div>
+                <label class="mb-1 block text-sm font-medium text-[#8b8b9e]">Proto File</label>
+                <select
+                  class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-3 text-sm text-white focus:border-blue-500 focus:outline-none"
+                  value={protoId()}
+                  onChange={(e) => setProtoId(e.currentTarget.value)}
+                >
+                  <option value="">No Proto File (REST / Table Only)</option>
+                  <Show when={!savedProtos.loading}>
+                    <For each={savedProtos()}>
+                      {(p) => (
+                        <option value={p.id}>{p.name}</option>
+                      )}
+                    </For>
+                  </Show>
+                </select>
+                <p class="mt-2 text-[10px] text-[#5b5b6e]">
+                  Select a saved proto definition file from registry to enable autocomplete and service selectors in steps.
+                </p>
+              </div>
+
+              <div>
+                <label class="mb-1 block text-sm font-medium text-[#8b8b9e]">Server Address</label>
+                <input
+                  type="text"
+                  class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-3 text-sm text-white focus:border-blue-500 focus:outline-none"
+                  placeholder="e.g. localhost:50051"
+                  value={serverAddress()}
+                  onInput={(e) => setServerAddress(e.currentTarget.value)}
+                />
+              </div>
+
+              <label class="flex items-center gap-3 cursor-pointer py-1">
+                <div class="relative">
+                  <input
+                    type="checkbox"
+                    class="peer sr-only"
+                    checked={useTls()}
+                    onChange={(e) => setUseTls(e.currentTarget.checked)}
+                  />
+                  <div class="h-6 w-11 rounded-full bg-[#2a2a3a] after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-[#8b8b9e] after:transition-all after:content-[''] peer-checked:bg-blue-500 peer-checked:after:translate-x-full peer-checked:after:border-white peer-checked:after:bg-white peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-500/50"></div>
+                </div>
+                <span class="text-sm font-medium text-[#8b8b9e] peer-checked:text-white transition-colors">Use TLS Encryption</span>
+              </label>
+
+              <div class="border-t border-[#2a2a3a]/60 pt-4">
+                <label class="mb-1 block text-sm font-medium text-[#8b8b9e]">
+                  Schedule (Cron)
+                  <span class="ml-1 text-[10px] text-[#5b5b6e]">e.g. */5 * * * *</span>
+                </label>
+                <input
+                  type="text"
+                  class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-3 text-sm text-white focus:border-blue-500 focus:outline-none placeholder:text-[#5b5b6e]"
+                  placeholder="Leave empty for manual only"
+                  value={schedule()}
+                  onInput={(e) => setSchedule(e.currentTarget.value)}
+                />
+                <p class="mt-2 text-[10px] text-[#5b5b6e]">
+                  Uses standard cron syntax (min hour day month weekday).
+                </p>
+              </div>
+
+              <div class="border-t border-[#2a2a3a]/60 pt-4">
+                <label class="mb-1 block text-sm font-medium text-[#8b8b9e]">OAuth Connection</label>
+                <select
+                  class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-3 text-sm text-white focus:border-blue-500 focus:outline-none"
+                  value={connectionId() || ""}
+                  onChange={(e) => setConnectionId(e.currentTarget.value)}
+                >
+                  <option value="">No Connection (Public / Unauthenticated)</option>
+                  <Show when={!connections.loading}>
+                    <For each={connections()}>
+                      {(conn) => (
+                        <option value={conn.id}>{conn.name}</option>
+                      )}
+                    </For>
+                  </Show>
+                </select>
+                <p class="mt-2 text-[10px] text-[#5b5b6e]">
+                  Selected connection will retrieve an OAuth token and inject it as <code class="text-[#8b8b9e] font-mono">Authorization: Bearer &lt;token&gt;</code>.
+                </p>
+              </div>
+            </div>
+
+            <div class="pt-4 border-t border-[#2a2a3a] flex justify-end">
+              <button 
+                onClick={() => setShowSettings(false)}
+                class="btn-primary px-6 py-2.5"
+              >
+                Close Settings
+              </button>
+            </div>
+          </div>
+        </div>
+      </Show>
     </main>
+  );
+}
+
+function StepAuthSettings(props: { step: any, index: number, updateStep: (idx: number, key: string, val: any) => void, connections: any[] }) {
+  const currentAuthType = () => props.step?.authType || "none";
+  const selectedConnection = () => {
+    if (!props.step || !props.connections) return undefined;
+    return props.connections.find((c: any) => c.id === props.step.connectionId);
+  };
+
+  return (
+    <div class="mt-4 border-t border-[#2a2a3a]/60 pt-4 text-left">
+      <label class="mb-2 block text-xs font-semibold text-[#8b8b9e] uppercase tracking-wider">Authentication</label>
+      
+      <div class="flex p-1 bg-[#151520] rounded-lg max-w-xs mb-3">
+        <button
+          onClick={() => props.updateStep(props.index, "authType", "none")}
+          class={`flex-1 py-1 text-xs font-bold rounded transition-all ${currentAuthType() === "none" ? "bg-blue-600 text-white shadow" : "text-[#8b8b9e] hover:text-white"}`}
+        >
+          None
+        </button>
+        <button
+          onClick={() => props.updateStep(props.index, "authType", "basic")}
+          class={`flex-1 py-1 text-xs font-bold rounded transition-all ${currentAuthType() === "basic" ? "bg-blue-600 text-white shadow" : "text-[#8b8b9e] hover:text-white"}`}
+        >
+          Basic
+        </button>
+        <button
+          onClick={() => props.updateStep(props.index, "authType", "oauth")}
+          class={`flex-1 py-1 text-xs font-bold rounded transition-all ${currentAuthType() === "oauth" ? "bg-blue-600 text-white shadow" : "text-[#8b8b9e] hover:text-white"}`}
+        >
+          OAuth
+        </button>
+      </div>
+
+      <Show when={currentAuthType() === "basic"}>
+        <div class="grid grid-cols-2 gap-3 max-w-md">
+          <div>
+            <label class="mb-1 block text-[10px] text-[#8b8b9e]">Username</label>
+            <input
+              type="text"
+              class="w-full rounded border border-[#2a2a3a] bg-[#1a1a26] p-2 text-xs text-white focus:border-blue-500 focus:outline-none"
+              placeholder="Username"
+              value={props.step?.authUsername || ""}
+              onInput={(e) => props.updateStep(props.index, "authUsername", e.currentTarget.value)}
+            />
+          </div>
+          <div>
+            <label class="mb-1 block text-[10px] text-[#8b8b9e]">Password</label>
+            <input
+              type="password"
+              class="w-full rounded border border-[#2a2a3a] bg-[#1a1a26] p-2 text-xs text-white focus:border-blue-500 focus:outline-none"
+              placeholder="Password"
+              value={props.step?.authPassword || ""}
+              onInput={(e) => props.updateStep(props.index, "authPassword", e.currentTarget.value)}
+            />
+          </div>
+        </div>
+      </Show>
+
+      <Show when={currentAuthType() === "oauth"}>
+        <div class="max-w-md space-y-2">
+          <label class="mb-1 block text-[10px] text-[#8b8b9e]">Select OAuth Connection</label>
+          <select
+            class="w-full rounded border border-[#2a2a3a] bg-[#1a1a26] p-2 text-xs text-white focus:border-blue-500 focus:outline-none"
+            value={props.step?.connectionId || ""}
+            onChange={(e) => props.updateStep(props.index, "connectionId", e.currentTarget.value)}
+          >
+            <option value="" disabled>Select Connection...</option>
+            <For each={props.connections || []}>
+              {(conn) => (
+                <option value={conn.id}>{conn.name}</option>
+              )}
+            </For>
+          </select>
+          
+          <Show when={selectedConnection()}>
+            <p class="text-[10px] text-emerald-400 font-mono mt-1 flex items-center gap-1.5">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+              Returns token key: <span class="bg-[#1e1e2e] px-1.5 py-0.5 rounded border border-[#2a2a3a] text-white font-bold">{selectedConnection()?.tokenPath || "access_token"}</span>
+            </p>
+          </Show>
+        </div>
+      </Show>
+    </div>
   );
 }

@@ -23,13 +23,6 @@ export async function POST(event: APIEvent) {
       });
     }
 
-    if (!dashboard.isPublic) {
-      return new Response(JSON.stringify({ success: false, error: "Dashboard is not published" }), {
-        status: 403,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
-
     // Find the button
     const buttons = dashboard.buttons || [];
     const button = buttons.find((b: any) => b.id === buttonId);

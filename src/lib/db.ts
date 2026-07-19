@@ -1,6 +1,13 @@
 import { Surreal } from "surrealdb";
 import * as Sentry from "@sentry/node";
 import { initWorkflowScheduler } from "./workflowScheduler";
+import { logger } from "./logger";
+
+const console = {
+    log: (...args: any[]) => logger.info(...args),
+    error: (...args: any[]) => logger.error(...args),
+    warn: (...args: any[]) => logger.warn(...args),
+};
 
 // ---------------------------------------------------------------------------
 // TracedDb — wraps every SurrealDB call with a Sentry span
@@ -344,3 +351,81 @@ export async function getDynamicDb(dbName: string): Promise<TracedDb> {
     dynamicDbs.set(dbName, promise);
     return promise;
 }
+
+const customDbs = new Map<string, Promise<TracedDb>>();
+
+export interface CustomDbOpts {
+    url?: string;
+    user?: string;
+    pass?: string;
+    namespace?: string;
+    database?: string;
+}
+
+export async function getCustomDb(opts: CustomDbOpts): Promise<TracedDb> {
+    const url = opts.url || process.env.SURREALDB_URL || "";
+    const user = opts.user || process.env.SURREALDB_USER || "admin";
+    const pass = opts.pass || process.env.SURREALDB_PASS || "";
+    const namespace = opts.namespace || process.env.SURREALDB_NS || "solidflow";
+    const database = opts.database || "main";
+
+    const cacheKey = `${url}|${user}|${pass}|${namespace}|${database}`;
+
+    if (customDbs.has(cacheKey)) {
+        return customDbs.get(cacheKey)!;
+    }
+
+    const promise = Sentry.startSpan(
+        {
+            name: `SurrealDB Connect (custom: ${database})`,
+            op: "db.connect",
+            attributes: {
+                "db.system": "surrealdb",
+                "db.name": database,
+            },
+        },
+        async (connectSpan) => {
+            connectSpan.setAttribute("db.url", url);
+            connectSpan.setAttribute("db.namespace", namespace);
+
+            console.log(
+                `[DB] [CUSTOM] Connecting to custom database '${database}' at ${url}...`,
+            );
+            try {
+                const s = new Surreal();
+                await s.connect(url, {
+                    authentication: { username: user, password: pass },
+                });
+                
+                try {
+                    await s.query(`DEFINE NAMESPACE IF NOT EXISTS ${namespace}`);
+                } catch (e: any) {
+                    console.log(`[DB] [CUSTOM] Could not define namespace (possibly insufficient permissions): ${e.message}`);
+                }
+                await s.use({ namespace });
+
+                try {
+                    await s.query(`DEFINE DATABASE IF NOT EXISTS ${database}`);
+                } catch (e: any) {
+                    console.log(`[DB] [CUSTOM] Could not define database (possibly insufficient permissions): ${e.message}`);
+                }
+                await s.use({ namespace, database });
+                
+                console.log(`[DB] [CUSTOM] Successfully connected to '${database}'`);
+                return new TracedDb(s, database);
+            } catch (err: any) {
+                console.error(
+                    `[DB] [CUSTOM] Failed to connect to custom database ${database}:`,
+                    err.message,
+                );
+                Sentry.captureException(err);
+                customDbs.delete(cacheKey);
+                throw err;
+            }
+        },
+    );
+
+    customDbs.set(cacheKey, promise);
+    return promise;
+}
+

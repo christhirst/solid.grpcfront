@@ -31,9 +31,19 @@ export async function POST(event: APIEvent) {
     const workflow = Array.isArray(records) ? records[0] : records;
     const runId = `workflow_run:${uuidv4()}`;
 
+    // Read form data from payload if present
+    let formPayload = {};
+    try {
+      const body = await event.request.json();
+      if (body && body.form) {
+        formPayload = body.form;
+      }
+    } catch (e) {
+      // Ignored
+    }
+
     // Kick off the background execution!
-    // Since it's a promise and we don't await it, it runs in the background.
-    runWorkflowBackground(workflow, runId).catch(console.error);
+    runWorkflowBackground(workflow, runId, { form: formPayload }).catch(console.error);
 
     return new Response(JSON.stringify({ success: true, runId }), {
       headers: { "Content-Type": "application/json" },
@@ -50,12 +60,14 @@ export async function GET(event: APIEvent) {
   try {
     const id = event.params.id;
     const db = await getDb();
+    const dbId = id.includes(":") ? id.split(":")[1] : id;
+    const recordId = new RecordId("workflow", dbId);
     
     // Get all runs for this workflow
-    const query = "SELECT * FROM workflow_run WHERE workflowId = $id ORDER BY startTime DESC LIMIT 20";
+    const query = "SELECT * FROM workflow_run WHERE workflowId = $wfId ORDER BY startTime DESC LIMIT 20";
     let results: any = [[]];
     try {
-      const raw: any = await db.query(query, { id });
+      const raw: any = await db.query(query, { wfId: recordId });
       results = [ (raw[0] || []).map((r: any) => ({ ...r, id: r.id?.toString().replace(/[⟨⟩]/g, "") })) ];
     } catch (e: any) {
       if (!e.message?.includes("does not exist")) throw e;
