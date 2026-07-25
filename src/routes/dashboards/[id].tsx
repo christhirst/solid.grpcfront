@@ -1,45 +1,27 @@
-import { createSignal, createResource, For, Show, onMount, createMemo } from "solid-js";
+import { createSignal, createResource, For, Show, onMount, createMemo, createEffect } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import { useParams, useNavigate, A } from "@solidjs/router";
 import { isServer } from "solid-js/web";
 import { DefaultChart } from "solid-chartjs";
 import { Chart, registerables } from "chart.js";
+import * as ChartGeo from "chartjs-chart-geo";
 import get from "lodash.get";
 
 if (!isServer) {
   Chart.register(...registerables);
+  Chart.register(
+    ChartGeo.ChoroplethController,
+    ChartGeo.GeoFeature,
+    ChartGeo.ColorScale,
+    ChartGeo.ProjectionScale
+  );
 }
 
-function extractFormVariables(workflow: any): string[] {
-  if (!workflow) return [];
-  const vars = new Set<string>();
-  const regex = /\{\{\s*(?:form|dashboard_form)\.([a-zA-Z0-9_.-]+)\s*\}\}/g;
-  const scanStr = (s?: string) => {
-    if (!s) return;
-    let m;
-    // reset regex index to avoid state retention across searches
-    regex.lastIndex = 0;
-    while ((m = regex.exec(s)) !== null) {
-      vars.add(m[1]);
-    }
-  };
-  if (workflow.authConfig) {
-    scanStr(workflow.authConfig.requestTemplate);
-    scanStr(workflow.authConfig.body);
-    scanStr(workflow.authConfig.url);
-  }
-  (workflow.steps || []).forEach((step: any) => {
-    scanStr(step.requestBodyTemplate);
-    scanStr(step.headersTemplate);
-    scanStr(step.restUrl);
-    scanStr(step.databaseName);
-    scanStr(step.databaseUrl);
-    scanStr(step.databaseUser);
-    scanStr(step.databasePass);
-    scanStr(step.databaseNs);
-  });
-  return Array.from(vars);
-}
+import { extractFormVariables, checkWidgetVariablesConfigured } from "~/lib/workflowVariableChecker";
+
+
+import { evaluateNewsRules, newsColorClasses, type NewsRule } from "~/lib/newsRulesEvaluator";
+
 
 /** Return the type of the last meaningful step in a workflow */
 function lastStepType(workflow: any): "grpc" | "table" | "chart" {
@@ -50,6 +32,7 @@ function lastStepType(workflow: any): "grpc" | "table" | "chart" {
 }
 
 export default function DashboardBuilder() {
+
   const params = useParams();
   const navigate = useNavigate();
   const isNew = params.id === "new";
@@ -161,9 +144,16 @@ export default function DashboardBuilder() {
     }
   };
 
-  const addWidget = (widgetType: "button" | "form" | "chart" | "table") => {
+  const addWidget = (widgetType: "button" | "form" | "chart" | "table" | "news" | "toggle") => {
     setShowWidgetPicker(false);
-    const labels: Record<string, string> = { button: "New Button", form: "New Form", chart: "New Chart", table: "New Table" };
+    const labels: Record<string, string> = {
+      button: "New Button",
+      form: "New Form",
+      chart: "New Chart",
+      table: "New Table",
+      news: "News Alert Feed",
+      toggle: "Toggle Switch",
+    };
     setButtons([...buttons, {
       id: `btn_${Math.random().toString(36).substr(2, 9)}`,
       label: labels[widgetType] || "New Widget",
@@ -175,11 +165,23 @@ export default function DashboardBuilder() {
       yKey: "",
       columns: "",
       formConfig: [],
+      dataPath: "",
+      streamActive: true,
+      newsRules: [
+        { id: "rule_1", operator: "contains", value: "error", color: "red", textTemplate: "CRITICAL: {{ value }}" },
+        { id: "rule_2", operator: "contains", value: "ok", color: "emerald", textTemplate: "NORMAL: {{ value }}" },
+        { id: "rule_3", operator: "default", value: "", color: "blue", textTemplate: "NEWS: {{ value }}" },
+      ],
+      onLabel: "ACTIVE",
+      offLabel: "INACTIVE",
+      formVarName: "toggle_state",
+      defaultChecked: false,
     }]);
   };
 
-  const updateButton = (index: number, key: string, value: any) => {
-    setButtons(index, key, value);
+
+  const updateButton = (index: number, ...args: any[]) => {
+    setButtons(index, ...(args as any));
   };
 
   const removeButton = (index: number) => {
@@ -260,7 +262,10 @@ export default function DashboardBuilder() {
                     { type: "form",   icon: "📝", label: "Form",   desc: "Button with input fields", color: "text-purple-400" },
                     { type: "chart",  icon: "📈", label: "Chart",  desc: "Auto-load chart data", color: "text-pink-400" },
                     { type: "table",  icon: "📊", label: "Table",  desc: "Auto-load table data", color: "text-emerald-400" },
+                    { type: "news",   icon: "📰", label: "News Alert", desc: "IF/ELSE color & text news feed", color: "text-amber-400" },
+                    { type: "toggle", icon: "🎛️", label: "Toggle Switch", desc: "Interactive ON/OFF workflow switch", color: "text-cyan-400" },
                   ] as const).map(opt => (
+
                     <button
                       onClick={() => addWidget(opt.type)}
                       class="w-full text-left px-4 py-3 hover:bg-[#252535] transition-colors flex items-start gap-3 border-b border-[#2a2a3a]/50 last:border-0"
@@ -299,15 +304,40 @@ export default function DashboardBuilder() {
                   wt() === "form"  ? "text-purple-400 bg-purple-500/10 border-purple-500/20" :
                   "text-blue-400 bg-blue-500/10 border-blue-500/20";
 
+                const boundWf = createMemo(() => workflows()?.find((w: any) => w.id === btn.workflowId));
+                const varStatus = createMemo(() => checkWidgetVariablesConfigured(boundWf(), btn.formConfig));
+
                 return (
-                  <div class={`card p-5 relative border-l-4 group ${accentCls()}`}>
-                    <button onClick={() => removeButton(index())} class="absolute top-4 right-4 text-[#5b5b6e] hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity" title="Remove widget">
+                  <div class={`card p-5 relative border-l-4 group overflow-hidden ${accentCls()}`}>
+                    {/* Translucent top color: light red if variables exist & not all configured, light green if all configured */}
+                    <Show when={varStatus().hasVariables}>
+                      <div
+                        class={`absolute top-0 left-0 right-0 h-12 rounded-t-2xl pointer-events-none transition-colors border-b ${
+                          varStatus().allConfigured
+                            ? "bg-emerald-500/20 border-emerald-500/30"
+                            : "bg-red-500/20 border-red-500/30"
+                        }`}
+                      />
+                    </Show>
+
+                    <button onClick={() => removeButton(index())} class="absolute top-4 right-4 text-[#5b5b6e] hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity z-10" title="Remove widget">
                       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
                     </button>
 
-                    {/* Type badge */}
-                    <div class="mb-4">
+                    {/* Type badge & workflow variable status badge */}
+                    <div class="mb-4 flex items-center justify-between relative z-10">
                       <span class={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${typeBadgeCls()}`}>{typeLabel[wt()]}</span>
+                      <Show when={varStatus().hasVariables}>
+                        <span
+                          class={`text-[10px] font-bold px-2 py-0.5 rounded-full border transition-colors ${
+                            varStatus().allConfigured
+                              ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
+                              : "bg-red-500/20 text-red-300 border-red-500/40"
+                          }`}
+                        >
+                          {varStatus().allConfigured ? "✓ All Vars Configured" : "⚠️ Vars Unconfigured"}
+                        </span>
+                      </Show>
                     </div>
 
                     <div class="grid grid-cols-2 gap-4">
@@ -365,14 +395,20 @@ export default function DashboardBuilder() {
                               <option value="pie">Pie</option>
                               <option value="doughnut">Doughnut</option>
                               <option value="scatter">Scatter</option>
+                              <option value="choropleth-us">US Choropleth Map</option>
+                              <option value="choropleth-world">World Choropleth Map</option>
                             </select>
                           </div>
                           <div>
-                            <label class="mb-1 block text-xs text-[#8b8b9e]">X-Axis Field</label>
-                            <input type="text" class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2 text-xs text-white focus:border-pink-500 focus:outline-none" placeholder="e.g. date" value={btn.xKey || ""} onInput={(e) => updateButton(index(), "xKey", e.currentTarget.value)} />
+                            <label class="mb-1 block text-xs text-[#8b8b9e]">
+                              {btn.chartType?.startsWith("choropleth") ? "Region Field (State/Country)" : "X-Axis Field"}
+                            </label>
+                            <input type="text" class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2 text-xs text-white focus:border-pink-500 focus:outline-none" placeholder={btn.chartType?.startsWith("choropleth") ? "e.g. state" : "e.g. date"} value={btn.xKey || ""} onInput={(e) => updateButton(index(), "xKey", e.currentTarget.value)} />
                           </div>
                           <div>
-                            <label class="mb-1 block text-xs text-[#8b8b9e]">Y-Axis Field</label>
+                            <label class="mb-1 block text-xs text-[#8b8b9e]">
+                              {btn.chartType?.startsWith("choropleth") ? "Value Field" : "Y-Axis Field"}
+                            </label>
                             <input type="text" class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2 text-xs text-white focus:border-pink-500 focus:outline-none" placeholder="e.g. value" value={btn.yKey || ""} onInput={(e) => updateButton(index(), "yKey", e.currentTarget.value)} />
                           </div>
                         </div>
@@ -424,17 +460,22 @@ export default function DashboardBuilder() {
                                       <div class="flex-1">
                                         <label class="text-[10px] text-[#5b5b6e] block mb-0.5">Variable</label>
                                         <input class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-1 text-xs font-mono text-purple-300 focus:outline-none focus:border-purple-500" value={field.name}
-                                          onInput={(e) => { const c=[...btn.formConfig]; c[fIdx()]={...c[fIdx()],name:e.currentTarget.value}; updateButton(index(),"formConfig",c); }} />
+                                          onInput={(e) => { updateButton(index(),"formConfig", fIdx(), (f: any) => ({ ...f, name: e.currentTarget.value })); }} />
                                       </div>
                                       <div class="flex-1">
                                         <label class="text-[10px] text-[#5b5b6e] block mb-0.5">Label</label>
                                         <input class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-purple-500" value={field.label}
-                                          onInput={(e) => { const c=[...btn.formConfig]; c[fIdx()]={...c[fIdx()],label:e.currentTarget.value}; updateButton(index(),"formConfig",c); }} />
+                                          onInput={(e) => { updateButton(index(),"formConfig", fIdx(), (f: any) => ({ ...f, label: e.currentTarget.value })); }} />
+                                      </div>
+                                      <div class="flex-1">
+                                        <label class="text-[10px] text-[#5b5b6e] block mb-0.5">Saved Value</label>
+                                        <input class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-1 text-xs text-emerald-300 font-mono focus:outline-none focus:border-purple-500" value={field.value ?? field.defaultValue ?? ""} placeholder="Default value"
+                                          onInput={(e) => { updateButton(index(),"formConfig", fIdx(), (f: any) => ({ ...f, value: e.currentTarget.value, defaultValue: e.currentTarget.value })); }} />
                                       </div>
                                       <div class="w-20">
                                         <label class="text-[10px] text-[#5b5b6e] block mb-0.5">Type</label>
                                         <select class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-1 py-1 text-xs text-white focus:outline-none focus:border-purple-500" value={field.type}
-                                          onChange={(e) => { const c=[...btn.formConfig]; c[fIdx()]={...c[fIdx()],type:e.currentTarget.value}; updateButton(index(),"formConfig",c); }}>
+                                          onChange={(e) => { updateButton(index(),"formConfig", fIdx(), (f: any) => ({ ...f, type: e.currentTarget.value })); }}>
                                           <option value="string">String</option>
                                           <option value="number">Number</option>
                                           <option value="boolean">Boolean</option>
@@ -449,7 +490,7 @@ export default function DashboardBuilder() {
                                       <div class="mt-2 pt-2 border-t border-[#2a2a3a]/50">
                                         <label class="text-[10px] text-[#5b5b6e] block mb-0.5">Options (comma-separated)</label>
                                         <input class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-purple-500" value={field.options||""}
-                                          onInput={(e)=>{ const c=[...btn.formConfig]; c[fIdx()]={...c[fIdx()],options:e.currentTarget.value}; updateButton(index(),"formConfig",c); }} placeholder="e.g. US, UK, Canada" />
+                                          onInput={(e)=>{ updateButton(index(),"formConfig", fIdx(), (f: any) => ({ ...f, options: e.currentTarget.value })); }} placeholder="e.g. US, UK, Canada" />
                                       </div>
                                     </Show>
                                   </div>
@@ -459,13 +500,174 @@ export default function DashboardBuilder() {
                           </Show>
                         </div>
                       </Show>
+
+                      {/* ── News Widget config ── */}
+                      <Show when={wt() === "news"}>
+                        <div class="col-span-2 pt-3 border-t border-[#2a2a3a]/50 space-y-3">
+                          <div class="flex items-center justify-between">
+                            <label class="text-xs font-bold text-amber-400 flex items-center gap-1.5">
+                              📰 News Rules (IF / ELSE Conditions)
+                            </label>
+                            <button
+                              onClick={() => {
+                                const rules = [...(btn.newsRules || [])];
+                                rules.push({ id: `rule_${Date.now()}`, operator: "equals", value: "ok", color: "emerald", textTemplate: "Status: {{ value }}" });
+                                updateButton(index(), "newsRules", rules);
+                              }}
+                              class="text-[10px] px-2 py-0.5 rounded bg-amber-600/20 text-amber-300 hover:bg-amber-600/40 border border-amber-500/30"
+                            >
+                              + Add Rule
+                            </button>
+                          </div>
+
+                          <div class="grid grid-cols-2 gap-2">
+                            <div>
+                              <label class="text-[10px] text-[#5b5b6e] block mb-0.5">Variable Data Path</label>
+                              <input
+                                class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-1 text-xs text-white focus:border-amber-500"
+                                value={btn.dataPath || ""}
+                                onInput={(e) => updateButton(index(), "dataPath", e.currentTarget.value)}
+                                placeholder="e.g. steps.step_1.response"
+                              />
+                            </div>
+                            <div class="flex items-center gap-2 pt-4">
+                              <input
+                                type="checkbox"
+                                id={`stream_${btn.id}`}
+                                checked={btn.streamActive !== false}
+                                onChange={(e) => updateButton(index(), "streamActive", e.currentTarget.checked)}
+                                class="rounded bg-[#0a0a0f] border-[#2a2a3a] text-amber-500"
+                              />
+                              <label for={`stream_${btn.id}`} class="text-xs text-amber-200 cursor-pointer">
+                                Subscribe to Live Stream SSE
+                              </label>
+                            </div>
+                          </div>
+
+                          <div class="space-y-2">
+                            <For each={btn.newsRules || []}>
+                              {(rule: any, rIdx) => (
+                                <div class="bg-[#1e1e2e]/60 p-2 rounded-lg border border-[#2a2a3a] space-y-1.5">
+                                  <div class="flex items-center gap-2">
+                                    <span class="text-[10px] font-mono text-amber-400 w-6">IF</span>
+                                    <select
+                                      class="bg-[#0a0a0f] border border-[#2a2a3a] rounded px-1.5 py-1 text-xs text-white focus:border-amber-500"
+                                      value={rule.operator}
+                                      onChange={(e) => {
+                                        updateButton(index(), "newsRules", rIdx(), (r: any) => ({ ...r, operator: e.currentTarget.value }));
+                                      }}
+                                    >
+                                      <option value="contains">Contains</option>
+                                      <option value="equals">Equals</option>
+                                      <option value="gt">Greater Than (&gt;)</option>
+                                      <option value="lt">Less Than (&lt;)</option>
+                                      <option value="regex">Regex</option>
+                                      <option value="default">ELSE (Default)</option>
+                                    </select>
+                                    <Show when={rule.operator !== "default"}>
+                                      <input
+                                        class="flex-1 bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-1 text-xs text-white focus:border-amber-500"
+                                        placeholder="Matching value..."
+                                        value={rule.value}
+                                        onInput={(e) => {
+                                          updateButton(index(), "newsRules", rIdx(), (r: any) => ({ ...r, value: e.currentTarget.value }));
+                                        }}
+                                      />
+                                    </Show>
+                                    <select
+                                      class="bg-[#0a0a0f] border border-[#2a2a3a] rounded px-1.5 py-1 text-xs text-white focus:border-amber-500"
+                                      value={rule.color}
+                                      onChange={(e) => {
+                                        updateButton(index(), "newsRules", rIdx(), (r: any) => ({ ...r, color: e.currentTarget.value }));
+                                      }}
+                                    >
+                                      <option value="emerald">Green</option>
+                                      <option value="red">Red</option>
+                                      <option value="amber">Amber</option>
+                                      <option value="blue">Blue</option>
+                                      <option value="purple">Purple</option>
+                                      <option value="slate">Slate</option>
+                                    </select>
+                                    <button
+                                      onClick={() => {
+                                        const copy = (btn.newsRules || []).filter((_: any, i: number) => i !== rIdx());
+                                        updateButton(index(), "newsRules", copy);
+                                      }}
+                                      class="text-[#5b5b6e] hover:text-red-400"
+                                    >
+                                      ✕
+                                    </button>
+                                  </div>
+                                  <div>
+                                    <input
+                                      class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-1 text-xs text-amber-200 focus:border-amber-500"
+                                      placeholder="Text template e.g. CRITICAL: {{ value }}"
+                                      value={rule.textTemplate || ""}
+                                      onInput={(e) => {
+                                        const copy = [...(btn.newsRules || [])];
+                                        copy[rIdx()] = { ...copy[rIdx()], textTemplate: e.currentTarget.value };
+                                        updateButton(index(), "newsRules", copy);
+                                      }}
+                                    />
+                                  </div>
+                                </div>
+                              )}
+                            </For>
+                          </div>
+                        </div>
+                      </Show>
+
+                      {/* ── Toggle Switch Widget config ── */}
+                      <Show when={wt() === "toggle"}>
+                        <div class="col-span-2 pt-3 border-t border-[#2a2a3a]/50 grid grid-cols-2 gap-3">
+                          <div>
+                            <label class="text-[10px] text-[#5b5b6e] block mb-0.5">ON Label</label>
+                            <input
+                              class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-1 text-xs text-emerald-400 focus:border-cyan-500"
+                              value={btn.onLabel || "ON"}
+                              onInput={(e) => updateButton(index(), "onLabel", e.currentTarget.value)}
+                            />
+                          </div>
+                          <div>
+                            <label class="text-[10px] text-[#5b5b6e] block mb-0.5">OFF Label</label>
+                            <input
+                              class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-1 text-xs text-slate-400 focus:border-cyan-500"
+                              value={btn.offLabel || "OFF"}
+                              onInput={(e) => updateButton(index(), "offLabel", e.currentTarget.value)}
+                            />
+                          </div>
+                          <div>
+                            <label class="text-[10px] text-[#5b5b6e] block mb-0.5">Form Variable Name</label>
+                            <input
+                              class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-1 text-xs text-purple-300 font-mono focus:border-cyan-500"
+                              value={btn.formVarName || "toggle_state"}
+                              onInput={(e) => updateButton(index(), "formVarName", e.currentTarget.value)}
+                              placeholder="e.g. toggle_state"
+                            />
+                          </div>
+                          <div class="flex items-center gap-2 pt-4">
+                            <input
+                              type="checkbox"
+                              id={`def_${btn.id}`}
+                              checked={btn.defaultChecked || false}
+                              onChange={(e) => updateButton(index(), "defaultChecked", e.currentTarget.checked)}
+                              class="rounded bg-[#0a0a0f] border-[#2a2a3a] text-cyan-500"
+                            />
+                            <label for={`def_${btn.id}`} class="text-xs text-cyan-200 cursor-pointer">
+                              Default Checked ON
+                            </label>
+                          </div>
+                        </div>
+                      </Show>
                     </div>
                   </div>
                 );
               }}
             </For>
+
           </div>
         </div>
+
 
 
         {/* Live Preview */}
@@ -509,6 +711,13 @@ export default function DashboardBuilder() {
                         <PreviewWidget btn={btn} />
                       );
                     }
+                    if (wtype === "news") {
+                      return <NewsWidgetComponent btn={btn} dashboardId={params.id} />;
+                    }
+                    if (wtype === "toggle") {
+                      return <ToggleWidgetComponent btn={btn} dashboardId={params.id} formState={formState()} updateForm={updateForm} triggerButton={triggerButton} />;
+                    }
+
                     const state = () => executing()[btn.id] || "idle";
                     const btnClass = () => {
                       if (state() === "running") return "w-full py-4 px-6 text-[15px] font-bold text-white/70 rounded-2xl shadow-xl transition-all duration-300 flex items-center justify-center gap-3 bg-slate-800 cursor-not-allowed";
@@ -825,8 +1034,52 @@ function DashTable(props: { data: any[]; columns?: string[] }) {
   );
 }
 
+let globalUsTopoJson: any = null;
+let globalWorldTopoJson: any = null;
+
+const STATE_ABBR_MAP: Record<string, string> = {
+  AL: "Alabama", AK: "Alaska", AZ: "Arizona", AR: "Arkansas", CA: "California",
+  CO: "Colorado", CT: "Connecticut", DE: "Delaware", FL: "Florida", GA: "Georgia",
+  HI: "Hawaii", ID: "Idaho", IL: "Illinois", IN: "Indiana", IA: "Iowa",
+  KS: "Kansas", KY: "Kentucky", LA: "Louisiana", ME: "Maine", MD: "Maryland",
+  MA: "Massachusetts", MI: "Michigan", MN: "Minnesota", MS: "Mississippi", MO: "Missouri",
+  MT: "Montana", NE: "Nebraska", NV: "Nevada", NH: "New Hampshire", NJ: "New Jersey",
+  NM: "New Mexico", NY: "New York", NC: "North Carolina", ND: "North Dakota", OH: "Ohio",
+  OK: "Oklahoma", OR: "Oregon", PA: "Pennsylvania", RI: "Rhode Island", SC: "South Carolina",
+  SD: "South Dakota", TN: "Tennessee", TX: "Texas", UT: "Utah", VT: "Vermont",
+  VA: "Virginia", WA: "Washington", WV: "West Virginia", WI: "Wisconsin", WY: "Wyoming"
+};
+
 function DashChart(props: { data: any[]; xKey?: string; yKey?: string; chartType?: string }) {
   const cType = () => props.chartType || "bar";
+  const [topoJson, setTopoJson] = createSignal<any>(null);
+
+  createEffect(() => {
+    const type = cType();
+    if (type === "choropleth-us") {
+      if (globalUsTopoJson) {
+        setTopoJson(globalUsTopoJson);
+      } else {
+        fetch("https://cdn.jsdelivr.net/npm/us-atlas/states-10m.json")
+          .then((res) => res.json())
+          .then((data) => {
+            globalUsTopoJson = data;
+            setTopoJson(data);
+          });
+      }
+    } else if (type === "choropleth-world") {
+      if (globalWorldTopoJson) {
+        setTopoJson(globalWorldTopoJson);
+      } else {
+        fetch("https://cdn.jsdelivr.net/npm/world-atlas/countries-110m.json")
+          .then((res) => res.json())
+          .then((data) => {
+            globalWorldTopoJson = data;
+            setTopoJson(data);
+          });
+      }
+    }
+  });
 
   const buildData = () => {
     const data = normalizeDataArray(props.data);
@@ -836,6 +1089,51 @@ function DashChart(props: { data: any[]; xKey?: string; yKey?: string; chartType
     const isPie = type === "pie" || type === "doughnut";
     const isScatter = type === "scatter";
     const isBar = type === "bar";
+
+    if (type.startsWith("choropleth")) {
+      const isUS = type === "choropleth-us";
+      const topo = topoJson();
+      if (!topo) return { labels: [], datasets: [] };
+
+      const features = isUS
+        ? ChartGeo.topojson.feature(topo, topo.objects.states).features
+        : ChartGeo.topojson.feature(topo, topo.objects.countries).features;
+
+      const inferred = inferChartKeys(data, props.xKey, props.yKey);
+
+      const items = data.map((item, i) => {
+        const geoVal = inferred.xKey ? String(get(item, inferred.xKey) || "").trim() : "";
+        const numVal = inferred.yKey ? valueToNumber(get(item, inferred.yKey), 0) : valueToNumber(item, 0);
+        return { geoVal, numVal };
+      });
+
+      const matchedFeatures = features.map((d: any) => {
+        const featName = d.properties.name;
+        const matched = items.find(item => {
+          const name = item.geoVal;
+          if (name.toLowerCase() === featName.toLowerCase()) return true;
+          if (isUS) {
+            const mappedName = STATE_ABBR_MAP[name.toUpperCase()];
+            if (mappedName && mappedName.toLowerCase() === featName.toLowerCase()) return true;
+          }
+          return false;
+        });
+        return {
+          feature: d,
+          value: matched ? matched.numVal : 0
+        };
+      });
+
+      return {
+        labels: features.map((d: any) => d.properties.name),
+        datasets: [{
+          label: inferred.yKey || "Value",
+          outline: features,
+          data: matchedFeatures,
+        }]
+      };
+    }
+
     const inferred = inferChartKeys(data, props.xKey, props.yKey);
 
     if (isScatter) {
@@ -906,7 +1204,37 @@ function DashChart(props: { data: any[]; xKey?: string; yKey?: string; chartType
   };
 
   const chartOptions = () => {
-    const isPie = cType() === "pie" || cType() === "doughnut";
+    const type = cType();
+    if (type.startsWith("choropleth")) {
+      const isUS = type === "choropleth-us";
+      return {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false }
+        },
+        scales: {
+          projection: {
+            axis: "x",
+            projection: isUS ? "albersUsa" : "equalEarth"
+          },
+          color: {
+            axis: "x",
+            interpolate: (v: number) => {
+              const hue = 220 + v * (320 - 220); // 220 (blue) to 320 (pink/purple)
+              const saturation = 30 + v * (85 - 30);
+              const lightness = 25 + v * (65 - 25);
+              return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+            },
+            legend: {
+              position: "bottom-right",
+              align: "bottom"
+            }
+          }
+        }
+      };
+    }
+    const isPie = type === "pie" || type === "doughnut";
     return {
       responsive: true,
       maintainAspectRatio: false,
@@ -921,8 +1249,10 @@ function DashChart(props: { data: any[]; xKey?: string; yKey?: string; chartType
   return (
     <div class="h-[200px] bg-[#101015] p-3 rounded border border-[#2a2a3a]/50">
       <Show when={normalizeDataArray(props.data).length > 0} fallback={<p class="text-xs text-[#5a5a6e]">No valid array data for chart</p>}>
-        {/* @ts-ignore */}
-        <DefaultChart type={cType() as any} data={buildData()} options={chartOptions()} />
+        <Show when={!cType().startsWith("choropleth") || topoJson()} fallback={<p class="text-xs text-[#8b8b9e] animate-pulse">Loading map assets...</p>}>
+          {/* @ts-ignore */}
+          <DefaultChart type={cType().startsWith("choropleth") ? "choropleth" : (cType() as any)} data={buildData()} options={chartOptions()} />
+        </Show>
       </Show>
     </div>
   );
@@ -1030,3 +1360,150 @@ function PreviewWidget(props: { btn: any }) {
     </div>
   );
 }
+
+function NewsWidgetComponent(props: { btn: any; dashboardId?: string }) {
+  const [data, setData] = createSignal<any>("No Data");
+  const [status, setStatus] = createSignal<"idle" | "loading" | "live" | "error">("idle");
+
+  const evalResult = () => evaluateNewsRules(data(), props.btn.newsRules || []);
+  const theme = () => newsColorClasses[evalResult().color] || newsColorClasses.blue;
+
+  onMount(() => {
+    if (!props.btn.workflowId) return;
+    const wfId = props.btn.workflowId.includes(":") ? props.btn.workflowId.split(":")[1] : props.btn.workflowId;
+
+    if (props.btn.streamActive !== false) {
+      setStatus("live");
+      const es = new EventSource(`/api/workflows/${wfId}/stream`);
+
+      es.onmessage = (e) => {
+        try {
+          const payload = JSON.parse(e.data);
+          if (payload.data?.chunk || payload.data?.response) {
+            let chunk = payload.data.chunk || payload.data.response;
+            if (props.btn.dataPath) {
+              chunk = get(chunk, props.btn.dataPath, chunk);
+            }
+            if (chunk !== undefined) setData(chunk);
+          }
+        } catch {}
+      };
+
+      es.addEventListener("step_chunk", (e: any) => {
+        try {
+          const payload = JSON.parse(e.data);
+          let chunk = payload.data?.chunk;
+          if (props.btn.dataPath && chunk) {
+            chunk = get(chunk, props.btn.dataPath, chunk);
+          }
+          if (chunk !== undefined) setData(chunk);
+        } catch {}
+      });
+
+      es.addEventListener("step_complete", (e: any) => {
+        try {
+          const payload = JSON.parse(e.data);
+          let resData = payload.data?.response;
+          if (props.btn.dataPath && resData) {
+            resData = get(resData, props.btn.dataPath, resData);
+          }
+          if (resData !== undefined) setData(resData);
+        } catch {}
+      });
+
+      es.onerror = () => { setStatus("idle"); };
+    }
+  });
+
+  const fetchManual = async () => {
+    if (!props.btn.workflowId) return;
+    const wfId = props.btn.workflowId.includes(":") ? props.btn.workflowId.split(":")[1] : props.btn.workflowId;
+    setStatus("loading");
+    try {
+      const res = await fetch(`/api/workflows/${wfId}/run`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ form: {} }),
+      });
+      const json = await res.json();
+      if (json.success) setStatus("idle");
+    } catch {
+      setStatus("error");
+    }
+  };
+
+  return (
+    <div class={`w-full rounded-2xl border p-5 shadow-xl transition-all duration-300 ${theme().bg} ${theme().border}`}>
+      <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center gap-2">
+          <span class="text-xl">📰</span>
+          <h3 class="text-sm font-bold text-white tracking-wide">{props.btn.label || "News Alert"}</h3>
+        </div>
+        <div class="flex items-center gap-2">
+          <Show when={props.btn.streamActive !== false}>
+            <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold border bg-purple-500/20 text-purple-300 border-purple-500/30">
+              <span class="w-1.5 h-1.5 rounded-full bg-purple-400 animate-ping"></span>
+              STREAM LIVE
+            </span>
+          </Show>
+          <button onClick={fetchManual} class="text-[10px] text-slate-400 hover:text-white transition-colors">
+            ↻ Refresh
+          </button>
+        </div>
+      </div>
+
+      <div class="mt-2">
+        <div class={`text-lg font-extrabold tracking-tight ${theme().text}`}>
+          {evalResult().text}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ToggleWidgetComponent(props: { btn: any; dashboardId?: string; formState: any; updateForm: any; triggerButton: any }) {
+  const [checked, setChecked] = createSignal(props.btn.defaultChecked || false);
+  const [isFlipping, setIsFlipping] = createSignal(false);
+
+  const varName = () => props.btn.formVarName || "toggle_state";
+  const onTxt = () => props.btn.onLabel || "ON";
+  const offTxt = () => props.btn.offLabel || "OFF";
+
+  const handleToggle = async () => {
+    const nextVal = !checked();
+    setChecked(nextVal);
+    setIsFlipping(true);
+
+    props.updateForm(props.btn.id, varName(), nextVal);
+    props.updateForm(props.btn.id, "toggle", nextVal ? "ON" : "OFF");
+
+    await props.triggerButton(props.btn);
+    setIsFlipping(false);
+  };
+
+  return (
+    <div class="w-full rounded-2xl border border-[#2a2a3a] bg-[#12121a] p-4 shadow-xl flex items-center justify-between">
+      <div>
+        <h4 class="text-sm font-bold text-white mb-0.5">{props.btn.label || "Toggle Switch"}</h4>
+        <span class="text-xs text-[#8b8b9e]">
+          State: <strong class={checked() ? "text-emerald-400" : "text-slate-400"}>{checked() ? onTxt() : offTxt()}</strong>
+        </span>
+      </div>
+
+      <button
+        onClick={handleToggle}
+        disabled={isFlipping()}
+        class={`relative inline-flex h-8 w-16 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-300 ease-in-out focus:outline-none focus:ring-2 focus:ring-purple-500/50 ${
+          checked() ? "bg-gradient-to-r from-emerald-500 to-cyan-500 shadow-lg shadow-emerald-500/30" : "bg-[#2a2a3a]"
+        }`}
+      >
+        <span
+          class={`pointer-events-none inline-block h-7 w-7 transform rounded-full bg-white shadow-md ring-0 transition duration-300 ease-in-out ${
+            checked() ? "translate-x-8" : "translate-x-0"
+          }`}
+        />
+      </button>
+    </div>
+  );
+}
+

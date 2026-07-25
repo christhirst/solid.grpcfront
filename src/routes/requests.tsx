@@ -90,6 +90,8 @@ export default function RequestsClient() {
   const [response, setResponse] = createSignal<any>(null);
   const [isLoading, setIsLoading] = createSignal(false);
   const [requestError, setRequestError] = createSignal<string | null>(null);
+  const [isStreaming, setIsStreaming] = createSignal(false);
+
 
   // History
   const [history, setHistory] = createSignal<HistoryEntry[]>([]);
@@ -580,7 +582,18 @@ export default function RequestsClient() {
             >
               <span>🌐</span> HTTP / REST
             </button>
+            <button
+              onClick={() => setIsStreaming(!isStreaming())}
+              class={`flex items-center gap-2 px-3 py-2 text-xs font-bold rounded-lg transition-all border ${
+                isStreaming()
+                  ? "bg-purple-500/20 text-purple-300 border-purple-500/40 shadow-md"
+                  : "text-[#8b8b9e] hover:text-white border-transparent"
+              }`}
+            >
+              <span>📡</span> {isStreaming() ? "Stream ON" : "Stream OFF"}
+            </button>
           </div>
+
         </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 fade-in-up delay-2">

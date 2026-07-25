@@ -4,29 +4,20 @@ import { v4 as uuidv4 } from "uuid";
 import { RecordId } from "surrealdb";
 import { getOwnerFromRequest } from "~/lib/auth";
 
-export async function GET(event: APIEvent) {
+export async function GET(_event: APIEvent) {
   try {
     const db = await getDb();
-    const url = new URL(event.request.url);
-    const q = url.searchParams.get("q")?.trim() || "";
-    
-    let protos: any = [];
+    let certs: any[] = [];
     try {
-      let result;
-      if (q) {
-        result = await db.query(
-          "SELECT * FROM proto_file WHERE string::lowercase(name) CONTAINS string::lowercase($q) ORDER BY updated_at DESC",
-          { q }
-        );
-      } else {
-        result = await db.query("SELECT * FROM proto_file ORDER BY updated_at DESC");
-      }
-      protos = (result[0] || []).map((p: any) => ({ ...p, id: p.id?.toString().replace(/[⟨⟩]/g, "") }));
+      const result = await db.query("SELECT * FROM ca_cert ORDER BY updated_at DESC");
+      certs = (result[0] || []).map((c: any) => ({
+        ...c,
+        id: c.id?.toString().replace(/[⟨⟩]/g, ""),
+      }));
     } catch (e: any) {
       if (!e.message?.includes("does not exist")) throw e;
     }
-
-    return new Response(JSON.stringify({ success: true, data: protos }), {
+    return new Response(JSON.stringify({ success: true, data: certs }), {
       headers: { "Content-Type": "application/json" },
     });
   } catch (err: any) {
@@ -43,10 +34,11 @@ export async function POST(event: APIEvent) {
     const body = await new Response(event.request.body).json();
     const owner = await getOwnerFromRequest(event.request);
 
-    const rawId = body.id || `proto_file:${uuidv4()}`;
+    const rawId = body.id || `ca_cert:${uuidv4()}`;
     const dbId = rawId.includes(":") ? rawId.split(":")[1] : rawId;
     const now = new Date().toISOString();
-    const protoDef = {
+
+    const certDef = {
       ...body,
       id: rawId,
       owner,
@@ -54,15 +46,15 @@ export async function POST(event: APIEvent) {
       created_at: body.created_at || now,
       updated_at: now,
     };
-    const { id: _, ...dataWithoutId } = protoDef;
+    const { id: _, ...dataWithoutId } = certDef;
 
-    const recordId = new RecordId("proto_file", dbId);
-    const result = await db.query("CREATE $id CONTENT $data", { 
-      id: recordId, 
-      data: dataWithoutId 
+    const recordId = new RecordId("ca_cert", dbId);
+    const result = await db.query("CREATE $id CONTENT $data", {
+      id: recordId,
+      data: dataWithoutId,
     });
     const record = Array.isArray(result) ? result[0] : result;
-    if (record) record.id = `proto_file:${dbId}`;
+    if (record) record.id = `ca_cert:${dbId}`;
 
     return new Response(JSON.stringify({ success: true, data: record }), {
       headers: { "Content-Type": "application/json" },

@@ -1,11 +1,31 @@
 import get from "lodash.get";
 import { getDb } from "~/lib/db";
-import { executeGrpcCall } from "~/lib/grpcExecutor";
+import { executeGrpcCall, executeGrpcStreamCall } from "~/lib/grpcExecutor";
+import { executeHttpStreamCall } from "~/lib/httpExecutor";
 import { parseProtoContent } from "~/lib/protoParser";
 import { RecordId } from "surrealdb";
 import * as Sentry from "@sentry/node";
+import { EventEmitter } from "events";
+
+export const workflowStreamManager = new EventEmitter();
+workflowStreamManager.setMaxListeners(200);
+
+export function emitWorkflowEvent(runId: string, workflowId: string, type: string, data: any) {
+  const payload = {
+    runId,
+    workflowId,
+    type,
+    data,
+    timestamp: new Date().toISOString(),
+  };
+  workflowStreamManager.emit(`run:${runId}`, payload);
+  if (workflowId) {
+    workflowStreamManager.emit(`wf:${workflowId}`, payload);
+  }
+}
 
 async function getStepAuthHeader(step: any, db: any): Promise<string | undefined> {
+
   const authType = step.authType || "none";
   if (authType === "basic" && (step.authUsername || step.authPassword)) {
     const auth = Buffer.from(`${step.authUsername || ""}:${step.authPassword || ""}`).toString("base64");
@@ -43,9 +63,13 @@ async function getStepAuthHeader(step: any, db: any): Promise<string | undefined
 
         let authUrl = connection.url || "";
         if (authUrl && !authUrl.startsWith("http://") && !authUrl.startsWith("https://")) {
-          const separator = authUrl.startsWith("/") ? "" : "/";
-          const port = process.env.PORT || 3000;
-          authUrl = `http://127.0.0.1:${port}${separator}${authUrl}`;
+          if (/^[a-zA-Z0-9._-]+(:\d+)/.test(authUrl.split("/")[0])) {
+            authUrl = `http://${authUrl}`;
+          } else {
+            const separator = authUrl.startsWith("/") ? "" : "/";
+            const port = process.env.PORT || 3000;
+            authUrl = `http://127.0.0.1:${port}${separator}${authUrl}`;
+          }
         }
 
         const res = await fetch(authUrl, {
@@ -78,7 +102,7 @@ async function getStepAuthHeader(step: any, db: any): Promise<string | undefined
 
 export interface WorkflowStep {
   id: string;
-  type?: "grpc" | "table" | "chart" | "database" | "rest";
+  type?: "grpc" | "table" | "chart" | "database" | "rest" | "grpc_stream" | "rest_stream" | "surreal_live";
   databaseName?: string; // target dynamic DB for 'database' step type
   databaseUrl?: string;
   databaseUser?: string;
@@ -92,6 +116,7 @@ export interface WorkflowStep {
   headersTemplate?: string; // JSON string with {{ }} templates
   serverAddress?: string; // Optional override
   useTls?: boolean; // Optional override
+  caId?: string; // "" = none, "__accept_all__" = TLS without verification, otherwise saved CA ID
   dataPath?: string;   // lodash path to drill into nested array e.g. "shares"
   xKey?: string;       // property for X axis
   yKey?: string;       // property for Y axis
@@ -127,22 +152,27 @@ export interface WorkflowDefinition {
   name: string;
   protoContent: string;
   protoId?: string;
+  /** ID of a saved ca_cert record to use for TLS (overrides system root CAs). */
+  caId?: string;
   serverAddress: string;
   useTls: boolean;
   steps: WorkflowStep[];
+
   schedule?: string; // cron expression
   authConfig?: AuthConfig;
   connectionId?: string;
 }
 
+
 export interface WorkflowRunLog {
   stepId: string;
-  stepType?: "grpc" | "table" | "chart" | "database" | "rest";
+  stepType?: "grpc" | "table" | "chart" | "database" | "rest" | "grpc_stream" | "rest_stream" | "surreal_live";
   status: "success" | "error";
   request: any;
   response?: any;
   error?: string;
   latencyMs?: number;
+
   meta?: any;
 }
 
@@ -275,11 +305,21 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
   const runRecordId = new RecordId("workflow_run", dbId);
   await db.query("CREATE $id CONTENT $data", { id: runRecordId, data: dataWithoutId });
 
+  emitWorkflowEvent(runId, workflow.id || "", "workflow_start", {
+    runId,
+    workflowId: workflow.id,
+    startTime: runRecord.startTime,
+  });
+
   console.log("runWorkflowBackground called. Workflow object keys:", Object.keys(workflow));
+
   console.log("Proto content exists?", !!workflow.protoContent, "Length:", workflow.protoContent?.length);
   
   try {
-    const { protoContent: storedProtoContent, protoId, serverAddress, useTls, steps, authConfig, connectionId } = workflow;
+    const { protoContent: storedProtoContent, protoId, caId, serverAddress, useTls: legacyUseTls, steps, authConfig, connectionId } = workflow;
+    const ACCEPT_ALL_CA = "__accept_all__";
+    const defaultCaId = caId || (legacyUseTls ? ACCEPT_ALL_CA : "");
+    const useTls = defaultCaId !== "";
 
     let protoContent = storedProtoContent || "";
     if (protoId) {
@@ -296,7 +336,32 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
       }
     }
 
+    // Fetch CA cert PEM if a CA is configured
+    const caCertCache = new Map<string, string | undefined>();
+    const resolveCaCert = async (selectedCaId: string) => {
+      if (!selectedCaId || selectedCaId === ACCEPT_ALL_CA) return undefined;
+      if (caCertCache.has(selectedCaId)) return caCertCache.get(selectedCaId);
+      console.log(`[ENGINE] Fetching CA cert by ID: ${selectedCaId}`);
+      try {
+        const caDbId = selectedCaId.includes(":") ? selectedCaId.split(":")[1] : selectedCaId;
+        const caRecord = await db.select(new RecordId("ca_cert", caDbId));
+        const caFile = Array.isArray(caRecord) ? caRecord[0] : caRecord;
+        if (caFile && caFile.content) {
+          const cert = caFile.content;
+          caCertCache.set(selectedCaId, cert);
+          console.log(`[ENGINE] CA cert loaded: ${caFile.name || caDbId}`);
+          return cert;
+        }
+      } catch (err: any) {
+        console.error(`[ENGINE] Failed to resolve CA cert by ID ${selectedCaId}:`, err);
+      }
+      caCertCache.set(selectedCaId, undefined);
+      return undefined;
+    };
+    const caCert = await resolveCaCert(defaultCaId);
+
     const parsedProto = parseProtoContent(protoContent);
+
     const formPayload = customContext.form || {};
     const context = {
       steps: {} as any,
@@ -339,9 +404,13 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
 
           let authUrl = connection.url || "";
           if (authUrl && !authUrl.startsWith("http://") && !authUrl.startsWith("https://")) {
-            const separator = authUrl.startsWith("/") ? "" : "/";
-            const port = process.env.PORT || 3000;
-            authUrl = `http://127.0.0.1:${port}${separator}${authUrl}`;
+            if (/^[a-zA-Z0-9._-]+(:\d+)/.test(authUrl.split("/")[0])) {
+              authUrl = `http://${authUrl}`;
+            } else {
+              const separator = authUrl.startsWith("/") ? "" : "/";
+              const port = process.env.PORT || 3000;
+              authUrl = `http://127.0.0.1:${port}${separator}${authUrl}`;
+            }
           }
 
           const res = await fetch(authUrl, {
@@ -378,6 +447,8 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
             protoContent,
             serverAddress,
             useTls,
+            caCert,
+            acceptInvalidCert: defaultCaId === ACCEPT_ALL_CA,
             serviceName: authConfig.serviceName!,
             methodName: authConfig.methodName!,
             requestBody: authPayload,
@@ -413,10 +484,15 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
 
           let authUrl = authConfig.url || "";
           if (authUrl && !authUrl.startsWith("http://") && !authUrl.startsWith("https://")) {
-            const separator = authUrl.startsWith("/") ? "" : "/";
-            const port = process.env.PORT || 3000;
-            authUrl = `http://127.0.0.1:${port}${separator}${authUrl}`;
+            if (/^[a-zA-Z0-9._-]+(:\d+)/.test(authUrl.split("/")[0])) {
+              authUrl = `http://${authUrl}`;
+            } else {
+              const separator = authUrl.startsWith("/") ? "" : "/";
+              const port = process.env.PORT || 3000;
+              authUrl = `http://127.0.0.1:${port}${separator}${authUrl}`;
+            }
           }
+
 
           const res = await fetch(authUrl, {
             method: authConfig.method || "POST",
@@ -458,7 +534,250 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
             stepAuthHeader = `Bearer ${authToken}`;
           }
 
+          emitWorkflowEvent(runId, workflow.id || "", "step_start", {
+            stepId: step.id,
+            stepType: step.type || "grpc",
+          });
+
+      if (step.type === "grpc_stream") {
+        let requestPayload: any;
+        const exactMatch = (step.requestBodyTemplate || "").trim().match(/^\{\{\s*([^{}]+?)\s*\}\}$/);
+        if (exactMatch) {
+          requestPayload = get(context, exactMatch[1].trim());
+        } else {
+          try {
+            const parsedTemplate = JSON.parse(step.requestBodyTemplate || "{}");
+            requestPayload = evaluatePayload(parsedTemplate, context);
+          } catch (e) {
+            requestPayload = {};
+          }
+        }
+
+        const chunks: any[] = [];
+        let streamError: string | undefined = undefined;
+
+        const stepCaId = step.caId ?? defaultCaId;
+        const stepCaCert = await resolveCaCert(stepCaId);
+        await new Promise<void>((resolve) => {
+          executeGrpcStreamCall(
+            {
+              protoContent,
+              serverAddress: step.serverAddress || serverAddress,
+              useTls: stepCaId !== "",
+              caCert: stepCaCert,
+              acceptInvalidCert: stepCaId === ACCEPT_ALL_CA,
+              serviceName: step.serviceName || "",
+              methodName: step.methodName || "",
+              requestBody: requestPayload,
+            },
+
+            (chunk) => {
+              chunks.push(chunk);
+              emitWorkflowEvent(runId, workflow.id || "", "step_chunk", {
+                stepId: step.id,
+                chunk,
+              });
+            },
+            (err) => {
+              streamError = err.message || String(err);
+              resolve();
+            },
+            () => resolve()
+          );
+        });
+
+        const success = !streamError;
+        context.steps[step.id] = {
+          request: requestPayload,
+          response: chunks,
+          error: streamError,
+        };
+
+        runRecord.logs.push({
+          stepId: step.id,
+          stepType: "grpc_stream",
+          status: success ? "success" : "error",
+          request: requestPayload,
+          response: chunks,
+          error: streamError,
+        });
+
+        runRecord.context = context;
+        const { id: _t1, ...data1 } = runRecord;
+        const sId1 = new RecordId("workflow_run", dbId);
+        await db.query("UPDATE $id CONTENT $data", { id: sId1, data: data1 });
+
+        if (!success) {
+          emitWorkflowEvent(runId, workflow.id || "", "step_failed", { stepId: step.id, error: streamError });
+          runRecord.status = "failed";
+          runRecord.endTime = new Date().toISOString();
+          const { id: _t2, ...data2 } = runRecord;
+          const sId2 = new RecordId("workflow_run", dbId);
+          await db.query("UPDATE $id CONTENT $data", { id: sId2, data: data2 });
+          return "abort";
+        }
+
+        emitWorkflowEvent(runId, workflow.id || "", "step_complete", { stepId: step.id, response: chunks });
+        return "continue";
+      }
+
+      if (step.type === "rest_stream") {
+        let requestPayload: any;
+        let evaluatedUrl = step.restUrl || "";
+        try {
+          evaluatedUrl = interpolateTemplate(step.restUrl || "", context);
+        } catch {
+          evaluatedUrl = step.restUrl || "";
+        }
+
+        if (evaluatedUrl && !evaluatedUrl.startsWith("http://") && !evaluatedUrl.startsWith("https://")) {
+          if (/^[a-zA-Z0-9._-]+(:\d+)/.test(evaluatedUrl.split("/")[0])) {
+            evaluatedUrl = `http://${evaluatedUrl}`;
+          } else {
+            const separator = evaluatedUrl.startsWith("/") ? "" : "/";
+            const port = process.env.PORT || 3000;
+            evaluatedUrl = `http://127.0.0.1:${port}${separator}${evaluatedUrl}`;
+          }
+        }
+
+        const chunks: any[] = [];
+        let streamError: string | undefined = undefined;
+        const stepCaId = step.caId ?? defaultCaId;
+        const stepCaCert = await resolveCaCert(stepCaId);
+
+        await new Promise<void>((resolve) => {
+          executeHttpStreamCall(
+            {
+              url: evaluatedUrl,
+              method: step.restMethod || "GET",
+              body: step.requestBodyTemplate ? evaluatePayload(JSON.parse(step.requestBodyTemplate), context) : undefined,
+              tls: stepCaId
+                ? { ca: stepCaCert, rejectUnauthorized: stepCaId !== ACCEPT_ALL_CA }
+                : undefined,
+            },
+            (chunk) => {
+              chunks.push(chunk);
+              emitWorkflowEvent(runId, workflow.id || "", "step_chunk", {
+                stepId: step.id,
+                chunk,
+              });
+            },
+            (err) => {
+              streamError = err.message || String(err);
+              resolve();
+            },
+            () => resolve()
+          );
+        });
+
+        const success = !streamError;
+        context.steps[step.id] = {
+          request: evaluatedUrl,
+          response: chunks,
+          error: streamError,
+        };
+
+        runRecord.logs.push({
+          stepId: step.id,
+          stepType: "rest_stream",
+          status: success ? "success" : "error",
+          request: { url: evaluatedUrl, method: step.restMethod || "GET" },
+          response: chunks,
+          error: streamError,
+        });
+
+        runRecord.context = context;
+        const { id: _t1, ...data1 } = runRecord;
+        const sId1 = new RecordId("workflow_run", dbId);
+        await db.query("UPDATE $id CONTENT $data", { id: sId1, data: data1 });
+
+        if (!success) {
+          emitWorkflowEvent(runId, workflow.id || "", "step_failed", { stepId: step.id, error: streamError });
+          runRecord.status = "failed";
+          runRecord.endTime = new Date().toISOString();
+          const { id: _t2, ...data2 } = runRecord;
+          const sId2 = new RecordId("workflow_run", dbId);
+          await db.query("UPDATE $id CONTENT $data", { id: sId2, data: data2 });
+          return "abort";
+        }
+
+        emitWorkflowEvent(runId, workflow.id || "", "step_complete", { stepId: step.id, response: chunks });
+        return "continue";
+      }
+
+      if (step.type === "surreal_live") {
+        const targetTable = step.requestBodyTemplate?.trim() || "workflow_run";
+        const targetDbName = interpolateTemplate(step.databaseName || "", context) || undefined;
+        const targetDbUrl = interpolateTemplate(step.databaseUrl || "", context) || undefined;
+        const targetDbUser = interpolateTemplate(step.databaseUser || "", context) || undefined;
+        const targetDbPass = interpolateTemplate(step.databasePass || "", context) || undefined;
+        const targetDbNs = interpolateTemplate(step.databaseNs || "", context) || undefined;
+
+        const chunks: any[] = [];
+        let streamError: string | undefined = undefined;
+
+        try {
+          const { getCustomDb } = await import("~/lib/db");
+          const ddb = await getCustomDb({
+            url: targetDbUrl,
+            user: targetDbUser,
+            pass: targetDbPass,
+            namespace: targetDbNs,
+            database: targetDbName,
+          });
+
+          const liveUuid = await ddb.live(targetTable, (action: string, result: any) => {
+            const eventData = { action, result, timestamp: new Date().toISOString() };
+            chunks.push(eventData);
+            emitWorkflowEvent(runId, workflow.id || "", "step_chunk", {
+              stepId: step.id,
+              chunk: eventData,
+            });
+          });
+
+          await new Promise((r) => setTimeout(r, 2000));
+          await ddb.kill(liveUuid).catch(() => {});
+        } catch (err: any) {
+          streamError = err.message || String(err);
+        }
+
+        const success = !streamError;
+        context.steps[step.id] = {
+          request: `LIVE SELECT * FROM ${targetTable}`,
+          response: chunks,
+          error: streamError,
+        };
+
+        runRecord.logs.push({
+          stepId: step.id,
+          stepType: "surreal_live",
+          status: success ? "success" : "error",
+          request: targetTable,
+          response: chunks,
+          error: streamError,
+        });
+
+        runRecord.context = context;
+        const { id: _t1, ...data1 } = runRecord;
+        const sId1 = new RecordId("workflow_run", dbId);
+        await db.query("UPDATE $id CONTENT $data", { id: sId1, data: data1 });
+
+        if (!success) {
+          emitWorkflowEvent(runId, workflow.id || "", "step_failed", { stepId: step.id, error: streamError });
+          runRecord.status = "failed";
+          runRecord.endTime = new Date().toISOString();
+          const { id: _t2, ...data2 } = runRecord;
+          const sId2 = new RecordId("workflow_run", dbId);
+          await db.query("UPDATE $id CONTENT $data", { id: sId2, data: data2 });
+          return "abort";
+        }
+
+        emitWorkflowEvent(runId, workflow.id || "", "step_complete", { stepId: step.id, response: chunks });
+        return "continue";
+      }
+
       if (step.type === "table" || step.type === "chart") {
+
         let payload;
         try {
           const exactMatch = (step.requestBodyTemplate || "").trim().match(/^\{\{\s*([^{}]+?)\s*\}\}$/);
@@ -588,9 +907,15 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
         }
 
         if (evaluatedUrl && !evaluatedUrl.startsWith("http://") && !evaluatedUrl.startsWith("https://")) {
-          const separator = evaluatedUrl.startsWith("/") ? "" : "/";
-          const port = process.env.PORT || 3000;
-          evaluatedUrl = `http://127.0.0.1:${port}${separator}${evaluatedUrl}`;
+          // If the URL looks like a host:port or hostname (e.g. localhost:4000, 0.0.0.0:8080)
+          // add http:// scheme rather than treating it as a relative path on the local server.
+          if (/^[a-zA-Z0-9._-]+(:\d+)/.test(evaluatedUrl.split("/")[0])) {
+            evaluatedUrl = `http://${evaluatedUrl}`;
+          } else {
+            const separator = evaluatedUrl.startsWith("/") ? "" : "/";
+            const port = process.env.PORT || 3000;
+            evaluatedUrl = `http://127.0.0.1:${port}${separator}${evaluatedUrl}`;
+          }
         }
 
         const method = step.restMethod || "GET";
@@ -635,6 +960,14 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
             method,
             headers: metadata,
           };
+          const stepCaId = step.caId ?? defaultCaId;
+          const stepCaCert = await resolveCaCert(stepCaId);
+          if (stepCaId) {
+            (fetchOptions as any).tls = {
+              ca: stepCaCert,
+              rejectUnauthorized: stepCaId !== ACCEPT_ALL_CA,
+            };
+          }
 
           if (hasBody && requestPayload !== undefined) {
              fetchOptions.body = typeof requestPayload === "object" ? JSON.stringify(requestPayload) : String(requestPayload);
@@ -734,15 +1067,19 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
       }
 
       // Execute gRPC call
+      const stepCaId = step.caId ?? defaultCaId;
       const execResult = await executeGrpcCall({
         protoContent,
         serverAddress: step.serverAddress || serverAddress,
-        useTls: step.useTls !== undefined ? step.useTls : useTls,
+        useTls: stepCaId !== "",
+        caCert: await resolveCaCert(stepCaId),
+        acceptInvalidCert: stepCaId === ACCEPT_ALL_CA,
         serviceName: step.serviceName || "",
         methodName: step.methodName || "",
         requestBody: requestPayload,
         metadata,
       });
+
 
       // Save to context
       context.steps[step.id] = {
@@ -792,6 +1129,13 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
     const { id: _t3, ...data3 } = runRecord;
     const sId3 = new RecordId("workflow_run", dbId);
     await db.query("UPDATE $id CONTENT $data", { id: sId3, data: data3 });
+
+    emitWorkflowEvent(runId, workflow.id || "", "workflow_complete", {
+      runId,
+      workflowId: workflow.id,
+      status: "completed",
+      endTime: runRecord.endTime,
+    });
   } catch (error: any) {
     Sentry.captureException(error);
     runRecord.status = "failed";
@@ -805,5 +1149,13 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
     const { id: _t4, ...data4 } = runRecord;
     const sId4 = new RecordId("workflow_run", dbId);
     await db.query("UPDATE $id CONTENT $data", { id: sId4, data: data4 });
+
+    emitWorkflowEvent(runId, workflow.id || "", "workflow_failed", {
+      runId,
+      workflowId: workflow.id,
+      status: "failed",
+      error: error.message,
+      endTime: runRecord.endTime,
+    });
   }
 }

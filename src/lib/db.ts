@@ -219,7 +219,54 @@ class TracedDb {
             },
         );
     }
+
+    /** Forward .live() with a Sentry span */
+    async live(table: string, callback?: (action: string, result: any) => void): Promise<string> {
+        console.log(`[DB] LIVE ${table}`);
+        return Sentry.startSpan(
+            {
+                name: `LIVE ${table}`,
+                op: "db.live",
+                attributes: {
+                    "db.system": "surrealdb",
+                    "db.name": this.dbLabel,
+                    "db.collection.name": table,
+                },
+            },
+            async () => {
+                try {
+                    const queryUuid = await (this.inner as any).live(table, callback);
+                    console.log(`[DB] LIVE ${table} started with UUID ${queryUuid}`);
+                    return queryUuid;
+                } catch (err: any) {
+                    console.error(`[DB] LIVE ${table} failed: ${err.message}`);
+                    Sentry.captureException(err);
+                    throw err;
+                }
+            },
+        );
+    }
+
+    /** Forward .subscribeLive() or .listenLive() */
+    async subscribeLive(queryUuid: string, callback: (action: string, result: any) => void): Promise<void> {
+        if (typeof (this.inner as any).subscribeLive === "function") {
+            await (this.inner as any).subscribeLive(queryUuid, callback);
+        } else if (typeof (this.inner as any).listenLive === "function") {
+            await (this.inner as any).listenLive(queryUuid, callback);
+        }
+    }
+
+    /** Forward .kill() to terminate a live query */
+    async kill(queryUuid: string): Promise<void> {
+        console.log(`[DB] KILL LIVE ${queryUuid}`);
+        try {
+            await (this.inner as any).kill(queryUuid);
+        } catch (err: any) {
+            console.error(`[DB] KILL LIVE ${queryUuid} failed: ${err.message}`);
+        }
+    }
 }
+
 
 // ---------------------------------------------------------------------------
 // Connection management (unchanged caching logic, now with tracing)

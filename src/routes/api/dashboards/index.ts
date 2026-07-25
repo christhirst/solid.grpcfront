@@ -2,13 +2,25 @@ import { APIEvent } from "@solidjs/start/server";
 import { getDb } from "~/lib/db";
 import { v4 as uuidv4 } from "uuid";
 import { RecordId } from "surrealdb";
+import { getOwnerFromRequest } from "~/lib/auth";
 
 export async function GET(event: APIEvent) {
   try {
     const db = await getDb();
+    const url = new URL(event.request.url);
+    const q = url.searchParams.get("q")?.trim() || "";
+
     let dashboards: any = [];
     try {
-      const result = await db.query("SELECT * FROM dashboard ORDER BY updated_at DESC");
+      let result;
+      if (q) {
+        result = await db.query(
+          "SELECT * FROM dashboard WHERE string::lowercase(name) CONTAINS string::lowercase($q) ORDER BY updated_at DESC",
+          { q }
+        );
+      } else {
+        result = await db.query("SELECT * FROM dashboard ORDER BY updated_at DESC");
+      }
       dashboards = ((result[0] as any[]) || []).map((w: any) => ({ ...w, id: w.id?.toString().replace(/[⟨⟩]/g, "") }));
     } catch (e: any) {
       if (!e.message?.includes("does not exist")) throw e;
@@ -36,10 +48,19 @@ export async function POST(event: APIEvent) {
   try {
     const db = await getDb();
     const body = await new Response(event.request.body).json();
+    const owner = await getOwnerFromRequest(event.request);
 
     const rawId = body.id || `dashboard:${uuidv4()}`;
     const dbId = rawId.includes(":") ? rawId.split(":")[1] : rawId;
-    const dashboard = { ...body, id: rawId, updated_at: new Date().toISOString() };
+    const now = new Date().toISOString();
+    const dashboard = {
+      ...body,
+      id: rawId,
+      owner,
+      visibility: body.visibility || "public",
+      created_at: body.created_at || now,
+      updated_at: now,
+    };
 
     const { id: _, ...dataWithoutId } = dashboard;
     const recordId = new RecordId("dashboard", dbId);

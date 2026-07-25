@@ -28,11 +28,15 @@ export default function Dashboards() {
   const navigate = useNavigate();
   const [query, setQuery] = createSignal("");
   const [error, setError] = createSignal("");
+  let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 
-  const [dashboards, { refetch }] = createResource<DashboardSummary[]>(async () => {
+  const [dashboards, { refetch }] = createResource<DashboardSummary[]>(() => query(), async (q) => {
     setError("");
     try {
-      const url = isServer ? `http://127.0.0.1:${process.env.PORT || 3000}/api/dashboards` : "/api/dashboards";
+      const params = q ? `?q=${encodeURIComponent(q)}` : "";
+      const url = isServer
+        ? `http://127.0.0.1:${process.env.PORT || 3000}/api/dashboards${params}`
+        : `/api/dashboards${params}`;
       const res = await fetch(url);
       const text = await res.text();
       const json = JSON.parse(text);
@@ -47,18 +51,18 @@ export default function Dashboards() {
     }
   });
 
+  const handleSearch = (value: string) => {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => setQuery(value), 300);
+  };
+
   const visibleDashboards = createMemo(() => {
-    const term = query().trim().toLowerCase();
     const items = dashboards() || [];
-    const sorted = [...items].sort((a, b) => {
+    return [...items].sort((a, b) => {
       const aTime = new Date(a.updated_at || a.created_at || 0).getTime();
       const bTime = new Date(b.updated_at || b.created_at || 0).getTime();
       return bTime - aTime;
     });
-    if (!term) return sorted;
-    return sorted.filter((dashboard) =>
-      (dashboard.name || "Untitled Dashboard").toLowerCase().includes(term)
-    );
   });
 
   const publicCount = createMemo(() => (dashboards() || []).filter((dashboard) => dashboard.isPublic).length);
@@ -134,8 +138,7 @@ export default function Dashboards() {
         <div class="relative w-full sm:max-w-md">
           <svg class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#5a5a6e]" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg>
           <input
-            value={query()}
-            onInput={(e) => setQuery(e.currentTarget.value)}
+            onInput={(e) => handleSearch(e.currentTarget.value)}
             class="w-full rounded-xl border border-[#1e1e2e] bg-[#12121a] py-3 pl-10 pr-4 text-sm text-white outline-none transition-colors placeholder:text-[#5a5a6e] focus:border-blue-500"
             placeholder="Search dashboards"
           />

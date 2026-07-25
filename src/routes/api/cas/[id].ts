@@ -10,9 +10,9 @@ export async function GET(event: APIEvent) {
     const dbId = id.includes(":") ? id.split(":")[1] : id;
     let records: any = [];
     try {
-      const recordId = new RecordId("dashboard", dbId);
-      const result = await db.select(recordId);
-      records = Array.isArray(result) ? result : (result ? [result] : []);
+      const recordId = new RecordId("ca_cert", dbId);
+      const result = await db.query("SELECT * FROM $recordId", { recordId });
+      records = result[0] || [];
     } catch (e: any) {}
 
     if (!records || records.length === 0) {
@@ -23,7 +23,8 @@ export async function GET(event: APIEvent) {
     }
 
     const record = Array.isArray(records) ? records[0] : records;
-    if (record) record.id = `dashboard:${dbId}`;
+    if (record) record.id = `ca_cert:${dbId}`;
+
     return new Response(JSON.stringify({ success: true, data: record }), {
       headers: { "Content-Type": "application/json" },
     });
@@ -40,20 +41,19 @@ export async function PUT(event: APIEvent) {
     const id = event.params.id;
     const db = await getDb();
     const body = await new Response(event.request.body).json();
-    console.log("[DB SAVE] Dashboard PUT Body:", JSON.stringify(body, null, 2));
-    
-    const dbId = id.includes(":") ? id.split(":")[1] : id;
-    const recordId = `dashboard:${dbId}`;
-    const dashboard = { ...body, id: recordId, updated_at: new Date().toISOString() };
 
-    const { id: _, ...dataWithoutId } = dashboard;
-    const sId = new RecordId("dashboard", dbId);
-    const result = await db.query("UPDATE $id CONTENT $data", { id: sId, data: dataWithoutId });
-    const records = Array.isArray(result) ? (result[0] || result) : result;
-    const record = Array.isArray(records) ? records[0] : records;
-    if (record) {
-      record.id = `dashboard:${dbId}`;
-    }
+    const dbId = id.includes(":") ? id.split(":")[1] : id;
+    const recordId = `ca_cert:${dbId}`;
+    const certDef = { ...body, id: recordId, updated_at: new Date().toISOString() };
+    const { id: _, ...dataWithoutId } = certDef;
+
+    const sId = new RecordId("ca_cert", dbId);
+    const result = await db.query("UPDATE $sId CONTENT $data", {
+      sId,
+      data: dataWithoutId,
+    });
+    const record = Array.isArray(result) ? result[0] : result;
+    if (record) record.id = `ca_cert:${dbId}`;
 
     return new Response(JSON.stringify({ success: true, data: record }), {
       headers: { "Content-Type": "application/json" },
@@ -70,11 +70,11 @@ export async function DELETE(event: APIEvent) {
   try {
     const id = event.params.id;
     const db = await getDb();
-    
+
     const dbId = id.includes(":") ? id.split(":")[1] : id;
-    const sId = new RecordId("dashboard", dbId);
-    await db.delete(sId);
-    
+    const sId = new RecordId("ca_cert", dbId);
+    await db.query("DELETE $sId", { sId });
+
     return new Response(JSON.stringify({ success: true }), {
       headers: { "Content-Type": "application/json" },
     });

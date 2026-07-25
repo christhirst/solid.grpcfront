@@ -1,4 +1,7 @@
 import { createSignal, createEffect, onMount, For, Show, createResource, createMemo } from "solid-js";
+import { extractFormVariables, checkWorkflowConfiguredInDashboards } from "~/lib/workflowVariableChecker";
+
+
 import { createStore, reconcile, produce } from "solid-js/store";
 import { isServer } from "solid-js/web";
 import { useParams, useNavigate } from "@solidjs/router";
@@ -14,9 +17,16 @@ function get(obj: any, path: string | string[], defValue?: any) {
 
 import { DefaultChart } from "solid-chartjs";
 import { Chart, registerables } from "chart.js";
+import * as ChartGeo from "chartjs-chart-geo";
 
 if (!isServer) {
   Chart.register(...registerables);
+  Chart.register(
+    ChartGeo.ChoroplethController,
+    ChartGeo.GeoFeature,
+    ChartGeo.ColorScale,
+    ChartGeo.ProjectionScale
+  );
 }
 
 function valueToLabel(value: any, fallback: number) {
@@ -163,9 +173,53 @@ function LogTable(props: { data: any[]; columns?: string[] }) {
   );
 }
 
+let globalUsTopoJson: any = null;
+let globalWorldTopoJson: any = null;
+
+const STATE_ABBR_MAP: Record<string, string> = {
+  AL: "Alabama", AK: "Alaska", AZ: "Arizona", AR: "Arkansas", CA: "California",
+  CO: "Colorado", CT: "Connecticut", DE: "Delaware", FL: "Florida", GA: "Georgia",
+  HI: "Hawaii", ID: "Idaho", IL: "Illinois", IN: "Indiana", IA: "Iowa",
+  KS: "Kansas", KY: "Kentucky", LA: "Louisiana", ME: "Maine", MD: "Maryland",
+  MA: "Massachusetts", MI: "Michigan", MN: "Minnesota", MS: "Mississippi", MO: "Missouri",
+  MT: "Montana", NE: "Nebraska", NV: "Nevada", NH: "New Hampshire", NJ: "New Jersey",
+  NM: "New Mexico", NY: "New York", NC: "North Carolina", ND: "North Dakota", OH: "Ohio",
+  OK: "Oklahoma", OR: "Oregon", PA: "Pennsylvania", RI: "Rhode Island", SC: "South Carolina",
+  SD: "South Dakota", TN: "Tennessee", TX: "Texas", UT: "Utah", VT: "Vermont",
+  VA: "Virginia", WA: "Washington", WV: "West Virginia", WI: "Wisconsin", WY: "Wyoming"
+};
+
 function LogChart(props: { data: any[]; xKey?: string; yKey?: string; chartType?: string }) {
   const cType = () => props.chartType || "bar";
-  
+  const [topoJson, setTopoJson] = createSignal<any>(null);
+
+  createEffect(() => {
+    const type = cType();
+    if (type === "choropleth-us") {
+      if (globalUsTopoJson) {
+        setTopoJson(globalUsTopoJson);
+      } else {
+        fetch("https://cdn.jsdelivr.net/npm/us-atlas/states-10m.json")
+          .then((res) => res.json())
+          .then((data) => {
+            globalUsTopoJson = data;
+            setTopoJson(data);
+          });
+      }
+    } else if (type === "choropleth-world") {
+      if (globalWorldTopoJson) {
+        setTopoJson(globalWorldTopoJson);
+      } else {
+        fetch("https://cdn.jsdelivr.net/npm/world-atlas/countries-110m.json")
+          .then((res) => res.json())
+          .then((data) => {
+            globalWorldTopoJson = data;
+            setTopoJson(data);
+          });
+      }
+    }
+  });
+
   const buildData = () => {
     const data = normalizeDataArray(props.data);
     if (!Array.isArray(data) || !data.length) return { labels: [], datasets: [] };
@@ -174,8 +228,53 @@ function LogChart(props: { data: any[]; xKey?: string; yKey?: string; chartType?
     const isPie = type === "pie" || type === "doughnut";
     const isScatter = type === "scatter";
     const isBar = type === "bar";
+
+    if (type.startsWith("choropleth")) {
+      const isUS = type === "choropleth-us";
+      const topo = topoJson();
+      if (!topo) return { labels: [], datasets: [] };
+
+      const features = isUS
+        ? ChartGeo.topojson.feature(topo, topo.objects.states).features
+        : ChartGeo.topojson.feature(topo, topo.objects.countries).features;
+
+      const inferred = inferChartKeys(data, props.xKey, props.yKey);
+
+      const items = data.map((item, i) => {
+        const geoVal = inferred.xKey ? String(get(item, inferred.xKey) || "").trim() : "";
+        const numVal = inferred.yKey ? valueToNumber(get(item, inferred.yKey), 0) : valueToNumber(item, 0);
+        return { geoVal, numVal };
+      });
+
+      const matchedFeatures = features.map((d: any) => {
+        const featName = d.properties.name;
+        const matched = items.find(item => {
+          const name = item.geoVal;
+          if (name.toLowerCase() === featName.toLowerCase()) return true;
+          if (isUS) {
+            const mappedName = STATE_ABBR_MAP[name.toUpperCase()];
+            if (mappedName && mappedName.toLowerCase() === featName.toLowerCase()) return true;
+          }
+          return false;
+        });
+        return {
+          feature: d,
+          value: matched ? matched.numVal : 0
+        };
+      });
+
+      return {
+        labels: features.map((d: any) => d.properties.name),
+        datasets: [{
+          label: inferred.yKey || "Value",
+          outline: features,
+          data: matchedFeatures,
+        }]
+      };
+    }
+
     const inferred = inferChartKeys(data, props.xKey, props.yKey);
-    
+
     if (isScatter) {
       const points: {x: number, y: number}[] = [];
       for (let i = 0; i < data.length; i++) {
@@ -199,7 +298,7 @@ function LogChart(props: { data: any[]; xKey?: string; yKey?: string; chartType?
         }]
       };
     }
-    
+
     const labels: any[] = [];
     const points: number[] = [];
     for (let i = 0; i < data.length; i++) {
@@ -212,7 +311,7 @@ function LogChart(props: { data: any[]; xKey?: string; yKey?: string; chartType?
         points.push(valueToNumber(item, 0));
       }
     }
-    
+
     if (isPie) {
       const colors = ["#6366f1", "#8b5cf6", "#ec4899", "#f43f5e", "#f97316", "#eab308", "#22c55e", "#06b6d4"];
       const bgColors = points.map((_, i) => colors[i % colors.length]);
@@ -227,7 +326,7 @@ function LogChart(props: { data: any[]; xKey?: string; yKey?: string; chartType?
         }]
       };
     }
-    
+
     return {
       labels,
       datasets: [{
@@ -246,6 +345,36 @@ function LogChart(props: { data: any[]; xKey?: string; yKey?: string; chartType?
   };
 
   const chartOptions = () => {
+    const type = cType();
+    if (type.startsWith("choropleth")) {
+      const isUS = type === "choropleth-us";
+      return {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false }
+        },
+        scales: {
+          projection: {
+            axis: "x",
+            projection: isUS ? "albersUsa" : "equalEarth"
+          },
+          color: {
+            axis: "x",
+            interpolate: (v: number) => {
+              const hue = 220 + v * (320 - 220); // 220 (blue) to 320 (pink/purple)
+              const saturation = 30 + v * (85 - 30);
+              const lightness = 25 + v * (65 - 25);
+              return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+            },
+            legend: {
+              position: "bottom-right",
+              align: "bottom"
+            }
+          }
+        }
+      };
+    }
     const isPie = cType() === "pie" || cType() === "doughnut";
     return {
       responsive: true,
@@ -261,8 +390,10 @@ function LogChart(props: { data: any[]; xKey?: string; yKey?: string; chartType?
   return (
     <div class="h-[250px] bg-[#101015] p-3 rounded border border-[#2a2a3a]/50">
       <Show when={normalizeDataArray(props.data).length > 0} fallback={<p class="text-xs text-[#5a5a6e]">No valid array data for chart</p>}>
-        {/* @ts-ignore */}
-        <DefaultChart type={cType() as any} data={buildData()} options={chartOptions()} />
+        <Show when={!cType().startsWith("choropleth") || topoJson()} fallback={<p class="text-xs text-[#8b8b9e] animate-pulse">Loading map assets...</p>}>
+          {/* @ts-ignore */}
+          <DefaultChart type={cType().startsWith("choropleth") ? "choropleth" : (cType() as any)} data={buildData()} options={chartOptions()} />
+        </Show>
       </Show>
     </div>
   );
@@ -364,6 +495,30 @@ export default function WorkflowBuilder() {
     input.focus();
   };
   
+  // Fetch dashboards for checking variable configuration status
+  const [dashboards] = createResource(async () => {
+    const url = isServer ? `http://127.0.0.1:${process.env.PORT || 3000}/api/dashboards` : "/api/dashboards";
+    try {
+      const res = await fetch(url);
+      const json = await res.json();
+      return json.success ? json.data : [];
+    } catch {
+      return [];
+    }
+  });
+
+  // Fetch saved CAs from Registry
+  const [savedCas] = createResource(async () => {
+    const url = isServer ? `http://127.0.0.1:${process.env.PORT || 3000}/api/cas` : "/api/cas";
+    try {
+      const res = await fetch(url);
+      const json = await res.json();
+      return json.success ? json.data : [];
+    } catch {
+      return [];
+    }
+  });
+
   // Fetch saved protos from Registry
   const [savedProtos, { refetch: refetchProtos }] = createResource(async () => {
     const url = isServer ? `http://127.0.0.1:${process.env.PORT || 3000}/api/protos` : "/api/protos";
@@ -376,10 +531,12 @@ export default function WorkflowBuilder() {
     }
   });
 
+  const ACCEPT_ALL_CA = "__accept_all__";
   const [serverAddress, setServerAddress] = createSignal("localhost:50051");
-  const [useTls, setUseTls] = createSignal(false);
   const [schedule, setSchedule] = createSignal("");
   const [protoId, setProtoId] = createSignal("");
+  const [caId, setCaId] = createSignal("");
+  const useTls = () => caId() !== "";
   const [authType, setAuthType] = createSignal<"grpc" | "rest" | "static">("grpc");
   const [authService, setAuthService] = createSignal("");
   const [authMethod, setAuthMethod] = createSignal("");
@@ -421,6 +578,49 @@ export default function WorkflowBuilder() {
   const [runId, setRunId] = createSignal<string | null>(null);
   const [runData, setRunData] = createSignal<any>(null);
   const [isRunning, setIsRunning] = createSignal(false);
+  const [liveStreamEvents, setLiveStreamEvents] = createSignal<any[]>([]);
+
+  const runWorkflowStreaming = async () => {
+    await saveWorkflow();
+    if (isNew) return;
+
+    setIsRunning(true);
+    setRunData(null);
+    setLiveStreamEvents([]);
+
+    const res = await fetch(`/api/workflows/${params.id}/run`, { method: "POST" });
+    const json = await res.json();
+
+    if (json.success) {
+      setRunId(json.runId);
+      const es = new EventSource(`/api/workflows/runs/${json.runId}/stream`);
+
+      es.onmessage = (e) => {
+        try {
+          const payload = JSON.parse(e.data);
+          setLiveStreamEvents((prev) => [...prev, payload]);
+        } catch {}
+      };
+
+      const handleEnd = () => {
+        es.close();
+        setIsRunning(false);
+        pollRunData(json.runId);
+      };
+
+      es.addEventListener("workflow_complete", handleEnd);
+      es.addEventListener("workflow_failed", handleEnd);
+
+      es.onerror = () => {
+        es.close();
+        setIsRunning(false);
+      };
+    } else {
+      alert("Failed to start stream run: " + json.error);
+      setIsRunning(false);
+    }
+  };
+
 
   const fetchWorkflow = async () => {
     const url = isServer ? `http://127.0.0.1:${process.env.PORT || 3000}/api/workflows/${params.id}` : `/api/workflows/${params.id}`;
@@ -439,17 +639,23 @@ export default function WorkflowBuilder() {
 
   const [workflow, { refetch: refetchWorkflow }] = createResource(params.id, fetchWorkflow);
 
+  const varConfigStatus = createMemo(() => {
+    const data = workflow();
+    if (!data) return { hasVariables: false, allConfigured: true, reqVars: [], missingVars: [] };
+    return checkWorkflowConfiguredInDashboards(data, dashboards() || []);
+  });
+
   // Sync resource data to local mutable state safely on the client
   createEffect(() => {
     const data = workflow();
     if (data) {
       setName(data.name || "Untitled");
       setProtoId(data.protoId || "");
+      setCaId(data.caId || (data.useTls ? ACCEPT_ALL_CA : ""));
       if (data.protoContent) {
         setProtoContent(data.protoContent);
       }
       setServerAddress(data.serverAddress || "localhost:50051");
-      setUseTls(data.useTls || false);
       setSchedule(data.schedule || "");
       setConnectionId(data.connectionId || "");
         
@@ -514,8 +720,9 @@ export default function WorkflowBuilder() {
       id: isNew ? undefined : `workflow:${params.id}`,
       name: name(),
       protoId: protoId() || undefined,
+      caId: caId() || undefined,
       serverAddress: serverAddress(),
-      useTls: useTls(),
+      useTls: useTls(), // retained for backward compatibility; caId is the source of truth
       schedule: schedule(),
       connectionId: connectionId() || undefined,
       steps: steps.map(s => ({
@@ -552,7 +759,7 @@ export default function WorkflowBuilder() {
       requestBodyTemplate: "{}",
       headersTemplate: "{}",
       serverAddress: "",
-      useTls: useTls(),
+      caId: caId(),
       dataPath: "", xKey: "", yKey: ""
     };
 
@@ -622,6 +829,8 @@ export default function WorkflowBuilder() {
             protoContent: protoContent(),
             serverAddress: serverAddress(),
             useTls: useTls(),
+            caCert: savedCas()?.find((ca: any) => ca.id === caId())?.content,
+            acceptInvalidCert: caId() === ACCEPT_ALL_CA,
             serviceName: authService(),
             methodName: authMethod(),
             requestBody: JSON.parse(authRequestTemplate()),
@@ -728,8 +937,64 @@ export default function WorkflowBuilder() {
             )}
             Run
           </button>
+          <button onClick={runWorkflowStreaming} class="btn-primary bg-purple-600 hover:bg-purple-700 shadow-purple-500/20 flex items-center gap-2" disabled={isNew || isRunning()}>
+            <span>📡</span> Stream Run
+          </button>
         </div>
       </div>
+
+      {/* Translucent Dashboard Variable Status Banner */}
+      <Show when={varConfigStatus().hasVariables}>
+        <div
+          class={`mb-6 p-4 rounded-xl border flex items-center justify-between backdrop-blur-sm transition-colors ${
+            varConfigStatus().allConfigured
+              ? "bg-emerald-500/20 border-emerald-500/30 text-emerald-300"
+              : "bg-red-500/20 border-red-500/30 text-red-300"
+          }`}
+        >
+          <div class="flex items-center gap-3">
+            <span class="text-xl">{varConfigStatus().allConfigured ? "✓" : "⚠️"}</span>
+            <div>
+              <div class="text-xs font-bold uppercase tracking-wider">
+                {varConfigStatus().allConfigured
+                  ? "Dashboard Variables Configured"
+                  : "Dashboard Variables Pending Configuration"}
+              </div>
+              <div class="text-[11px] text-slate-300 font-mono mt-0.5">
+                Required Variables: {varConfigStatus().reqVars.map(v => `{{ form.${v} }}`).join(", ")}
+              </div>
+            </div>
+          </div>
+          <span class="text-[10px] font-semibold uppercase px-2.5 py-1 rounded-full border bg-black/40 border-current opacity-80">
+            {varConfigStatus().allConfigured ? "Translucent Light Green" : "Translucent Light Red"}
+          </span>
+        </div>
+      </Show>
+
+
+      <Show when={liveStreamEvents().length > 0}>
+        <div class="card p-4 border border-purple-500/30 bg-purple-950/20 mb-6">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-bold uppercase tracking-wider text-purple-300 flex items-center gap-2">
+              <span class="inline-block w-2 h-2 rounded-full bg-purple-400 animate-ping"></span>
+              Live Workflow Stream Events ({liveStreamEvents().length})
+            </span>
+          </div>
+          <div class="max-h-48 overflow-y-auto font-mono text-xs space-y-1 custom-scrollbar bg-[#0a0a0f] p-3 rounded-lg border border-purple-900/50">
+            <For each={liveStreamEvents()}>
+              {(evt) => (
+                <div class="flex items-start gap-2 border-b border-[#1e1e2e] pb-1 text-slate-300">
+                  <span class="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-purple-900/60 text-purple-200">
+                    {evt.type || "EVENT"}
+                  </span>
+                  <span class="text-slate-400 text-[10px]">{evt.timestamp}</span>
+                  <span class="truncate">{JSON.stringify(evt.data)}</span>
+                </div>
+              )}
+            </For>
+          </div>
+        </div>
+      </Show>
 
       <div class="space-y-6">
         {/* Steps Builder & Run Results */}
@@ -757,6 +1022,7 @@ export default function WorkflowBuilder() {
                     </span>
                     <span class="text-xs font-bold uppercase tracking-wider">
                       Workflow Run Status: {runData().status}
+
                     </span>
                     <Show when={runData().endTime}>
                       <span class="text-[10px] text-[#5b5b6e]">
@@ -847,7 +1113,7 @@ export default function WorkflowBuilder() {
                           value={step.type === "chart" ? (step.chartType || "bar") : (step.type || "grpc")}
                           onChange={(e) => {
                             const val = e.currentTarget.value;
-                            if (["bar", "line", "doughnut", "pie", "scatter"].includes(val)) {
+                            if (["bar", "line", "doughnut", "pie", "scatter", "choropleth-us", "choropleth-world"].includes(val)) {
                               updateStep(index(), "type", "chart");
                               updateStep(index(), "chartType", val);
                             } else {
@@ -864,6 +1130,8 @@ export default function WorkflowBuilder() {
                           <option value="doughnut">🍩 Doughnut Chart</option>
                           <option value="pie">🥧 Pie Chart</option>
                           <option value="scatter">📉 Scatter Chart</option>
+                          <option value="choropleth-us">🗺️ US Choropleth Map</option>
+                          <option value="choropleth-world">🗺️ World Choropleth Map</option>
                         </select>
                       </div>
                       <div class="flex-1">
@@ -962,23 +1230,20 @@ export default function WorkflowBuilder() {
                       </div>
                     </div>
 
-                    <div class="mt-4 flex items-center justify-between px-1">
-                      <label class="text-xs font-semibold text-[#8b8b9e] flex items-center gap-1.5">
+                    <div class="mt-4 px-1">
+                      <label class="mb-1 block text-xs font-semibold text-[#8b8b9e] flex items-center gap-1.5">
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
-                        Encryption (TLS)
+                        TLS trust
                       </label>
-                      <label class="relative inline-flex items-center cursor-pointer">
-                        <input
-                          type="checkbox"
-                          class="sr-only peer"
-                          checked={step.useTls ?? useTls()}
-                          onChange={(e) => updateStep(index(), "useTls", e.currentTarget.checked)}
-                        />
-                        <div class="w-8 h-4 bg-[#2a2a3a] rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-[#8b8b9e] after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-600 peer-checked:after:bg-white"></div>
-                        <span class="ml-2 text-[10px] font-medium text-[#5b5b6e]">
-                          { (step.useTls ?? useTls()) ? "Secure" : "Insecure" }
-                        </span>
-                      </label>
+                      <select
+                        class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2 text-xs text-white focus:border-emerald-500 focus:outline-none"
+                        value={step.caId ?? caId()}
+                        onChange={(e) => updateStep(index(), "caId", e.currentTarget.value)}
+                      >
+                        <option value="">None</option>
+                        <option value={ACCEPT_ALL_CA}>Accept All</option>
+                        <For each={savedCas()}>{(ca) => <option value={ca.id}>{ca.name}</option>}</For>
+                      </select>
                     </div>
 
                     <div>
@@ -1042,6 +1307,19 @@ export default function WorkflowBuilder() {
                             <option value="PATCH">PATCH</option>
                           </select>
                         </div>
+                      </div>
+
+                      <div>
+                        <label class="mb-1 block text-xs text-[#8b8b9e]">TLS trust</label>
+                        <select
+                          class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2.5 text-sm text-white focus:border-emerald-500 focus:outline-none"
+                          value={step.caId ?? caId()}
+                          onChange={(e) => updateStep(index(), "caId", e.currentTarget.value)}
+                        >
+                          <option value="">None</option>
+                          <option value={ACCEPT_ALL_CA}>Accept All</option>
+                          <For each={savedCas()}>{(ca) => <option value={ca.id}>{ca.name}</option>}</For>
+                        </select>
                       </div>
                       
                       <StepAuthSettings 
@@ -1206,17 +1484,21 @@ export default function WorkflowBuilder() {
                           </p>
                           <div class="grid grid-cols-2 gap-3">
                             <div>
-                              <label class="mb-1 block text-xs text-[#8b8b9e]">X-Axis Property <span class="text-[10px] text-[#5b5b6e]">(optional)</span></label>
+                              <label class="mb-1 block text-xs text-[#8b8b9e]">
+                                {step.chartType?.startsWith("choropleth") ? "Geographic Region Field" : "X-Axis Property"} <span class="text-[10px] text-[#5b5b6e]">(optional)</span>
+                              </label>
                               <input
                                 type="text"
                                 class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2.5 text-sm text-white font-mono focus:border-purple-500 focus:outline-none"
-                                placeholder="Auto-detect"
+                                placeholder={step.chartType?.startsWith("choropleth") ? "e.g. state" : "Auto-detect"}
                                 value={step.xKey || ""}
                                 onInput={(e) => updateStep(index(), "xKey", e.currentTarget.value)}
                               />
                             </div>
                             <div>
-                              <label class="mb-1 block text-xs text-[#8b8b9e]">Y-Axis Property <span class="text-[10px] text-[#5b5b6e]">(optional)</span></label>
+                              <label class="mb-1 block text-xs text-[#8b8b9e]">
+                                {step.chartType?.startsWith("choropleth") ? "Value Field" : "Y-Axis Property"} <span class="text-[10px] text-[#5b5b6e]">(optional)</span>
+                              </label>
                               <input
                                 type="text"
                                 class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2.5 text-sm text-white font-mono focus:border-purple-500 focus:outline-none"
@@ -1228,7 +1510,11 @@ export default function WorkflowBuilder() {
                           </div>
                           <Show when={step.xKey || step.yKey}>
                             <div class="mt-2 rounded-md bg-purple-500/10 border border-purple-500/20 px-3 py-1.5 text-[10px] text-purple-300">
-                              Will render: X = <code class="font-mono">{step.xKey || "index"}</code> · Y = <code class="font-mono">{step.yKey || "value"}</code>
+                              {step.chartType?.startsWith("choropleth") ? (
+                                <span>Will render: Region = <code class="font-mono">{step.xKey}</code> · Value = <code class="font-mono">{step.yKey}</code></span>
+                              ) : (
+                                <span>Will render: X = <code class="font-mono">{step.xKey || "index"}</code> · Y = <code class="font-mono">{step.yKey || "value"}</code></span>
+                              )}
                             </div>
                           </Show>
                         </div>
@@ -1458,18 +1744,32 @@ export default function WorkflowBuilder() {
                 />
               </div>
 
-              <label class="flex items-center gap-3 cursor-pointer py-1">
-                <div class="relative">
-                  <input
-                    type="checkbox"
-                    class="peer sr-only"
-                    checked={useTls()}
-                    onChange={(e) => setUseTls(e.currentTarget.checked)}
-                  />
-                  <div class="h-6 w-11 rounded-full bg-[#2a2a3a] after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-[#8b8b9e] after:transition-all after:content-[''] peer-checked:bg-blue-500 peer-checked:after:translate-x-full peer-checked:after:border-white peer-checked:after:bg-white peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-500/50"></div>
-                </div>
-                <span class="text-sm font-medium text-[#8b8b9e] peer-checked:text-white transition-colors">Use TLS Encryption</span>
-              </label>
+              <div class="rounded-lg bg-[#0a0a12] border border-emerald-500/15 p-3 space-y-2">
+                  <label class="block text-xs font-medium text-emerald-400/80">
+                    <span class="inline-flex items-center gap-1.5">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                      Trusted CA Certificate
+                    </span>
+                  </label>
+                  <select
+                    class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-emerald-500 focus:outline-none"
+                    value={caId()}
+                    onChange={(e) => setCaId(e.currentTarget.value)}
+                  >
+                    <option value="">None</option>
+                    <option value={ACCEPT_ALL_CA}>Accept All</option>
+                    <Show when={!savedCas.loading}>
+                      <For each={savedCas()}>
+                        {(ca) => (
+                          <option value={ca.id}>{ca.name}</option>
+                        )}
+                      </For>
+                    </Show>
+                  </select>
+                  <p class="text-[10px] text-[#5a5a6e]">
+                    None uses plaintext. Accept All uses TLS without certificate validation. A selected CA uses TLS and validates the server certificate. <a href="/TrustedCA" class="text-emerald-400/70 hover:text-emerald-400 underline" target="_blank">Manage CAs →</a>
+                  </p>
+              </div>
 
               <div class="border-t border-[#2a2a3a]/60 pt-4">
                 <label class="mb-1 block text-sm font-medium text-[#8b8b9e]">

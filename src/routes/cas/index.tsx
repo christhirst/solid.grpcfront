@@ -1,0 +1,320 @@
+import { createSignal, createResource, For, Show } from "solid-js";
+import { isServer } from "solid-js/web";
+
+export interface CaCert {
+  id: string;
+  name: string;
+  content: string;
+  updated_at: string;
+}
+
+const fetchCerts = async () => {
+  const url = isServer ? `http://127.0.0.1:${process.env.PORT || 3000}/api/cas` : "/api/cas";
+  try {
+    const res = await fetch(url);
+    const json = await res.json();
+    return json.success ? (json.data as CaCert[]) : [];
+  } catch {
+    return [];
+  }
+};
+
+export default function CaCerts() {
+  const [certs, { refetch }] = createResource(fetchCerts);
+  const [editing, setEditing] = createSignal<Partial<CaCert> | null>(null);
+  const [isSaving, setIsSaving] = createSignal(false);
+  const [errorMsg, setErrorMsg] = createSignal<string | null>(null);
+  const [isDragging, setIsDragging] = createSignal(false);
+
+  const handleFileUpload = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const content = e.target?.result as string;
+      setEditing((prev) => ({
+        ...prev,
+        content,
+        name: prev?.name && prev.name !== "New CA Certificate" ? prev.name : file.name.replace(/\.(pem|crt|cer|ca-bundle)$/, ""),
+      }));
+    };
+    reader.readAsText(file);
+  };
+
+  const handleDragOver = (e: DragEvent) => { e.preventDefault(); setIsDragging(true); };
+  const handleDragLeave = () => setIsDragging(false);
+  const handleDrop = (e: DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer?.files[0];
+    if (file) handleFileUpload(file);
+  };
+
+  const startCreate = () => {
+    setEditing({ name: "New CA Certificate", content: "" });
+    setErrorMsg(null);
+  };
+
+  const startEdit = (cert: CaCert) => {
+    setEditing({ ...cert });
+    setErrorMsg(null);
+  };
+
+  const cancelEdit = () => {
+    setEditing(null);
+    setErrorMsg(null);
+  };
+
+  const saveCert = async () => {
+    const c = editing();
+    if (!c || !c.name || !c.content) {
+      setErrorMsg("Name and PEM content are required.");
+      return;
+    }
+    setIsSaving(true);
+    setErrorMsg(null);
+    try {
+      const isUpdate = !!c.id;
+      const url = isUpdate && c.id ? `/api/cas/${c.id.split(":")[1] || c.id}` : "/api/cas";
+      const method = isUpdate ? "PUT" : "POST";
+
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(c),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setEditing(null);
+        refetch();
+      } else {
+        setErrorMsg(data.error || "Failed to save certificate");
+      }
+    } catch (e: any) {
+      setErrorMsg(e.message);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const deleteCert = async (id: string, e: Event) => {
+    e.stopPropagation();
+    if (!confirm("Are you sure you want to delete this CA certificate?")) return;
+    try {
+      await fetch(`/api/cas/${id.split(":")[1] || id}`, { method: "DELETE" });
+      refetch();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  /** Check if PEM content looks valid */
+  const isPemValid = (content: string) =>
+    content.trim().startsWith("-----BEGIN");
+
+  return (
+    <main class="relative min-h-screen">
+      <div class="mesh-gradient" />
+      <div class="grain-overlay" />
+
+      <div class="relative z-10 mx-auto max-w-5xl px-6 py-8">
+        {/* Header */}
+        <div class="flex items-center justify-between mb-8 fade-in-up delay-1">
+          <div>
+            <div class="flex items-center gap-3 mb-2">
+              <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 shadow-lg shadow-emerald-500/20">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                  <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                </svg>
+              </div>
+              <h1 class="text-2xl font-bold tracking-tight text-white">CA Certificates</h1>
+            </div>
+            <p class="text-sm text-[#8b8b9e]">
+              Manage trusted CA root certificates for TLS-enabled gRPC workflows.
+            </p>
+          </div>
+
+          <Show when={!editing()}>
+            <button
+              onClick={startCreate}
+              class="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-500/25 transition-all hover:-translate-y-px hover:shadow-emerald-500/40"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+              New Certificate
+            </button>
+          </Show>
+        </div>
+
+        {/* Edit / Create Form */}
+        <Show when={editing()}>
+          <div class="card p-6 fade-in-up delay-2 mb-6">
+            <h2 class="text-lg font-bold text-white mb-4">
+              {editing()?.id ? "Edit CA Certificate" : "Add CA Certificate"}
+            </h2>
+
+            <Show when={errorMsg()}>
+              <div class="mb-4 rounded-lg bg-red-500/10 border border-red-500/20 p-3 text-sm text-red-400">
+                {errorMsg()}
+              </div>
+            </Show>
+
+            <div class="space-y-4">
+              {/* Name */}
+              <div>
+                <label class="block text-xs font-medium text-[#5a5a6e] mb-1.5">Certificate Name</label>
+                <input
+                  type="text"
+                  value={editing()?.name || ""}
+                  onInput={(e) => setEditing({ ...editing()!, name: e.currentTarget.value })}
+                  class="w-full rounded-lg border border-[#1e1e2e] bg-[#12121a] px-4 py-2 text-sm text-white focus:outline-none focus:border-emerald-500 transition-colors"
+                  placeholder="e.g. Internal Root CA"
+                />
+              </div>
+
+              {/* PEM Content */}
+              <div>
+                <div class="flex items-center justify-between mb-1.5">
+                  <label class="block text-xs font-medium text-[#5a5a6e]">PEM Content</label>
+                  <Show when={editing()?.content}>
+                    <span class={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${isPemValid(editing()!.content!) ? "bg-emerald-500/10 text-emerald-400" : "bg-yellow-500/10 text-yellow-400"}`}>
+                      {isPemValid(editing()!.content!) ? "✓ Valid PEM" : "⚠ Invalid PEM"}
+                    </span>
+                  </Show>
+                </div>
+
+                <div
+                  class={`relative rounded-lg border-2 transition-colors ${
+                    isDragging() ? "border-emerald-500 bg-emerald-500/5 border-dashed" : "border-[#1e1e2e] border-solid"
+                  }`}
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                >
+                  <div class="absolute right-3 top-3 flex items-center gap-2 pointer-events-none">
+                    <span class="text-[10px] font-bold tracking-widest text-[#5a5a6e] uppercase opacity-60">
+                      {isDragging() ? "Drop to upload" : "Drag .pem/.crt here"}
+                    </span>
+                  </div>
+
+                  {/* File upload button */}
+                  <div class="absolute left-3 top-3 pointer-events-auto">
+                    <label class="cursor-pointer inline-flex items-center gap-1.5 text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded px-2 py-1 hover:bg-emerald-500/20 transition-colors">
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                      Browse file
+                      <input
+                        type="file"
+                        class="hidden"
+                        accept=".pem,.crt,.cer,.ca-bundle,.cert"
+                        onChange={(e) => {
+                          const file = e.currentTarget.files?.[0];
+                          if (file) handleFileUpload(file);
+                          e.currentTarget.value = "";
+                        }}
+                      />
+                    </label>
+                  </div>
+
+                  <textarea
+                    value={editing()?.content || ""}
+                    onInput={(e) => setEditing({ ...editing()!, content: e.currentTarget.value })}
+                    class="w-full min-h-[280px] rounded-lg bg-transparent p-4 pt-10 text-sm text-[#c8c8d8] font-mono focus:outline-none transition-colors"
+                    style={{ "background-color": "transparent" }}
+                    spellcheck={false}
+                    placeholder={"-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----"}
+                  />
+                </div>
+                <p class="mt-1.5 text-[10px] text-[#5a5a6e]">
+                  Paste or drop a PEM-encoded CA certificate (root or intermediate). Supports .pem, .crt, .cer formats.
+                </p>
+              </div>
+
+              <div class="flex justify-end gap-3 pt-4 border-t border-[#1e1e2e]">
+                <button
+                  onClick={cancelEdit}
+                  disabled={isSaving()}
+                  class="rounded-lg px-4 py-2 text-sm font-medium text-[#8b8b9e] hover:bg-[#1e1e2e] hover:text-white transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={saveCert}
+                  disabled={isSaving()}
+                  class="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-emerald-500 to-teal-500 px-6 py-2 text-sm font-semibold text-white shadow-md hover:shadow-emerald-500/25 transition-all"
+                >
+                  {isSaving() ? "Saving..." : "Save Certificate"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </Show>
+
+        {/* Certificate Grid */}
+        <Show when={!editing()}>
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 fade-in-up delay-2">
+            <Show
+              when={certs()?.length}
+              fallback={
+                <div class="col-span-full flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-[#1e1e2e] bg-[#12121a]/50 py-16">
+                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#2a2a3e" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="mb-4">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                  </svg>
+                  <h3 class="text-lg font-medium text-white mb-2">No CA Certificates</h3>
+                  <p class="text-[#5a5a6e] text-center max-w-sm text-sm px-4">
+                    Upload your root CA or intermediate CA certificates here to use them in TLS-enabled gRPC workflows.
+                  </p>
+                </div>
+              }
+            >
+              <For each={certs()}>
+                {(cert) => (
+                  <div
+                    class="card p-5 group cursor-pointer hover:border-emerald-500/50 transition-colors flex flex-col h-[200px]"
+                    onClick={() => startEdit(cert)}
+                  >
+                    <div class="flex items-start justify-between mb-3">
+                      <div class="flex items-center gap-2 min-w-0">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="shrink-0">
+                          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                          <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                        </svg>
+                        <h3 class="font-semibold text-white truncate max-w-[160px]">{cert.name}</h3>
+                      </div>
+                      <div class="flex items-center gap-1 shrink-0">
+                        <Show when={cert.content?.trim().startsWith("-----BEGIN")}>
+                          <span class="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded-full">PEM</span>
+                        </Show>
+                        <button
+                          onClick={(e) => deleteCert(cert.id, e)}
+                          class="p-1 rounded bg-[#1e1e2e] text-[#5a5a6e] opacity-0 group-hover:opacity-100 transition-opacity hover:text-red-400 hover:bg-red-500/10"
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M3 6h18"/>
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+
+                    <div class="relative flex-1 bg-[#12121a] rounded-lg border border-[#1e1e2e] p-3 overflow-hidden">
+                      <pre class="text-[10px] text-[#5a5a6e] font-mono leading-relaxed pointer-events-none">
+                        {(cert.content || "").substring(0, 300) + ((cert.content || "").length > 300 ? "..." : "")}
+                      </pre>
+                      <div class="absolute inset-0 bg-gradient-to-t from-[#12121a] via-[#12121a]/50 to-transparent pointer-events-none" />
+                    </div>
+
+                    <div class="mt-3 text-[10px] font-medium text-[#5a5a6e] truncate">
+                      Updated: {new Date(cert.updated_at).toLocaleString()}
+                    </div>
+                  </div>
+                )}
+              </For>
+            </Show>
+          </div>
+        </Show>
+      </div>
+    </main>
+  );
+}

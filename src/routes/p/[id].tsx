@@ -2,11 +2,169 @@ import { createSignal, For, Show, onMount, createEffect } from "solid-js";
 import { useParams } from "@solidjs/router";
 import { DefaultChart } from "solid-chartjs";
 import { Chart, registerables } from "chart.js";
+import * as ChartGeo from "chartjs-chart-geo";
 import get from "lodash.get";
 
 Chart.register(...registerables);
+if (typeof window !== "undefined") {
+  Chart.register(
+    ChartGeo.ChoroplethController,
+    ChartGeo.GeoFeature,
+    ChartGeo.ColorScale,
+    ChartGeo.ProjectionScale
+  );
+}
 
-// ─── helpers ──────────────────────────────────────────────────────────────────
+import { evaluateNewsRules, newsColorClasses, type NewsRule } from "~/lib/newsRulesEvaluator";
+import { checkWidgetVariablesConfigured } from "~/lib/workflowVariableChecker";
+
+
+
+function NewsWidgetComponent(props: { btn: any; dashboardId?: string }) {
+  const [data, setData] = createSignal<any>("No Data");
+  const [status, setStatus] = createSignal<"idle" | "loading" | "live" | "error">("idle");
+
+  const evalResult = () => evaluateNewsRules(data(), props.btn.newsRules || []);
+  const theme = () => newsColorClasses[evalResult().color] || newsColorClasses.blue;
+
+  onMount(() => {
+    if (!props.btn.workflowId) return;
+    const wfId = props.btn.workflowId.includes(":") ? props.btn.workflowId.split(":")[1] : props.btn.workflowId;
+
+    if (props.btn.streamActive !== false) {
+      setStatus("live");
+      const es = new EventSource(`/api/workflows/${wfId}/stream`);
+
+      es.onmessage = (e) => {
+        try {
+          const payload = JSON.parse(e.data);
+          if (payload.data?.chunk || payload.data?.response) {
+            let chunk = payload.data.chunk || payload.data.response;
+            if (props.btn.dataPath) {
+              chunk = get(chunk, props.btn.dataPath, chunk);
+            }
+            if (chunk !== undefined) setData(chunk);
+          }
+        } catch {}
+      };
+
+      es.addEventListener("step_chunk", (e: any) => {
+        try {
+          const payload = JSON.parse(e.data);
+          let chunk = payload.data?.chunk;
+          if (props.btn.dataPath && chunk) {
+            chunk = get(chunk, props.btn.dataPath, chunk);
+          }
+          if (chunk !== undefined) setData(chunk);
+        } catch {}
+      });
+
+      es.addEventListener("step_complete", (e: any) => {
+        try {
+          const payload = JSON.parse(e.data);
+          let resData = payload.data?.response;
+          if (props.btn.dataPath && resData) {
+            resData = get(resData, props.btn.dataPath, resData);
+          }
+          if (resData !== undefined) setData(resData);
+        } catch {}
+      });
+
+      es.onerror = () => { setStatus("idle"); };
+    }
+  });
+
+  const fetchManual = async () => {
+    if (!props.btn.workflowId) return;
+    const wfId = props.btn.workflowId.includes(":") ? props.btn.workflowId.split(":")[1] : props.btn.workflowId;
+    setStatus("loading");
+    try {
+      const res = await fetch(`/api/workflows/${wfId}/run`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ form: {} }),
+      });
+      const json = await res.json();
+      if (json.success) setStatus("idle");
+    } catch {
+      setStatus("error");
+    }
+  };
+
+  return (
+    <div class={`w-full rounded-2xl border p-5 shadow-xl transition-all duration-300 ${theme().bg} ${theme().border}`}>
+      <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center gap-2">
+          <span class="text-xl">📰</span>
+          <h3 class="text-sm font-bold text-white tracking-wide">{props.btn.label || "News Alert"}</h3>
+        </div>
+        <div class="flex items-center gap-2">
+          <Show when={props.btn.streamActive !== false}>
+            <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold border bg-purple-500/20 text-purple-300 border-purple-500/30">
+              <span class="w-1.5 h-1.5 rounded-full bg-purple-400 animate-ping"></span>
+              STREAM LIVE
+            </span>
+          </Show>
+          <button onClick={fetchManual} class="text-[10px] text-slate-400 hover:text-white transition-colors">
+            ↻ Refresh
+          </button>
+        </div>
+      </div>
+
+      <div class="mt-2">
+        <div class={`text-lg font-extrabold tracking-tight ${theme().text}`}>
+          {evalResult().text}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ToggleWidgetComponent(props: { btn: any; dashboardId?: string; formState: any; updateForm: any; triggerButton: any }) {
+  const [checked, setChecked] = createSignal(props.btn.defaultChecked || false);
+  const [isFlipping, setIsFlipping] = createSignal(false);
+
+  const varName = () => props.btn.formVarName || "toggle_state";
+  const onTxt = () => props.btn.onLabel || "ON";
+  const offTxt = () => props.btn.offLabel || "OFF";
+
+  const handleToggle = async () => {
+    const nextVal = !checked();
+    setChecked(nextVal);
+    setIsFlipping(true);
+
+    props.updateForm(props.btn.id, varName(), nextVal);
+    props.updateForm(props.btn.id, "toggle", nextVal ? "ON" : "OFF");
+
+    await props.triggerButton(props.btn);
+    setIsFlipping(false);
+  };
+
+  return (
+    <div class="w-full rounded-2xl border border-[#2a2a3a] bg-[#12121a] p-4 shadow-xl flex items-center justify-between">
+      <div>
+        <h4 class="text-sm font-bold text-white mb-0.5">{props.btn.label || "Toggle Switch"}</h4>
+        <span class="text-xs text-[#8b8b9e]">
+          State: <strong class={checked() ? "text-emerald-400" : "text-slate-400"}>{checked() ? onTxt() : offTxt()}</strong>
+        </span>
+      </div>
+
+      <button
+        onClick={handleToggle}
+        disabled={isFlipping()}
+        class={`relative inline-flex h-8 w-16 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-300 ease-in-out focus:outline-none focus:ring-2 focus:ring-purple-500/50 ${
+          checked() ? "bg-gradient-to-r from-emerald-500 to-cyan-500 shadow-lg shadow-emerald-500/30" : "bg-[#2a2a3a]"
+        }`}
+      >
+        <span
+          class={`pointer-events-none inline-block h-7 w-7 transform rounded-full bg-white shadow-md ring-0 transition duration-300 ease-in-out ${
+            checked() ? "translate-x-8" : "translate-x-0"
+          }`}
+        />
+      </button>
+    </div>
+  );
+}
 
 function lastStep(workflow: any) {
   const steps: any[] = workflow?.steps || [];
@@ -16,6 +174,7 @@ function lastStep(workflow: any) {
 function lastStepType(workflow: any): "grpc" | "table" | "chart" {
   return (lastStep(workflow)?.type as any) || "grpc";
 }
+
 
 function valueToLabel(value: any, fallback: number) {
   if (value === undefined || value === null || value === "") return String(fallback + 1);
@@ -169,8 +328,52 @@ function DashTable(props: { data: any[]; columns?: string[] }) {
 
 // ─── Mini chart component ─────────────────────────────────────────────────────
 
+let globalUsTopoJson: any = null;
+let globalWorldTopoJson: any = null;
+
+const STATE_ABBR_MAP: Record<string, string> = {
+  AL: "Alabama", AK: "Alaska", AZ: "Arizona", AR: "Arkansas", CA: "California",
+  CO: "Colorado", CT: "Connecticut", DE: "Delaware", FL: "Florida", GA: "Georgia",
+  HI: "Hawaii", ID: "Idaho", IL: "Illinois", IN: "Indiana", IA: "Iowa",
+  KS: "Kansas", KY: "Kentucky", LA: "Louisiana", ME: "Maine", MD: "Maryland",
+  MA: "Massachusetts", MI: "Michigan", MN: "Minnesota", MS: "Mississippi", MO: "Missouri",
+  MT: "Montana", NE: "Nebraska", NV: "Nevada", NH: "New Hampshire", NJ: "New Jersey",
+  NM: "New Mexico", NY: "New York", NC: "North Carolina", ND: "North Dakota", OH: "Ohio",
+  OK: "Oklahoma", OR: "Oregon", PA: "Pennsylvania", RI: "Rhode Island", SC: "South Carolina",
+  SD: "South Dakota", TN: "Tennessee", TX: "Texas", UT: "Utah", VT: "Vermont",
+  VA: "Virginia", WA: "Washington", WV: "West Virginia", WI: "Wisconsin", WY: "Wyoming"
+};
+
 function DashChart(props: { data: any[]; xKey?: string; yKey?: string; chartType?: string }) {
   const cType = () => props.chartType || "bar";
+  const [topoJson, setTopoJson] = createSignal<any>(null);
+
+  createEffect(() => {
+    const type = cType();
+    if (type === "choropleth-us") {
+      if (globalUsTopoJson) {
+        setTopoJson(globalUsTopoJson);
+      } else {
+        fetch("https://cdn.jsdelivr.net/npm/us-atlas/states-10m.json")
+          .then((res) => res.json())
+          .then((data) => {
+            globalUsTopoJson = data;
+            setTopoJson(data);
+          });
+      }
+    } else if (type === "choropleth-world") {
+      if (globalWorldTopoJson) {
+        setTopoJson(globalWorldTopoJson);
+      } else {
+        fetch("https://cdn.jsdelivr.net/npm/world-atlas/countries-110m.json")
+          .then((res) => res.json())
+          .then((data) => {
+            globalWorldTopoJson = data;
+            setTopoJson(data);
+          });
+      }
+    }
+  });
 
   const buildData = () => {
     const data = normalizeDataArray(props.data);
@@ -180,6 +383,51 @@ function DashChart(props: { data: any[]; xKey?: string; yKey?: string; chartType
     const isPie = type === "pie" || type === "doughnut";
     const isScatter = type === "scatter";
     const isBar = type === "bar";
+
+    if (type.startsWith("choropleth")) {
+      const isUS = type === "choropleth-us";
+      const topo = topoJson();
+      if (!topo) return { labels: [], datasets: [] };
+
+      const features = isUS
+        ? ChartGeo.topojson.feature(topo, topo.objects.states).features
+        : ChartGeo.topojson.feature(topo, topo.objects.countries).features;
+
+      const inferred = inferChartKeys(data, props.xKey, props.yKey);
+
+      const items = data.map((item, i) => {
+        const geoVal = inferred.xKey ? String(get(item, inferred.xKey) || "").trim() : "";
+        const numVal = inferred.yKey ? valueToNumber(get(item, inferred.yKey), 0) : valueToNumber(item, 0);
+        return { geoVal, numVal };
+      });
+
+      const matchedFeatures = features.map((d: any) => {
+        const featName = d.properties.name;
+        const matched = items.find(item => {
+          const name = item.geoVal;
+          if (name.toLowerCase() === featName.toLowerCase()) return true;
+          if (isUS) {
+            const mappedName = STATE_ABBR_MAP[name.toUpperCase()];
+            if (mappedName && mappedName.toLowerCase() === featName.toLowerCase()) return true;
+          }
+          return false;
+        });
+        return {
+          feature: d,
+          value: matched ? matched.numVal : 0
+        };
+      });
+
+      return {
+        labels: features.map((d: any) => d.properties.name),
+        datasets: [{
+          label: inferred.yKey || "Value",
+          outline: features,
+          data: matchedFeatures,
+        }]
+      };
+    }
+
     const inferred = inferChartKeys(data, props.xKey, props.yKey);
 
     if (isScatter) {
@@ -250,7 +498,37 @@ function DashChart(props: { data: any[]; xKey?: string; yKey?: string; chartType
   };
 
   const chartOptions = () => {
-    const isPie = cType() === "pie" || cType() === "doughnut";
+    const type = cType();
+    if (type.startsWith("choropleth")) {
+      const isUS = type === "choropleth-us";
+      return {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false }
+        },
+        scales: {
+          projection: {
+            axis: "x",
+            projection: isUS ? "albersUsa" : "equalEarth"
+          },
+          color: {
+            axis: "x",
+            interpolate: (v: number) => {
+              const hue = 220 + v * (320 - 220); // 220 (blue) to 320 (pink/purple)
+              const saturation = 30 + v * (85 - 30);
+              const lightness = 25 + v * (65 - 25);
+              return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+            },
+            legend: {
+              position: "bottom-right",
+              align: "bottom"
+            }
+          }
+        }
+      };
+    }
+    const isPie = type === "pie" || type === "doughnut";
     return {
       responsive: true,
       maintainAspectRatio: false,
@@ -265,8 +543,10 @@ function DashChart(props: { data: any[]; xKey?: string; yKey?: string; chartType
   return (
     <div class="h-[250px] bg-[#101015] p-3 rounded border border-[#2a2a3a]/50">
       <Show when={normalizeDataArray(props.data).length > 0} fallback={<p class="text-xs text-[#5a5a6e]">No valid array data for chart</p>}>
-        {/* @ts-ignore */}
-        <DefaultChart type={cType() as any} data={buildData()} options={chartOptions()} />
+        <Show when={!cType().startsWith("choropleth") || topoJson()} fallback={<p class="text-xs text-[#8b8b9e] animate-pulse">Loading map assets...</p>}>
+          {/* @ts-ignore */}
+          <DefaultChart type={cType().startsWith("choropleth") ? "choropleth" : (cType() as any)} data={buildData()} options={chartOptions()} />
+        </Show>
       </Show>
     </div>
   );
@@ -414,8 +694,15 @@ export default function PublicDashboard() {
     try {
       const res = await fetch(`/api/dashboards/${params.id}`);
       const json = await res.json();
-      if (json.success && json.data.isPublic) {
+      if (json.success) {
         const dash = json.data;
+        // Allow access if: visibility is "public" (or missing, for backward compat), OR legacy isPublic is true
+        const vis = dash.visibility || "public";
+        const allowed = vis === "public" || dash.isPublic;
+        if (!allowed) {
+          setDashboard(null);
+          return;
+        }
         setDashboard(dash);
 
         // Fetch each unique workflow referenced by a button
@@ -465,8 +752,18 @@ export default function PublicDashboard() {
     if (executing()[btn.id] === "running") return;
     setExecuting(prev => ({ ...prev, [btn.id]: "running" }));
     try {
+      const currentForm = formState()[btn.id] || {};
+      const mergedForm: Record<string, any> = { ...currentForm };
+      (btn.formConfig || []).forEach((f: any) => {
+        if (f.name && (mergedForm[f.name] === undefined || mergedForm[f.name] === "")) {
+          const savedVal = f.value ?? f.defaultValue;
+          if (savedVal !== undefined && savedVal !== "") {
+            mergedForm[f.name] = savedVal;
+          }
+        }
+      });
       const payload = {
-        form: formState()[btn.id] || {}
+        form: mergedForm
       };
       
       const res = await fetch(`/api/dashboards/${params.id}/trigger/${btn.id}`, { 
@@ -536,8 +833,14 @@ export default function PublicDashboard() {
 
                 return (
                   <Show when={kind() === "chart" || kind() === "table"} fallback={
-                    /* ── Button widget ── */
                     (() => {
+                      if (kind() === "news") {
+                        return <NewsWidgetComponent btn={btn} dashboardId={params.id} />;
+                      }
+                      if (kind() === "toggle") {
+                        return <ToggleWidgetComponent btn={btn} dashboardId={params.id} formState={formState()} updateForm={updateForm} triggerButton={triggerButton} />;
+                      }
+
                       const state = () => executing()[btn.id] || "idle";
                       const colorConfig = colorOptions.find(c => c.value === (btn.color || "blue"));
                       const baseStyle = colorConfig ? colorConfig.class : "bg-blue-600 hover:bg-blue-500 ring-blue-500/50";
@@ -583,7 +886,11 @@ export default function PublicDashboard() {
                             <div class="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
                               <For each={btn.formConfig}>
                                 {(field: any) => {
-                                  const val = () => (formState()[btn.id] || {})[field.name];
+                                  const val = () => {
+                                    const v = (formState()[btn.id] || {})[field.name];
+                                    if (v !== undefined) return v;
+                                    return field.value ?? field.defaultValue ?? "";
+                                  };
                                   return (
                                     <div class="col-span-1">
                                       <label class="block text-xs font-bold text-[#8b8b9e] mb-1.5">{field.label}</label>
@@ -610,7 +917,17 @@ export default function PublicDashboard() {
                                           </For>
                                         </select>
                                       </Show>
-                                      <Show when={field.type !== "boolean" && field.type !== "select"}>
+                                      <Show when={field.type === "textarea"}>
+                                        <textarea
+                                          rows={3}
+                                          required={field.required}
+                                          class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500/50 transition-all font-mono"
+                                          value={val() || ""}
+                                          onInput={(e) => updateForm(btn.id, field.name, e.currentTarget.value)}
+                                          placeholder={`Enter ${field.label}...`}
+                                        />
+                                      </Show>
+                                      <Show when={field.type !== "boolean" && field.type !== "select" && field.type !== "textarea"}>
                                         <input
                                           type={field.type === "number" ? "number" : "text"}
                                           required={field.required}

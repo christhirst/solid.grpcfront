@@ -13,6 +13,47 @@ export default function DatabaseViewer() {
   const [isSubmitting, setIsSubmitting] = createSignal(false);
   const [errorMsg, setErrorMsg] = createSignal("");
   const [copied, setCopied] = createSignal(false);
+  const [isLive, setIsLive] = createSignal(false);
+  const [liveEvents, setLiveEvents] = createSignal<any[]>([]);
+
+  let activeEventSource: EventSource | null = null;
+
+  const toggleLiveQuery = () => {
+    if (isLive()) {
+      if (activeEventSource) {
+        activeEventSource.close();
+        activeEventSource = null;
+      }
+      setIsLive(false);
+    } else {
+      setIsLive(true);
+      setLiveEvents([]);
+      const table = selectedTable() || "workflow_run";
+      const es = new EventSource(`/api/database/${dbName}/live?table=${table}`);
+      activeEventSource = es;
+
+      es.onmessage = (e) => {
+        try {
+          const parsed = JSON.parse(e.data);
+          setLiveEvents((prev) => [parsed, ...prev.slice(0, 49)]);
+          refetchRecords();
+        } catch {}
+      };
+
+      es.addEventListener("live", (e: any) => {
+        try {
+          const parsed = JSON.parse(e.data);
+          setLiveEvents((prev) => [parsed, ...prev.slice(0, 49)]);
+          refetchRecords();
+        } catch {}
+      });
+
+      es.onerror = () => {
+        es.close();
+      };
+    }
+  };
+
 
   const fetchTables = async () => {
     const url = isServer ? `http://127.0.0.1:${process.env.PORT || 3000}/api/database/${dbName}/tables` : `/api/database/${dbName}/tables`;
@@ -227,6 +268,17 @@ export default function DatabaseViewer() {
               </h2>
               <div class="flex items-center gap-3">
                 <button
+                  onClick={toggleLiveQuery}
+                  class={`btn-primary text-sm flex items-center gap-2 ${
+                    isLive()
+                      ? "bg-purple-600 hover:bg-purple-700 shadow-purple-500/20"
+                      : "bg-[#3b82f6] hover:bg-[#2563eb] shadow-[#3b82f6]/20"
+                  }`}
+                >
+                  <span>📡</span>
+                  {isLive() ? "Live Stream ON" : "Start Live Stream"}
+                </button>
+                <button
                   onClick={() => {
                     const data = records() || [];
                     navigator.clipboard.writeText(JSON.stringify(data, null, 2));
@@ -251,6 +303,34 @@ export default function DatabaseViewer() {
                 </button>
               </div>
             </div>
+
+            <Show when={isLive()}>
+              <div class="card p-4 border border-purple-500/30 bg-purple-950/20">
+                <div class="flex items-center justify-between mb-2">
+                  <span class="text-xs font-bold uppercase tracking-wider text-purple-300 flex items-center gap-2">
+                    <span class="inline-block w-2 h-2 rounded-full bg-purple-400 animate-ping"></span>
+                    SurrealDB Live Query Stream ({selectedTable()})
+                  </span>
+                  <span class="text-xs text-purple-400">{liveEvents().length} deltas received</span>
+                </div>
+                <div class="max-h-48 overflow-y-auto font-mono text-xs space-y-1 custom-scrollbar bg-[#0a0a0f] p-3 rounded-lg border border-purple-900/50">
+                  <For each={liveEvents()}>
+                    {(evt) => (
+                      <div class="flex items-start gap-2 border-b border-[#1e1e2e] pb-1 text-slate-300">
+                        <span class="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-purple-900/60 text-purple-200">
+                          {evt.action || "LIVE"}
+                        </span>
+                        <span class="truncate">{JSON.stringify(evt.result || evt)}</span>
+                      </div>
+                    )}
+                  </For>
+                  <Show when={liveEvents().length === 0}>
+                    <p class="text-purple-400/60 italic text-xs">Waiting for live table changes...</p>
+                  </Show>
+                </div>
+              </div>
+            </Show>
+
 
             <Show when={isAdding()}>
               <div class="card p-5 border border-[#10b981]/30 bg-[#10b981]/5">

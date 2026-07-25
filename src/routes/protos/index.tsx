@@ -8,18 +8,32 @@ export interface ProtoFile {
   updated_at: string;
 }
 
-const fetchProtos = async () => {
-  const url = isServer ? `http://127.0.0.1:${process.env.PORT || 3000}/api/protos` : "/api/protos";
-  const res = await fetch(url);
-  const json = await res.json();
-  if (json.success) {
-    return json.data as ProtoFile[];
+const fetchProtos = async (q: string) => {
+  try {
+    const params = q ? `?q=${encodeURIComponent(q)}` : "";
+    const url = isServer ? `http://127.0.0.1:${process.env.PORT || 3000}/api/protos${params}` : `/api/protos${params}`;
+    const res = await fetch(url);
+    if (!res.ok) return [];
+    const json = await res.json();
+    if (json.success) {
+      return json.data as ProtoFile[];
+    }
+  } catch (e) {
+    console.error("Failed to fetch protos:", e);
   }
   return [];
 };
 
 export default function Protos() {
-  const [protos, { refetch }] = createResource(fetchProtos);
+  const [searchQuery, setSearchQuery] = createSignal("");
+  let debounceTimer: ReturnType<typeof setTimeout> | undefined;
+
+  const handleSearch = (value: string) => {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => setSearchQuery(value), 300);
+  };
+
+  const [protos, { refetch }] = createResource(() => searchQuery(), fetchProtos);
   const [editingProto, setEditingProto] = createSignal<Partial<ProtoFile> | null>(null);
   const [isSaving, setIsSaving] = createSignal(false);
   const [errorMsg, setErrorMsg] = createSignal<string | null>(null);
@@ -222,6 +236,22 @@ export default function Protos() {
         </Show>
 
         <Show when={!editingProto()}>
+          <div class="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between fade-in-up delay-2">
+            <div class="relative w-full sm:max-w-md">
+              <svg class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#5a5a6e]" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg>
+              <input
+                onInput={(e) => handleSearch(e.currentTarget.value)}
+                class="w-full rounded-xl border border-[#1e1e2e] bg-[#12121a] py-3 pl-10 pr-4 text-sm text-white outline-none transition-colors placeholder:text-[#5a5a6e] focus:border-blue-500"
+                placeholder="Search schemas..."
+              />
+            </div>
+            <div class="text-sm text-[#8b8b9e]">
+              <Show when={!protos.loading} fallback="Searching...">
+                {protos()?.length || 0} schema{(protos()?.length || 0) !== 1 ? "s" : ""}
+              </Show>
+            </div>
+          </div>
+
           <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 fade-in-up delay-2">
             <Show
               when={protos()?.length}

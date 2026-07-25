@@ -61,7 +61,7 @@ export async function POST(event: APIEvent) {
     const runId = `run:${uuidv4()}`;
 
     // Read form data from payload
-    let formPayload = {};
+    let formPayload: Record<string, any> = {};
     try {
       const body = await event.request.json();
       if (body && body.form) {
@@ -71,11 +71,51 @@ export async function POST(event: APIEvent) {
       // Ignored: either no body or invalid JSON
     }
 
+    // Merge saved variable values from button.formConfig
+    if (button.formConfig && Array.isArray(button.formConfig)) {
+      for (const fc of button.formConfig) {
+        if (fc.name && (formPayload[fc.name] === undefined || formPayload[fc.name] === "")) {
+          const savedVal = fc.value ?? fc.defaultValue;
+          if (savedVal !== undefined && savedVal !== "") {
+            formPayload[fc.name] = savedVal;
+          }
+        }
+      }
+    }
+
+    // Remember the submitted form values on the dashboard button. Previously
+    // these values existed only in the browser and disappeared on reload.
+    const updatedButtons = buttons.map((candidate: any) => {
+      if (candidate.id !== buttonId) return candidate;
+
+      return {
+        ...candidate,
+        lastFormPayload: formPayload,
+        formConfig: Array.isArray(candidate.formConfig)
+          ? candidate.formConfig.map((field: any) =>
+              field.name && Object.prototype.hasOwnProperty.call(formPayload, field.name)
+                ? { ...field, value: formPayload[field.name] }
+                : field,
+            )
+          : candidate.formConfig,
+      };
+    });
+    const { id: _dashboardId, ...dashboardData } = dashboard;
+    await db.query("UPDATE $id CONTENT $data", {
+      id: dId,
+      data: {
+        ...dashboardData,
+        buttons: updatedButtons,
+        updated_at: new Date().toISOString(),
+      },
+    });
+
     // Start background execution
     // Do not await this, we just trigger it and return the ID.
-    runWorkflowBackground(workflow, runId, { form: formPayload }).catch(err => {
+    runWorkflowBackground(workflow, runId, { form: formPayload, dashboard_form: formPayload }).catch(err => {
       console.error(`Failed to run background workflow ${workflow.id} for run ${runId}`, err);
     });
+
 
     return new Response(JSON.stringify({ success: true, runId }), {
       headers: { "Content-Type": "application/json" },
