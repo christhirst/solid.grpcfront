@@ -1,0 +1,1041 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Interactive History Timeline</title>
+  <meta name="description" content="An interactive, zoomable history timeline with importance filtering and configurable events." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:wght@400;600;700&display=swap" rel="stylesheet" />
+  <style>
+    /* ─── Design tokens ──────────────────────────────────────────────────── */
+    :root {
+      --bg:           #0d0f17;
+      --bg2:          #13162a;
+      --surface:      #1a1e35;
+      --surface2:     #222745;
+      --border:       #2d3356;
+      --accent:       #6c63ff;
+      --accent2:      #a78bfa;
+      --gold:         #f59e0b;
+      --teal:         #2dd4bf;
+      --pink:         #f472b6;
+      --text:         #e2e8f0;
+      --text-muted:   #8892b0;
+      --text-faint:   #4a5273;
+      --line:         #3b4270;
+      --glow:         rgba(108, 99, 255, 0.35);
+      --radius:       14px;
+      --card-w:       300px;
+    }
+
+    /* ─── Reset ──────────────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: 'Inter', sans-serif; }
+
+    /* ─── Header bar ─────────────────────────────────────────────────────── */
+    #topbar {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      height: 60px;
+      background: linear-gradient(90deg, #0d0f17ee, #13162aee);
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(16px);
+      display: flex; align-items: center; padding: 0 24px; gap: 20px;
+    }
+    #topbar h1 {
+      font-family: 'Playfair Display', serif;
+      font-size: 1.25rem; font-weight: 700;
+      background: linear-gradient(135deg, var(--accent2), var(--teal));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      white-space: nowrap;
+    }
+    .sep { flex: 1; }
+    .zoom-label { font-size: 0.78rem; color: var(--text-muted); white-space: nowrap; }
+    .zoom-value { font-size: 0.85rem; font-weight: 600; color: var(--accent2); min-width: 44px; text-align: center; }
+    .btn {
+      background: var(--surface2); border: 1px solid var(--border); color: var(--text);
+      border-radius: 8px; padding: 6px 14px; font-size: 0.82rem; cursor: pointer;
+      transition: background 0.18s, border-color 0.18s, transform 0.1s;
+    }
+    .btn:hover  { background: var(--accent); border-color: var(--accent); transform: translateY(-1px); }
+    .btn:active { transform: translateY(0); }
+    #btn-edit {
+      background: linear-gradient(135deg, var(--accent), #8b5cf6);
+      border-color: transparent;
+    }
+    #btn-edit:hover { opacity: 0.85; }
+    .importance-filter { display: flex; align-items: center; gap: 8px; }
+    .importance-filter label { font-size: 0.78rem; color: var(--text-muted); }
+    .star-filter { display: flex; gap: 4px; }
+    .star-filter button {
+      background: none; border: none; font-size: 1rem; cursor: pointer;
+      filter: grayscale(1) opacity(0.4);
+      transition: filter 0.15s, transform 0.1s;
+      padding: 2px;
+    }
+    .star-filter button.active { filter: none; }
+    .star-filter button:hover { transform: scale(1.2); }
+
+    /* ─── Viewport / canvas ─────────────────────────────────────────────── */
+    #viewport {
+      position: fixed; top: 60px; left: 0; right: 0; bottom: 0;
+      overflow: hidden; cursor: grab;
+      background:
+        radial-gradient(ellipse 80% 60% at 50% 0%, rgba(108,99,255,0.07) 0%, transparent 70%),
+        var(--bg);
+    }
+    #viewport.grabbing { cursor: grabbing; }
+
+    #canvas {
+      position: absolute;
+      transform-origin: 0 0;
+      will-change: transform;
+    }
+
+    /* ─── Axis line ─────────────────────────────────────────────────────── */
+    #axis-line {
+      position: absolute;
+      left: 0; right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, transparent 0%, var(--accent) 5%, var(--accent) 95%, transparent 100%);
+      box-shadow: 0 0 18px var(--glow);
+      pointer-events: none;
+    }
+
+    /* ─── Tick marks ────────────────────────────────────────────────────── */
+    .tick {
+      position: absolute;
+      transform: translateX(-50%);
+      display: flex; flex-direction: column; align-items: center;
+      pointer-events: none;
+      transition: opacity 0.3s;
+    }
+    .tick-mark {
+      width: 2px; height: 12px;
+      background: var(--border);
+      border-radius: 1px;
+    }
+    .tick-label {
+      font-size: 0.72rem; color: var(--text-faint);
+      margin-top: 4px; white-space: nowrap;
+    }
+    .tick.major .tick-mark { height: 20px; background: var(--line); }
+    .tick.major .tick-label { color: var(--text-muted); font-weight: 500; }
+
+    /* ─── Event nodes ───────────────────────────────────────────────────── */
+    .event-node {
+      position: absolute;
+      transform: translateX(-50%);
+      display: flex; flex-direction: column; align-items: center;
+      cursor: pointer;
+      transition: opacity 0.3s, filter 0.2s;
+    }
+    .event-node:hover .node-dot { transform: scale(1.6); box-shadow: 0 0 24px var(--dot-color, var(--accent)); }
+    .event-node:hover .event-card { opacity: 1; pointer-events: all; transform: translateY(0) scale(1); }
+
+    .node-stem {
+      width: 2px;
+      background: linear-gradient(to top, var(--dot-color, var(--accent)), transparent);
+      flex-shrink: 0;
+    }
+    .event-node.below .node-stem {
+      background: linear-gradient(to bottom, var(--dot-color, var(--accent)), transparent);
+      order: 1;
+    }
+
+    .node-dot {
+      width: 14px; height: 14px; border-radius: 50%;
+      background: var(--dot-color, var(--accent));
+      box-shadow: 0 0 10px var(--dot-color, var(--accent));
+      transition: transform 0.2s, box-shadow 0.2s;
+      flex-shrink: 0;
+      z-index: 2;
+    }
+    .event-node.below .node-dot { order: 2; }
+
+    /* ─── Event card ────────────────────────────────────────────────────── */
+    .event-card {
+      position: absolute;
+      width: var(--card-w);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5), 0 0 0 1px rgba(108,99,255,0.1);
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(8px) scale(0.97);
+      transition: opacity 0.22s, transform 0.22s;
+      z-index: 50;
+      left: 50%;
+      transform: translateX(-50%) translateY(8px) scale(0.97);
+    }
+    .event-node:hover .event-card {
+      transform: translateX(-50%) translateY(0) scale(1);
+    }
+    .event-node.above .event-card { bottom: calc(100% + 10px); }
+    .event-node.below .event-card { top: calc(100% + 10px); }
+
+    .card-date {
+      font-size: 0.7rem; font-weight: 600;
+      color: var(--dot-color, var(--accent));
+      text-transform: uppercase; letter-spacing: 0.08em;
+      margin-bottom: 6px;
+    }
+    .card-title {
+      font-family: 'Playfair Display', serif;
+      font-size: 1rem; font-weight: 600;
+      color: var(--text); line-height: 1.3;
+      margin-bottom: 8px;
+    }
+    .card-text {
+      font-size: 0.8rem; color: var(--text-muted);
+      line-height: 1.6; margin-bottom: 10px;
+    }
+    .card-footer { display: flex; align-items: center; justify-content: space-between; }
+    .card-stars { font-size: 0.85rem; }
+    .card-link {
+      font-size: 0.75rem; color: var(--accent2);
+      text-decoration: none; display: flex; align-items: center; gap: 4px;
+      transition: color 0.15s;
+    }
+    .card-link:hover { color: var(--teal); }
+    .card-link svg { width: 12px; height: 12px; flex-shrink: 0; }
+
+    /* ─── Edit modal ────────────────────────────────────────────────────── */
+    #modal-overlay {
+      position: fixed; inset: 0; z-index: 200;
+      background: rgba(0,0,0,0.75); backdrop-filter: blur(6px);
+      display: flex; align-items: center; justify-content: center;
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.2s;
+    }
+    #modal-overlay.open { opacity: 1; pointer-events: all; }
+
+    #modal {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 28px;
+      width: min(90vw, 700px);
+      max-height: 85vh;
+      overflow-y: auto;
+      box-shadow: 0 24px 80px rgba(0,0,0,0.7);
+      transform: translateY(20px);
+      transition: transform 0.2s;
+    }
+    #modal-overlay.open #modal { transform: translateY(0); }
+
+    .modal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+    .modal-header h2 {
+      font-family: 'Playfair Display', serif;
+      font-size: 1.3rem;
+      background: linear-gradient(135deg, var(--accent2), var(--teal));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .modal-close {
+      background: var(--surface2); border: none; color: var(--text-muted);
+      width: 32px; height: 32px; border-radius: 50%; font-size: 1.1rem;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      transition: background 0.15s, color 0.15s;
+    }
+    .modal-close:hover { background: var(--accent); color: white; }
+
+    .event-editor-list { display: flex; flex-direction: column; gap: 16px; }
+    .event-editor-item {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 16px;
+      display: flex; flex-direction: column; gap: 10px;
+    }
+    .event-editor-item .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .event-editor-item .row.full { grid-template-columns: 1fr; }
+    .field-group { display: flex; flex-direction: column; gap: 4px; }
+    .field-group label { font-size: 0.72rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; }
+    .field-group input, .field-group textarea, .field-group select {
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: 8px; padding: 8px 12px;
+      color: var(--text); font-family: 'Inter', sans-serif; font-size: 0.83rem;
+      transition: border-color 0.15s;
+      width: 100%;
+    }
+    .field-group input:focus, .field-group textarea:focus, .field-group select:focus {
+      outline: none; border-color: var(--accent);
+    }
+    .field-group textarea { resize: vertical; min-height: 64px; }
+    .star-select { display: flex; gap: 6px; }
+    .star-select button {
+      background: none; border: none; font-size: 1.3rem; cursor: pointer;
+      filter: grayscale(1) opacity(0.35);
+      transition: filter 0.12s, transform 0.1s;
+    }
+    .star-select button.on { filter: none; }
+    .star-select button:hover { transform: scale(1.15); }
+
+    .item-actions { display: flex; justify-content: flex-end; }
+    .btn-delete {
+      background: none; border: 1px solid #ef444440; color: #ef4444;
+      border-radius: 8px; padding: 4px 12px; font-size: 0.78rem; cursor: pointer;
+      transition: background 0.15s;
+    }
+    .btn-delete:hover { background: #ef444420; }
+
+    #btn-add-event {
+      width: 100%; background: var(--surface2); border: 1px dashed var(--border);
+      border-radius: var(--radius); padding: 12px; font-size: 0.85rem;
+      color: var(--text-muted); cursor: pointer; transition: border-color 0.15s, color 0.15s;
+    }
+    #btn-add-event:hover { border-color: var(--accent); color: var(--accent2); }
+
+    .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+
+    /* ─── Tooltip date on axis ──────────────────────────────────────────── */
+    #axis-tooltip {
+      position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 8px; padding: 6px 14px; font-size: 0.8rem; color: var(--text-muted);
+      pointer-events: none; opacity: 0; transition: opacity 0.2s;
+      z-index: 90;
+    }
+
+    /* ─── Zoom hint ─────────────────────────────────────────────────────── */
+    #hint {
+      position: fixed; bottom: 18px; right: 24px;
+      font-size: 0.72rem; color: var(--text-faint);
+    }
+
+    /* ─── Scrollbar ─────────────────────────────────────────────────────── */
+    #modal::-webkit-scrollbar { width: 6px; }
+    #modal::-webkit-scrollbar-track { background: transparent; }
+    #modal::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  </style>
+</head>
+<body>
+
+<!-- ═══ Top bar ══════════════════════════════════════════════════════════ -->
+<header id="topbar">
+  <h1>⟳ History Timeline</h1>
+  <div class="importance-filter">
+    <label>Min importance:</label>
+    <div class="star-filter" id="star-filter">
+      <button data-v="1" title="Show 1+ stars">★</button>
+      <button data-v="2" title="Show 2+ stars">★</button>
+      <button data-v="3" title="Show 3+ stars">★</button>
+      <button data-v="4" title="Show 4+ stars">★</button>
+      <button data-v="5" title="Show 5 stars only">★</button>
+    </div>
+  </div>
+  <div class="sep"></div>
+  <span class="zoom-label">Zoom:</span>
+  <span class="zoom-value" id="zoom-display">100%</span>
+  <button class="btn" id="btn-zoom-out">−</button>
+  <button class="btn" id="btn-zoom-in">+</button>
+  <button class="btn" id="btn-reset">Reset</button>
+  <button class="btn" id="btn-edit">✎ Edit Events</button>
+</header>
+
+<!-- ═══ Timeline viewport ════════════════════════════════════════════════ -->
+<div id="viewport">
+  <div id="canvas">
+    <div id="axis-line"></div>
+    <!-- ticks and events are injected by JS -->
+  </div>
+</div>
+
+<div id="axis-tooltip"></div>
+<div id="hint">Scroll to zoom · Drag to pan · Hover events</div>
+
+<!-- ═══ Edit modal ═══════════════════════════════════════════════════════ -->
+<div id="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+  <div id="modal">
+    <div class="modal-header">
+      <h2 id="modal-title">Configure Events</h2>
+      <button class="modal-close" id="modal-close" aria-label="Close">✕</button>
+    </div>
+    <div class="event-editor-list" id="editor-list"></div>
+    <button id="btn-add-event">+ Add Event</button>
+    <div class="modal-actions">
+      <button class="btn" id="btn-cancel">Cancel</button>
+      <button class="btn" id="btn-save" style="background:linear-gradient(135deg,var(--accent),#8b5cf6);border-color:transparent;">Save Changes</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════════════
+   DEFAULT DATA  –  edit below or use the UI
+   importance: 1 (minor) … 5 (world-changing)
+═══════════════════════════════════════════════════════════════════════ */
+let events = [
+  {
+    date: "3500 BCE",
+    year: -3500,
+    header: "Invention of Writing",
+    text: "Sumerians develop cuneiform script in Mesopotamia — the first known writing system, enabling record-keeping, literature, and civilisation.",
+    importance: 5,
+    link: "https://en.wikipedia.org/wiki/Cuneiform",
+    linkLabel: "Wikipedia"
+  },
+  {
+    date: "776 BCE",
+    year: -776,
+    header: "First Olympic Games",
+    text: "The ancient Greeks hold the inaugural Olympic Games at Olympia, establishing an athletic tradition that shapes competitive sport to this day.",
+    importance: 3,
+    link: "https://en.wikipedia.org/wiki/Ancient_Olympic_Games",
+    linkLabel: "Wikipedia"
+  },
+  {
+    date: "44 BCE",
+    year: -44,
+    header: "Assassination of Julius Caesar",
+    text: "Roman dictator Julius Caesar is stabbed on the Ides of March, triggering a civil war and the eventual transformation of the Roman Republic into an Empire.",
+    importance: 5,
+    link: "https://en.wikipedia.org/wiki/Assassination_of_Julius_Caesar",
+    linkLabel: "Wikipedia"
+  },
+  {
+    date: "105 CE",
+    year: 105,
+    header: "Paper Invented in China",
+    text: "Cai Lun refines the papermaking process in Han-dynasty China, creating a cheap medium for writing that spreads knowledge across the world.",
+    importance: 4,
+    link: "https://en.wikipedia.org/wiki/History_of_paper",
+    linkLabel: "Wikipedia"
+  },
+  {
+    date: "1066 CE",
+    year: 1066,
+    header: "Battle of Hastings",
+    text: "William the Conqueror defeats King Harold II, fundamentally reshaping English language, culture, and governance.",
+    importance: 4,
+    link: "https://en.wikipedia.org/wiki/Battle_of_Hastings",
+    linkLabel: "Wikipedia"
+  },
+  {
+    date: "1215 CE",
+    year: 1215,
+    header: "Magna Carta Signed",
+    text: "English barons force King John to sign the Magna Carta, laying a foundation for constitutional government and the rule of law.",
+    importance: 5,
+    link: "https://en.wikipedia.org/wiki/Magna_Carta",
+    linkLabel: "Wikipedia"
+  },
+  {
+    date: "1440 CE",
+    year: 1440,
+    header: "Gutenberg's Printing Press",
+    text: "Johannes Gutenberg develops movable-type printing in Europe, enabling mass production of books and accelerating the Renaissance and Reformation.",
+    importance: 5,
+    link: "https://en.wikipedia.org/wiki/Gutenberg_Bible",
+    linkLabel: "Wikipedia"
+  },
+  {
+    date: "1492 CE",
+    year: 1492,
+    header: "Columbus Reaches the Americas",
+    text: "Christopher Columbus makes landfall in the Caribbean, initiating sustained contact between Europe and the Americas that transforms both worlds.",
+    importance: 5,
+    link: "https://en.wikipedia.org/wiki/Voyages_of_Christopher_Columbus",
+    linkLabel: "Wikipedia"
+  },
+  {
+    date: "1687 CE",
+    year: 1687,
+    header: "Newton's Principia",
+    text: "Isaac Newton publishes his laws of motion and universal gravitation, founding classical mechanics and reshaping science.",
+    importance: 5,
+    link: "https://en.wikipedia.org/wiki/Philosophi%C3%A6_Naturalis_Principia_Mathematica",
+    linkLabel: "Wikipedia"
+  },
+  {
+    date: "1776 CE",
+    year: 1776,
+    header: "US Declaration of Independence",
+    text: "The thirteen colonies declare independence from Britain, inspiring democratic revolutions worldwide and establishing a new model of republican government.",
+    importance: 5,
+    link: "https://en.wikipedia.org/wiki/United_States_Declaration_of_Independence",
+    linkLabel: "Wikipedia"
+  },
+  {
+    date: "1789 CE",
+    year: 1789,
+    header: "French Revolution Begins",
+    text: "The storming of the Bastille marks the start of the French Revolution — a seismic upheaval that remakes European politics and spreads liberal ideals.",
+    importance: 5,
+    link: "https://en.wikipedia.org/wiki/French_Revolution",
+    linkLabel: "Wikipedia"
+  },
+  {
+    date: "1859 CE",
+    year: 1859,
+    header: "Darwin's On the Origin of Species",
+    text: "Charles Darwin publishes his theory of evolution by natural selection, forever changing how humanity understands life on Earth.",
+    importance: 5,
+    link: "https://en.wikipedia.org/wiki/On_the_Origin_of_Species",
+    linkLabel: "Wikipedia"
+  },
+  {
+    date: "1876 CE",
+    year: 1876,
+    header: "Telephone Invented",
+    text: "Alexander Graham Bell patents the telephone, beginning the age of instant long-distance voice communication.",
+    importance: 4,
+    link: "https://en.wikipedia.org/wiki/Invention_of_the_telephone",
+    linkLabel: "Wikipedia"
+  },
+  {
+    date: "1903 CE",
+    year: 1903,
+    header: "First Powered Airplane Flight",
+    text: "Orville and Wilbur Wright achieve the first controlled, sustained heavier-than-air powered flight at Kitty Hawk.",
+    importance: 5,
+    link: "https://en.wikipedia.org/wiki/Wright_brothers",
+    linkLabel: "Wikipedia"
+  },
+  {
+    date: "1914 CE",
+    year: 1914,
+    header: "World War I Begins",
+    text: "The assassination of Archduke Franz Ferdinand triggers a global conflict that reshapes empires, borders, and the political order of the modern world.",
+    importance: 5,
+    link: "https://en.wikipedia.org/wiki/World_War_I",
+    linkLabel: "Wikipedia"
+  },
+  {
+    date: "1939 CE",
+    year: 1939,
+    header: "World War II Begins",
+    text: "Germany invades Poland, drawing Europe into the deadliest conflict in history and leading to the Holocaust and the birth of the UN.",
+    importance: 5,
+    link: "https://en.wikipedia.org/wiki/World_War_II",
+    linkLabel: "Wikipedia"
+  },
+  {
+    date: "1945 CE",
+    year: 1945,
+    header: "Atomic Bomb — Hiroshima",
+    text: "The United States drops the first atomic bomb on Hiroshima, killing 80,000 immediately and ushering in the nuclear age.",
+    importance: 5,
+    link: "https://en.wikipedia.org/wiki/Atomic_bombings_of_Hiroshima_and_Nagasaki",
+    linkLabel: "Wikipedia"
+  },
+  {
+    date: "1953 CE",
+    year: 1953,
+    header: "DNA Double Helix Discovered",
+    text: "Watson, Crick, Franklin, and Wilkins reveal the double-helix structure of DNA, unlocking molecular biology and modern genetics.",
+    importance: 5,
+    link: "https://en.wikipedia.org/wiki/Nucleic_acid_double_helix",
+    linkLabel: "Wikipedia"
+  },
+  {
+    date: "1969 CE",
+    year: 1969,
+    header: "Moon Landing — Apollo 11",
+    text: "Neil Armstrong becomes the first human to walk on the Moon, representing the apex of the Space Race and human exploration.",
+    importance: 5,
+    link: "https://en.wikipedia.org/wiki/Apollo_11",
+    linkLabel: "Wikipedia"
+  },
+  {
+    date: "1989 CE",
+    year: 1989,
+    header: "Fall of the Berlin Wall",
+    text: "East Germany opens its borders; citizens tear down the Berlin Wall, symbolising the end of the Cold War and German reunification.",
+    importance: 5,
+    link: "https://en.wikipedia.org/wiki/Fall_of_the_Berlin_Wall",
+    linkLabel: "Wikipedia"
+  },
+  {
+    date: "1991 CE",
+    year: 1991,
+    header: "World Wide Web Goes Public",
+    text: "Tim Berners-Lee opens the World Wide Web to the public, transforming communication, commerce, and culture globally.",
+    importance: 5,
+    link: "https://en.wikipedia.org/wiki/World_Wide_Web",
+    linkLabel: "Wikipedia"
+  },
+  {
+    date: "2001 CE",
+    year: 2001,
+    header: "September 11 Attacks",
+    text: "Al-Qaeda hijacks four planes; nearly 3,000 die in coordinated attacks on the US, triggering the War on Terror and reshaping global security.",
+    importance: 5,
+    link: "https://en.wikipedia.org/wiki/September_11_attacks",
+    linkLabel: "Wikipedia"
+  },
+  {
+    date: "2007 CE",
+    year: 2007,
+    header: "iPhone Introduced",
+    text: "Apple unveils the first iPhone, catalysing the smartphone revolution and fundamentally altering how humans interact with technology.",
+    importance: 4,
+    link: "https://en.wikipedia.org/wiki/IPhone_(1st_generation)",
+    linkLabel: "Wikipedia"
+  },
+  {
+    date: "2020 CE",
+    year: 2020,
+    header: "COVID-19 Pandemic",
+    text: "A novel coronavirus spreads globally, causing millions of deaths, triggering lockdowns worldwide, and accelerating digital transformation.",
+    importance: 5,
+    link: "https://en.wikipedia.org/wiki/COVID-19_pandemic",
+    linkLabel: "Wikipedia"
+  }
+];
+
+/* ═══════════════════════════════════════════════════════════════════════
+   IMPORTANCE → visual colour mapping
+═══════════════════════════════════════════════════════════════════════ */
+const importanceColor = {
+  1: "#4a5273",
+  2: "#2dd4bf",
+  3: "#6c63ff",
+  4: "#f59e0b",
+  5: "#f472b6"
+};
+const importanceStem = {
+  1: 30, 2: 50, 3: 70, 4: 90, 5: 120
+};
+function stars(n) { return "★".repeat(n) + "☆".repeat(5 - n); }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   STATE
+═══════════════════════════════════════════════════════════════════════ */
+const VP      = document.getElementById("viewport");
+const CANVAS  = document.getElementById("canvas");
+const AXIS    = document.getElementById("axis-line");
+
+let scale     = 1;
+let offsetX   = 0;     // pan in canvas-space
+const BASE_PX_PER_YEAR = 80;  // pixels per year at scale=1
+
+let isPanning = false;
+let panStart  = { x: 0, y: 0, ox: 0 };
+
+let minImportance = 1;  // filter
+
+/* ─── Viewport / canvas sizing ──────────────────────────────────────── */
+function vpWidth()  { return VP.clientWidth; }
+function vpHeight() { return VP.clientHeight; }
+const AXIS_Y = 340; // canvas Y of axis line
+
+function yearToX(year) {
+  // Map year to canvas X
+  return year * BASE_PX_PER_YEAR;
+}
+
+/* ─── Dynamic canvas width based on events ──────────────────────────── */
+function getCanvasBounds() {
+  const years = events.map(e => e.year);
+  const minYear = Math.min(...years);
+  const maxYear = Math.max(...years);
+  return { minYear, maxYear };
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   RENDER
+═══════════════════════════════════════════════════════════════════════ */
+function render() {
+  // Clear existing ticks & events (keep axis-line)
+  Array.from(CANVAS.children).forEach(el => {
+    if (el.id !== "axis-line") el.remove();
+  });
+
+  const { minYear, maxYear } = getCanvasBounds();
+  const padding = 400; // px padding on each side at scale 1
+  const canvasL = yearToX(minYear) - padding;
+  const canvasR = yearToX(maxYear) + padding;
+  const canvasW = canvasR - canvasL;
+  const canvasH = vpHeight();
+
+  CANVAS.style.width  = canvasW + "px";
+  CANVAS.style.height = canvasH + "px";
+
+  // Axis line spans full canvas
+  AXIS.style.top  = AXIS_Y + "px";
+  AXIS.style.left = "0";
+  AXIS.style.width = canvasW + "px";
+
+  // Translate so yearToX(year) maps correctly
+  // We'll use local coords shifted by canvasL
+  function cx(year) { return yearToX(year) - canvasL; }
+
+  renderTicks(cx, minYear, maxYear, canvasW);
+  renderEvents(cx);
+
+  applyTransform();
+}
+
+/* ─── Ticks ──────────────────────────────────────────────────────────── */
+function renderTicks(cx, minYear, maxYear, canvasW) {
+  // Decide interval based on date range
+  const range = maxYear - minYear;
+  let interval = 100;
+  if (range > 5000) interval = 500;
+  else if (range > 2000) interval = 200;
+  else if (range > 500)  interval = 100;
+  else if (range > 100)  interval = 50;
+  else                   interval = 10;
+
+  const startTick = Math.floor(minYear / interval) * interval - interval;
+  const endTick   = Math.ceil(maxYear / interval) * interval + interval;
+
+  for (let y = startTick; y <= endTick; y += interval) {
+    const x = cx(y);
+    const isMajor = (y % (interval * 5) === 0);
+    const div = document.createElement("div");
+    div.className = "tick" + (isMajor ? " major" : "");
+    div.style.left = x + "px";
+    div.style.top  = (AXIS_Y - (isMajor ? 20 : 12)) + "px";
+
+    const mark  = document.createElement("div"); mark.className = "tick-mark";
+    const label = document.createElement("div"); label.className = "tick-label";
+    label.textContent = formatYear(y);
+
+    div.appendChild(mark);
+    div.appendChild(label);
+    CANVAS.appendChild(div);
+  }
+}
+
+function formatYear(y) {
+  if (y === 0) return "0";
+  return y < 0 ? Math.abs(y) + " BCE" : y + " CE";
+}
+
+/* ─── Events ─────────────────────────────────────────────────────────── */
+function renderEvents(cx) {
+  // Filter by importance
+  const filtered = events.filter(e => e.importance >= minImportance);
+  // Sort by year for alternating above/below
+  const sorted = [...filtered].sort((a, b) => a.year - b.year);
+
+  sorted.forEach((ev, i) => {
+    const above = i % 2 === 0;
+    const x     = cx(ev.year);
+    const color = importanceColor[ev.importance] || "#6c63ff";
+    const stemH = importanceStem[ev.importance] || 60;
+
+    const node = document.createElement("div");
+    node.className = "event-node " + (above ? "above" : "below");
+    node.style.setProperty("--dot-color", color);
+    node.style.left = x + "px";
+
+    if (above) {
+      node.style.bottom = (vpHeight() - AXIS_Y) + "px";
+      node.style.top    = "auto";
+    } else {
+      node.style.top  = AXIS_Y + "px";
+      node.style.bottom = "auto";
+    }
+
+    // Stem
+    const stem = document.createElement("div");
+    stem.className = "node-stem";
+    stem.style.height = stemH + "px";
+
+    // Dot
+    const dot = document.createElement("div");
+    dot.className = "node-dot";
+
+    // Card
+    const card = document.createElement("div");
+    card.className = "event-card " + (above ? "above" : "below");
+
+    card.innerHTML = `
+      <div class="card-date">${escHtml(ev.date)}</div>
+      <div class="card-title">${escHtml(ev.header)}</div>
+      <div class="card-text">${escHtml(ev.text)}</div>
+      <div class="card-footer">
+        <span class="card-stars" style="color:${color}">${stars(ev.importance)}</span>
+        ${ev.link ? `<a class="card-link" href="${escAttr(ev.link)}" target="_blank" rel="noopener">
+          ${escHtml(ev.linkLabel || "Link")}
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M5 2H2a1 1 0 00-1 1v7a1 1 0 001 1h7a1 1 0 001-1V7M7 1h4m0 0v4m0-4L5.5 6.5"/>
+          </svg>
+        </a>` : ""}
+      </div>`;
+
+    node.appendChild(above ? stem : dot);
+    node.appendChild(above ? dot : stem);
+    node.appendChild(card);
+    CANVAS.appendChild(node);
+  });
+}
+
+/* ─── Transform ─────────────────────────────────────────────────────── */
+function applyTransform() {
+  CANVAS.style.transform = `scale(${scale}) translate(${offsetX}px, 0px)`;
+}
+
+/* ─── Centre on mid-point of events ─────────────────────────────────── */
+function centreView() {
+  const { minYear, maxYear } = getCanvasBounds();
+  const midYear  = (minYear + maxYear) / 2;
+  const padding  = 400;
+  const canvasL  = yearToX(minYear) - padding;
+  const midCanvasX = yearToX(midYear) - canvasL; // in canvas coords
+  // We want midCanvasX * scale + offsetX * scale = vpWidth/2
+  // offsetX = vpWidth/(2*scale) - midCanvasX
+  offsetX = vpWidth() / (2 * scale) - midCanvasX;
+  render();
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   ZOOM
+═══════════════════════════════════════════════════════════════════════ */
+const MIN_SCALE = 0.05;
+const MAX_SCALE = 8;
+
+function setScale(newScale, pivotScreenX) {
+  newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, newScale));
+  if (pivotScreenX === undefined) pivotScreenX = vpWidth() / 2;
+
+  // Convert screen pivot to canvas coords
+  const pivotCanvas = (pivotScreenX / scale) - offsetX;
+
+  scale = newScale;
+  // Keep pivot canvas point at same screen position
+  offsetX = (pivotScreenX / scale) - pivotCanvas;
+
+  // Auto-filter: when zoomed out heavily, only show more important events
+  const zoomLevel = scale;
+  if (zoomLevel < 0.1)       minImportance = Math.max(minImportance, 5);
+  else if (zoomLevel < 0.2)  minImportance = Math.max(minImportance, 4);
+  else if (zoomLevel < 0.4)  minImportance = Math.max(minImportance, 3);
+
+  updateZoomUI();
+  render();
+}
+
+function updateZoomUI() {
+  document.getElementById("zoom-display").textContent = Math.round(scale * 100) + "%";
+}
+
+document.getElementById("btn-zoom-in").addEventListener("click", () => setScale(scale * 1.4));
+document.getElementById("btn-zoom-out").addEventListener("click", () => setScale(scale / 1.4));
+document.getElementById("btn-reset").addEventListener("click", () => {
+  scale = 1; minImportance = 1;
+  syncStarFilterUI();
+  centreView();
+  updateZoomUI();
+});
+
+VP.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+  const rect = VP.getBoundingClientRect();
+  setScale(scale * factor, e.clientX - rect.left);
+}, { passive: false });
+
+/* ═══════════════════════════════════════════════════════════════════════
+   PAN
+═══════════════════════════════════════════════════════════════════════ */
+VP.addEventListener("mousedown", (e) => {
+  if (e.button !== 0) return;
+  isPanning = true;
+  panStart  = { x: e.clientX, ox: offsetX };
+  VP.classList.add("grabbing");
+});
+window.addEventListener("mousemove", (e) => {
+  if (!isPanning) return;
+  const dx = (e.clientX - panStart.x) / scale;
+  offsetX  = panStart.ox + dx;
+  applyTransform();
+});
+window.addEventListener("mouseup", () => {
+  isPanning = false;
+  VP.classList.remove("grabbing");
+});
+
+// Touch pan
+let touchStart = null;
+VP.addEventListener("touchstart", (e) => {
+  if (e.touches.length === 1) {
+    touchStart = { x: e.touches[0].clientX, ox: offsetX };
+  }
+});
+VP.addEventListener("touchmove", (e) => {
+  if (!touchStart || e.touches.length !== 1) return;
+  e.preventDefault();
+  const dx = (e.touches[0].clientX - touchStart.x) / scale;
+  offsetX  = touchStart.ox + dx;
+  applyTransform();
+}, { passive: false });
+VP.addEventListener("touchend", () => { touchStart = null; });
+
+/* ═══════════════════════════════════════════════════════════════════════
+   STAR FILTER UI
+═══════════════════════════════════════════════════════════════════════ */
+const starBtns = document.querySelectorAll("#star-filter button");
+starBtns.forEach(btn => {
+  btn.addEventListener("click", () => {
+    const v = parseInt(btn.dataset.v);
+    minImportance = v;
+    syncStarFilterUI();
+    render();
+  });
+});
+function syncStarFilterUI() {
+  starBtns.forEach(b => {
+    b.classList.toggle("active", parseInt(b.dataset.v) <= minImportance);
+  });
+}
+syncStarFilterUI();
+
+/* ═══════════════════════════════════════════════════════════════════════
+   EDIT MODAL
+═══════════════════════════════════════════════════════════════════════ */
+let editBuffer = [];
+
+function openModal() {
+  editBuffer = events.map(e => ({ ...e }));
+  buildEditorList();
+  document.getElementById("modal-overlay").classList.add("open");
+}
+function closeModal() {
+  document.getElementById("modal-overlay").classList.remove("open");
+}
+
+document.getElementById("btn-edit").addEventListener("click", openModal);
+document.getElementById("modal-close").addEventListener("click", closeModal);
+document.getElementById("btn-cancel").addEventListener("click", closeModal);
+document.getElementById("modal-overlay").addEventListener("click", (e) => {
+  if (e.target === document.getElementById("modal-overlay")) closeModal();
+});
+
+document.getElementById("btn-add-event").addEventListener("click", () => {
+  editBuffer.push({
+    date: "YYYY CE", year: 2000,
+    header: "New Event", text: "", importance: 3, link: "", linkLabel: "Wikipedia"
+  });
+  buildEditorList();
+  // Scroll to bottom
+  setTimeout(() => {
+    const list = document.getElementById("editor-list");
+    list.lastElementChild && list.lastElementChild.scrollIntoView({ behavior: "smooth" });
+  }, 50);
+});
+
+document.getElementById("btn-save").addEventListener("click", () => {
+  events = editBuffer.map(e => ({
+    ...e,
+    year: parseInt(e.year) || 0,
+    importance: parseInt(e.importance) || 1
+  }));
+  closeModal();
+  render();
+});
+
+function buildEditorList() {
+  const list = document.getElementById("editor-list");
+  list.innerHTML = "";
+  editBuffer.forEach((ev, i) => {
+    const item = document.createElement("div");
+    item.className = "event-editor-item";
+    item.dataset.idx = i;
+
+    item.innerHTML = `
+      <div class="row">
+        <div class="field-group">
+          <label>Display Date</label>
+          <input type="text" id="ed-date-${i}" value="${escAttr(ev.date)}" placeholder="e.g. 1969 CE" />
+        </div>
+        <div class="field-group">
+          <label>Year (numeric, negative = BCE)</label>
+          <input type="number" id="ed-year-${i}" value="${ev.year}" placeholder="e.g. -44 or 1969" />
+        </div>
+      </div>
+      <div class="row full">
+        <div class="field-group">
+          <label>Header / Title</label>
+          <input type="text" id="ed-header-${i}" value="${escAttr(ev.header)}" placeholder="Event title" />
+        </div>
+      </div>
+      <div class="row full">
+        <div class="field-group">
+          <label>Description</label>
+          <textarea id="ed-text-${i}" rows="3">${escHtml(ev.text)}</textarea>
+        </div>
+      </div>
+      <div class="row">
+        <div class="field-group">
+          <label>Importance (1–5)</label>
+          <div class="star-select" id="ed-stars-${i}">
+            ${[1,2,3,4,5].map(n => `<button type="button" data-val="${n}" class="${n <= ev.importance ? 'on' : ''}" style="color:${importanceColor[n]}">★</button>`).join("")}
+          </div>
+        </div>
+        <div class="field-group">
+          <label>Link URL</label>
+          <input type="url" id="ed-link-${i}" value="${escAttr(ev.link || '')}" placeholder="https://en.wikipedia.org/..." />
+        </div>
+      </div>
+      <div class="row">
+        <div class="field-group">
+          <label>Link Label</label>
+          <input type="text" id="ed-linklabel-${i}" value="${escAttr(ev.linkLabel || 'Wikipedia')}" placeholder="Wikipedia" />
+        </div>
+      </div>
+      <div class="item-actions">
+        <button class="btn-delete" data-idx="${i}">Delete Event</button>
+      </div>`;
+
+    list.appendChild(item);
+
+    // Wire up star buttons
+    const starBtns = item.querySelectorAll(`#ed-stars-${i} button`);
+    starBtns.forEach(b => {
+      b.addEventListener("click", () => {
+        const v = parseInt(b.dataset.val);
+        editBuffer[i].importance = v;
+        starBtns.forEach(s => s.classList.toggle("on", parseInt(s.dataset.val) <= v));
+      });
+    });
+
+    // Wire up live field updates
+    const fields = [
+      ["ed-date-"+i,      "date"],
+      ["ed-year-"+i,      "year"],
+      ["ed-header-"+i,    "header"],
+      ["ed-text-"+i,      "text"],
+      ["ed-link-"+i,      "link"],
+      ["ed-linklabel-"+i, "linkLabel"]
+    ];
+    fields.forEach(([id, key]) => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener("input", () => { editBuffer[i][key] = el.value; });
+    });
+
+    // Delete button
+    item.querySelector(".btn-delete").addEventListener("click", () => {
+      editBuffer.splice(parseInt(item.dataset.idx), 1);
+      buildEditorList();
+    });
+  });
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   UTILS
+═══════════════════════════════════════════════════════════════════════ */
+function escHtml(str) {
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+function escAttr(str) {
+  return String(str || "").replace(/"/g, "&quot;");
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   INIT
+═══════════════════════════════════════════════════════════════════════ */
+window.addEventListener("resize", () => render());
+centreView();
+updateZoomUI();
+</script>
+</body>
+</html>

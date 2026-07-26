@@ -189,6 +189,115 @@ const STATE_ABBR_MAP: Record<string, string> = {
   VA: "Virginia", WA: "Washington", WV: "West Virginia", WI: "Wisconsin", WY: "Wyoming"
 };
 
+const LOG_TIMELINE_COLORS: Record<number, string> = {
+  1: "#4a5273", 2: "#2dd4bf", 3: "#6c63ff", 4: "#f59e0b", 5: "#f472b6"
+};
+
+function LogTimeline(props: { data: any[]; xKey?: string; yKey?: string }) {
+  let vpRef!: HTMLDivElement;
+  let canvasRef!: HTMLDivElement;
+
+  const rows = () => normalizeDataArray(props.data);
+  const events = () => rows().map((row, i) => {
+    const xk = props.xKey || "year";
+    const yk = props.yKey || "header";
+    const rawYear = row && typeof row === "object" ? get(row, xk) : row;
+    const header  = row && typeof row === "object" ? get(row, yk) : String(row);
+    const text    = row && typeof row === "object" ? (get(row, "text") || get(row, "description") || "") : "";
+    const imp     = row && typeof row === "object" ? (Number(get(row, "importance") || get(row, "rating") || 3)) : 3;
+    const link    = row && typeof row === "object" ? (get(row, "link") || get(row, "url") || "") : "";
+    const date    = row && typeof row === "object" ? (get(row, "date") || String(rawYear)) : String(rawYear);
+    const year    = Number(rawYear) || i;
+    return { year, header: String(header || "Event"), text: String(text), importance: Math.min(5, Math.max(1, imp)), link: String(link), date: String(date) };
+  });
+
+  let scale = 1, offsetX = 0;
+  const BASE_PX = 80, AXIS_Y = 120;
+
+  const yearToX = (y: number) => y * BASE_PX;
+
+  const render = () => {
+    if (!canvasRef || !vpRef) return;
+    while (canvasRef.children.length > 1) canvasRef.removeChild(canvasRef.lastChild!);
+    const evs = events();
+    if (!evs.length) return;
+    const years = evs.map(e => e.year);
+    const minY = Math.min(...years), maxY = Math.max(...years);
+    const canvasL = yearToX(minY) - 200;
+    const canvasW = Math.max(yearToX(maxY) + 200 - canvasL, 600);
+    canvasRef.style.width = canvasW + "px";
+    canvasRef.style.height = vpRef.clientHeight + "px";
+    const axis = canvasRef.querySelector(".lt-axis") as HTMLElement;
+    if (axis) { axis.style.top = AXIS_Y + "px"; axis.style.width = canvasW + "px"; }
+    const cx = (y: number) => yearToX(y) - canvasL;
+    const range = maxY - minY;
+    let interval = range > 2000 ? 500 : range > 500 ? 100 : range > 100 ? 50 : 10;
+    for (let y = Math.floor(minY / interval) * interval - interval; y <= maxY + interval; y += interval) {
+      const t = document.createElement("div");
+      t.style.cssText = `position:absolute;left:${cx(y)}px;top:${AXIS_Y - 8}px;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;pointer-events:none`;
+      t.innerHTML = `<div style="width:1px;height:8px;background:#2d3356"></div><div style="font-size:8px;color:#4a5273;margin-top:1px;white-space:nowrap">${y < 0 ? Math.abs(y) + " BCE" : y === 0 ? "0" : y + " CE"}</div>`;
+      canvasRef.appendChild(t);
+    }
+    [...evs].sort((a, b) => a.year - b.year).forEach((ev, i) => {
+      const above = i % 2 === 0;
+      const x = cx(ev.year);
+      const color = LOG_TIMELINE_COLORS[ev.importance] || "#6c63ff";
+      const stemH = ev.importance * 16 + 16;
+      const node = document.createElement("div");
+      node.style.cssText = `position:absolute;left:${x}px;${above ? `bottom:${vpRef.clientHeight - AXIS_Y}px` : `top:${AXIS_Y}px`};transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;cursor:pointer`;
+      const stem = document.createElement("div");
+      stem.style.cssText = `width:2px;height:${stemH}px;background:linear-gradient(${above ? "to top" : "to bottom"},${color},transparent);order:${above ? 0 : 1}`;
+      const dot = document.createElement("div");
+      dot.style.cssText = `width:8px;height:8px;border-radius:50%;background:${color};box-shadow:0 0 6px ${color};order:${above ? 1 : 2};transition:transform 0.15s`;
+      const lbl = document.createElement("div");
+      lbl.style.cssText = `position:absolute;${above ? `bottom:${stemH + 10}px` : `top:${stemH + 10}px`};left:50%;transform:translateX(-50%);background:#1a1e35;border:1px solid #2d3356;border-radius:6px;padding:5px 8px;width:140px;font-size:9px;color:#e2e8f0;opacity:0;transition:opacity 0.15s;z-index:10;pointer-events:none;box-shadow:0 4px 14px rgba(0,0,0,0.6)`;
+      lbl.innerHTML = `<div style="font-size:8px;font-weight:700;color:${color};margin-bottom:2px">${ev.date}</div><div style="font-weight:600;margin-bottom:3px">${ev.header}</div>${ev.text ? `<div style="font-size:8px;color:#8892b0">${ev.text.slice(0, 100)}${ev.text.length > 100 ? "…" : ""}</div>` : ""}${ev.link ? `<a href="${ev.link}" target="_blank" style="font-size:8px;color:#a78bfa">→ Link</a>` : ""}`;
+      node.addEventListener("mouseenter", () => { dot.style.transform = "scale(1.5)"; lbl.style.opacity = "1"; });
+      node.addEventListener("mouseleave", () => { dot.style.transform = "scale(1)"; lbl.style.opacity = "0"; });
+      node.append(above ? stem : dot, above ? dot : stem, lbl);
+      canvasRef.appendChild(node);
+    });
+    canvasRef.style.transform = `scale(${scale}) translate(${offsetX}px,0)`;
+  };
+
+  const applyTransform = () => { if (canvasRef) canvasRef.style.transform = `scale(${scale}) translate(${offsetX}px,0)`; };
+
+  onMount(() => {
+    const evs = events();
+    if (evs.length) {
+      const years = evs.map(e => e.year);
+      const minY = Math.min(...years), maxY = Math.max(...years);
+      const canvasL = yearToX(minY) - 200;
+      const mid = yearToX((minY + maxY) / 2) - canvasL;
+      offsetX = vpRef.clientWidth / (2 * scale) - mid;
+    }
+    render();
+    vpRef.addEventListener("wheel", (e) => {
+      e.preventDefault();
+      const f = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+      const ns = Math.min(8, Math.max(0.05, scale * f));
+      const pivot = (e.clientX - vpRef.getBoundingClientRect().left) / scale - offsetX;
+      scale = ns; offsetX = (e.clientX - vpRef.getBoundingClientRect().left) / scale - pivot;
+      render();
+    }, { passive: false });
+    let p2 = false, psx = 0, pox = 0;
+    vpRef.addEventListener("mousedown", (e) => { if (e.button !== 0) return; p2 = true; psx = e.clientX; pox = offsetX; vpRef.style.cursor = "grabbing"; });
+    window.addEventListener("mousemove", (e) => { if (!p2) return; offsetX = pox + (e.clientX - psx) / scale; applyTransform(); });
+    window.addEventListener("mouseup", () => { p2 = false; vpRef.style.cursor = "grab"; });
+  });
+
+  return (
+    <div style="position:relative;height:250px;background:#0d0f17;border-radius:8px;overflow:hidden;border:1px solid #2d3356">
+      <div ref={vpRef} style="width:100%;height:100%;overflow:hidden;cursor:grab;position:relative">
+        <div ref={canvasRef} class="lt-canvas" style="position:absolute;transform-origin:0 0">
+          <div class="lt-axis" style="position:absolute;left:0;height:2px;background:linear-gradient(90deg,transparent,#6c63ff 5%,#6c63ff 95%,transparent);box-shadow:0 0 10px rgba(108,99,255,0.4)"></div>
+        </div>
+      </div>
+      <div style="position:absolute;bottom:5px;right:8px;font-size:8px;color:#4a5273;pointer-events:none">Scroll · Drag</div>
+    </div>
+  );
+}
+
 function LogChart(props: { data: any[]; xKey?: string; yKey?: string; chartType?: string }) {
   const cType = () => props.chartType || "bar";
   const [topoJson, setTopoJson] = createSignal<any>(null);
@@ -388,12 +497,16 @@ function LogChart(props: { data: any[]; xKey?: string; yKey?: string; chartType?
   };
 
   return (
-    <div class="h-[250px] bg-[#101015] p-3 rounded border border-[#2a2a3a]/50">
-      <Show when={normalizeDataArray(props.data).length > 0} fallback={<p class="text-xs text-[#5a5a6e]">No valid array data for chart</p>}>
-        <Show when={!cType().startsWith("choropleth") || topoJson()} fallback={<p class="text-xs text-[#8b8b9e] animate-pulse">Loading map assets...</p>}>
-          {/* @ts-ignore */}
-          <DefaultChart type={cType().startsWith("choropleth") ? "choropleth" : (cType() as any)} data={buildData()} options={chartOptions()} />
+    <div class="bg-[#101015] p-3 rounded border border-[#2a2a3a]/50" style={cType() === "timeline" ? "" : "height:250px"}>
+      <Show when={cType() === "timeline"} fallback={
+        <Show when={normalizeDataArray(props.data).length > 0} fallback={<p class="text-xs text-[#5a5a6e]">No valid array data for chart</p>}>
+          <Show when={!cType().startsWith("choropleth") || topoJson()} fallback={<p class="text-xs text-[#8b8b9e] animate-pulse">Loading map assets...</p>}>
+            {/* @ts-ignore */}
+            <DefaultChart type={cType().startsWith("choropleth") ? "choropleth" : (cType() as any)} data={buildData()} options={chartOptions()} />
+          </Show>
         </Show>
+      }>
+        <LogTimeline data={props.data} xKey={props.xKey} yKey={props.yKey} />
       </Show>
     </div>
   );
@@ -1113,7 +1226,7 @@ export default function WorkflowBuilder() {
                           value={step.type === "chart" ? (step.chartType || "bar") : (step.type || "grpc")}
                           onChange={(e) => {
                             const val = e.currentTarget.value;
-                            if (["bar", "line", "doughnut", "pie", "scatter", "choropleth-us", "choropleth-world"].includes(val)) {
+                            if (["bar", "line", "doughnut", "pie", "scatter", "timeline", "choropleth-us", "choropleth-world"].includes(val)) {
                               updateStep(index(), "type", "chart");
                               updateStep(index(), "chartType", val);
                             } else {
@@ -1130,6 +1243,7 @@ export default function WorkflowBuilder() {
                           <option value="doughnut">🍩 Doughnut Chart</option>
                           <option value="pie">🥧 Pie Chart</option>
                           <option value="scatter">📉 Scatter Chart</option>
+                          <option value="timeline">⟳ Timeline</option>
                           <option value="choropleth-us">🗺️ US Choropleth Map</option>
                           <option value="choropleth-world">🗺️ World Choropleth Map</option>
                         </select>
@@ -1667,12 +1781,20 @@ export default function WorkflowBuilder() {
                                       No chart points found
                                     </div>
                                   }>
-                                    <LogChart
-                                      data={stepData()}
-                                      xKey={log()!.meta?.xKey}
-                                      yKey={log()!.meta?.yKey}
-                                      chartType={log()!.meta?.chartType || "bar"}
-                                    />
+                                    <Show when={step.chartType === "timeline"} fallback={
+                                      <LogChart
+                                        data={stepData()}
+                                        xKey={log()!.meta?.xKey || step.xKey}
+                                        yKey={log()!.meta?.yKey || step.yKey}
+                                        chartType={log()!.meta?.chartType || step.chartType || "bar"}
+                                      />
+                                    }>
+                                      <LogTimeline
+                                        data={stepData()}
+                                        xKey={log()!.meta?.xKey || step.xKey}
+                                        yKey={log()!.meta?.yKey || step.yKey}
+                                      />
+                                    </Show>
                                   </Show>
                                 </div>
                               </Show>

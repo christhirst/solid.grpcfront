@@ -395,21 +395,22 @@ export default function DashboardBuilder() {
                               <option value="pie">Pie</option>
                               <option value="doughnut">Doughnut</option>
                               <option value="scatter">Scatter</option>
+                              <option value="timeline">⟳ Timeline</option>
                               <option value="choropleth-us">US Choropleth Map</option>
                               <option value="choropleth-world">World Choropleth Map</option>
                             </select>
                           </div>
                           <div>
                             <label class="mb-1 block text-xs text-[#8b8b9e]">
-                              {btn.chartType?.startsWith("choropleth") ? "Region Field (State/Country)" : "X-Axis Field"}
+                              {btn.chartType?.startsWith("choropleth") ? "Region Field (State/Country)" : btn.chartType === "timeline" ? "Date/Year Field" : "X-Axis Field"}
                             </label>
-                            <input type="text" class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2 text-xs text-white focus:border-pink-500 focus:outline-none" placeholder={btn.chartType?.startsWith("choropleth") ? "e.g. state" : "e.g. date"} value={btn.xKey || ""} onInput={(e) => updateButton(index(), "xKey", e.currentTarget.value)} />
+                            <input type="text" class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2 text-xs text-white focus:border-pink-500 focus:outline-none" placeholder={btn.chartType?.startsWith("choropleth") ? "e.g. state" : btn.chartType === "timeline" ? "e.g. year" : "e.g. date"} value={btn.xKey || ""} onInput={(e) => updateButton(index(), "xKey", e.currentTarget.value)} />
                           </div>
                           <div>
                             <label class="mb-1 block text-xs text-[#8b8b9e]">
-                              {btn.chartType?.startsWith("choropleth") ? "Value Field" : "Y-Axis Field"}
+                              {btn.chartType?.startsWith("choropleth") ? "Value Field" : btn.chartType === "timeline" ? "Title/Header Field" : "Y-Axis Field"}
                             </label>
-                            <input type="text" class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2 text-xs text-white focus:border-pink-500 focus:outline-none" placeholder="e.g. value" value={btn.yKey || ""} onInput={(e) => updateButton(index(), "yKey", e.currentTarget.value)} />
+                            <input type="text" class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2 text-xs text-white focus:border-pink-500 focus:outline-none" placeholder={btn.chartType === "timeline" ? "e.g. header" : "e.g. value"} value={btn.yKey || ""} onInput={(e) => updateButton(index(), "yKey", e.currentTarget.value)} />
                           </div>
                         </div>
                       </Show>
@@ -1050,6 +1051,162 @@ const STATE_ABBR_MAP: Record<string, string> = {
   VA: "Virginia", WA: "Washington", WV: "West Virginia", WI: "Wisconsin", WY: "Wyoming"
 };
 
+// ─── Inline Timeline widget ──────────────────────────────────────────────────
+const TIMELINE_IMPORTANCE_COLOR: Record<number, string> = {
+  1: "#4a5273", 2: "#2dd4bf", 3: "#6c63ff", 4: "#f59e0b", 5: "#f472b6"
+};
+
+function DashTimeline(props: { data: any[]; xKey?: string; yKey?: string }) {
+  let vpRef!: HTMLDivElement;
+  let canvasRef!: HTMLDivElement;
+
+  const rows = () => normalizeDataArray(props.data);
+
+  // Map each row to a timeline event
+  const events = () => rows().map((row, i) => {
+    const xk = props.xKey || "year";
+    const yk = props.yKey || "header";
+    const rawYear = row && typeof row === "object" ? get(row, xk) : row;
+    const header  = row && typeof row === "object" ? get(row, yk) : String(row);
+    const text    = row && typeof row === "object" ? (get(row, "text") || get(row, "description") || "") : "";
+    const imp     = row && typeof row === "object" ? (Number(get(row, "importance") || get(row, "rating") || 3)) : 3;
+    const link    = row && typeof row === "object" ? (get(row, "link") || get(row, "url") || "") : "";
+    const date    = row && typeof row === "object" ? (get(row, "date") || String(rawYear)) : String(rawYear);
+    const year    = Number(rawYear) || i;
+    return { year, header: String(header || "Event"), text: String(text), importance: Math.min(5, Math.max(1, imp)), link: String(link), date: String(date) };
+  });
+
+  let scale = 1;
+  let offsetX = 0;
+  const BASE_PX = 80;
+  const AXIS_Y = 140;
+  let isPanning = false;
+  let panStartX = 0;
+  let panStartOX = 0;
+
+  const yearToX = (y: number) => y * BASE_PX;
+
+  const render = () => {
+    if (!canvasRef || !vpRef) return;
+    // clear dynamic children
+    while (canvasRef.children.length > 1) canvasRef.removeChild(canvasRef.lastChild!);
+
+    const evs = events();
+    if (!evs.length) return;
+
+    const years = evs.map(e => e.year);
+    const minY = Math.min(...years);
+    const maxY = Math.max(...years);
+    const pad = 200;
+    const canvasL = yearToX(minY) - pad;
+    const canvasR = yearToX(maxY) + pad;
+    const canvasW = Math.max(canvasR - canvasL, 600);
+
+    canvasRef.style.width  = canvasW + "px";
+    canvasRef.style.height = vpRef.clientHeight + "px";
+
+    // axis
+    const axis = canvasRef.querySelector(".tl-axis") as HTMLElement;
+    if (axis) { axis.style.top = AXIS_Y + "px"; axis.style.width = canvasW + "px"; }
+
+    const cx = (year: number) => yearToX(year) - canvasL;
+
+    // ticks
+    const range = maxY - minY;
+    let interval = range > 2000 ? 500 : range > 500 ? 100 : range > 100 ? 50 : 10;
+    for (let y = Math.floor(minY / interval) * interval - interval; y <= maxY + interval; y += interval) {
+      const tick = document.createElement("div");
+      tick.className = "tl-tick";
+      tick.style.cssText = `position:absolute;left:${cx(y)}px;top:${AXIS_Y - 10}px;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;pointer-events:none;`;
+      tick.innerHTML = `<div style="width:1px;height:10px;background:#2d3356"></div><div style="font-size:9px;color:#4a5273;margin-top:2px;white-space:nowrap">${y < 0 ? Math.abs(y) + " BCE" : y === 0 ? "0" : y + " CE"}</div>`;
+      canvasRef.appendChild(tick);
+    }
+
+    // events
+    const sorted = [...evs].sort((a, b) => a.year - b.year);
+    sorted.forEach((ev, i) => {
+      const above = i % 2 === 0;
+      const x = cx(ev.year);
+      const color = TIMELINE_IMPORTANCE_COLOR[ev.importance] || "#6c63ff";
+      const stemH = ev.importance * 20 + 20;
+      const node = document.createElement("div");
+      node.style.cssText = `position:absolute;left:${x}px;${above ? `bottom:${vpRef.clientHeight - AXIS_Y}px` : `top:${AXIS_Y}px`};transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;cursor:pointer;`;
+
+      const stemEl = document.createElement("div");
+      stemEl.style.cssText = `width:2px;height:${stemH}px;background:linear-gradient(${above ? "to top" : "to bottom"},${color},transparent);flex-shrink:0;order:${above ? 0 : 1}`;
+
+      const dot = document.createElement("div");
+      dot.style.cssText = `width:10px;height:10px;border-radius:50%;background:${color};box-shadow:0 0 8px ${color};flex-shrink:0;order:${above ? 1 : 2};transition:transform 0.15s`;
+
+      // label below dot (or above)
+      const label = document.createElement("div");
+      label.style.cssText = `position:absolute;${above ? `bottom:${stemH + 12}px` : `top:${stemH + 12}px`};left:50%;transform:translateX(-50%);background:#1a1e35;border:1px solid #2d3356;border-radius:8px;padding:6px 10px;width:160px;font-size:10px;color:#e2e8f0;pointer-events:none;opacity:0;transition:opacity 0.2s;z-index:10;box-shadow:0 4px 16px rgba(0,0,0,0.5);`;
+      label.innerHTML = `<div style="font-size:9px;font-weight:700;color:${color};margin-bottom:3px">${ev.date}</div><div style="font-weight:600;margin-bottom:4px;line-height:1.3">${ev.header}</div>${ev.text ? `<div style="font-size:9px;color:#8892b0;line-height:1.5;margin-bottom:4px">${ev.text.slice(0,120)}${ev.text.length>120?"…":""}</div>` : ""}${ev.link ? `<a href="${ev.link}" target="_blank" style="font-size:9px;color:#a78bfa;text-decoration:none">→ Link</a>` : ""}`;
+
+      node.addEventListener("mouseenter", () => { dot.style.transform = "scale(1.6)"; label.style.opacity = "1"; });
+      node.addEventListener("mouseleave", () => { dot.style.transform = "scale(1)"; label.style.opacity = "0"; });
+
+      node.appendChild(above ? stemEl : dot);
+      node.appendChild(above ? dot : stemEl);
+      node.appendChild(label);
+      canvasRef.appendChild(node);
+    });
+
+    applyTransform();
+  };
+
+  const applyTransform = () => {
+    if (!canvasRef) return;
+    canvasRef.style.transform = `scale(${scale}) translate(${offsetX}px,0)`;
+  };
+
+  const centreView = () => {
+    if (!vpRef || !events().length) return;
+    const evs = events();
+    const years = evs.map(e => e.year);
+    const minY = Math.min(...years);
+    const maxY = Math.max(...years);
+    const pad = 200;
+    const canvasL = yearToX(minY) - pad;
+    const mid = yearToX((minY + maxY) / 2) - canvasL;
+    offsetX = vpRef.clientWidth / (2 * scale) - mid;
+    render();
+  };
+
+  onMount(() => {
+    centreView();
+
+    vpRef.addEventListener("wheel", (e) => {
+      e.preventDefault();
+      const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+      const newScale = Math.min(8, Math.max(0.05, scale * factor));
+      const pivot = (e.clientX - vpRef.getBoundingClientRect().left) / scale - offsetX;
+      scale = newScale;
+      offsetX = (e.clientX - vpRef.getBoundingClientRect().left) / scale - pivot;
+      render();
+    }, { passive: false });
+
+    let panning2 = false, panStart2 = 0, panOX2 = 0;
+    vpRef.addEventListener("mousedown", (e) => { if (e.button !== 0) return; panning2 = true; panStart2 = e.clientX; panOX2 = offsetX; vpRef.style.cursor = "grabbing"; });
+    window.addEventListener("mousemove", (e) => { if (!panning2) return; offsetX = panOX2 + (e.clientX - panStart2) / scale; applyTransform(); });
+    window.addEventListener("mouseup", () => { panning2 = false; vpRef.style.cursor = "grab"; });
+  });
+
+  return (
+    <div style="position:relative;height:300px;background:#0d0f17;border-radius:10px;overflow:hidden;border:1px solid #2d3356">
+      <div
+        ref={vpRef}
+        style="width:100%;height:100%;overflow:hidden;cursor:grab;position:relative"
+      >
+        <div ref={canvasRef} class="tl-canvas" style="position:absolute;transform-origin:0 0">
+          <div class="tl-axis" style="position:absolute;left:0;height:2px;background:linear-gradient(90deg,transparent,#6c63ff 5%,#6c63ff 95%,transparent);box-shadow:0 0 12px rgba(108,99,255,0.4)"></div>
+        </div>
+      </div>
+      <div style="position:absolute;bottom:6px;right:10px;font-size:9px;color:#4a5273;pointer-events:none">Scroll to zoom · Drag to pan</div>
+    </div>
+  );
+}
+
 function DashChart(props: { data: any[]; xKey?: string; yKey?: string; chartType?: string }) {
   const cType = () => props.chartType || "bar";
   const [topoJson, setTopoJson] = createSignal<any>(null);
@@ -1247,12 +1404,16 @@ function DashChart(props: { data: any[]; xKey?: string; yKey?: string; chartType
   };
 
   return (
-    <div class="h-[200px] bg-[#101015] p-3 rounded border border-[#2a2a3a]/50">
-      <Show when={normalizeDataArray(props.data).length > 0} fallback={<p class="text-xs text-[#5a5a6e]">No valid array data for chart</p>}>
-        <Show when={!cType().startsWith("choropleth") || topoJson()} fallback={<p class="text-xs text-[#8b8b9e] animate-pulse">Loading map assets...</p>}>
-          {/* @ts-ignore */}
-          <DefaultChart type={cType().startsWith("choropleth") ? "choropleth" : (cType() as any)} data={buildData()} options={chartOptions()} />
+    <div class="bg-[#101015] p-3 rounded border border-[#2a2a3a]/50" style={cType() === "timeline" ? "" : "height:200px"}>
+      <Show when={cType() === "timeline"} fallback={
+        <Show when={normalizeDataArray(props.data).length > 0} fallback={<p class="text-xs text-[#5a5a6e]">No valid array data for chart</p>}>
+          <Show when={!cType().startsWith("choropleth") || topoJson()} fallback={<p class="text-xs text-[#8b8b9e] animate-pulse">Loading map assets...</p>}>
+            {/* @ts-ignore */}
+            <DefaultChart type={cType().startsWith("choropleth") ? "choropleth" : (cType() as any)} data={buildData()} options={chartOptions()} />
+          </Show>
         </Show>
+      }>
+        <DashTimeline data={props.data} xKey={props.xKey} yKey={props.yKey} />
       </Show>
     </div>
   );
@@ -1348,12 +1509,19 @@ function PreviewWidget(props: { btn: any }) {
             columns={props.btn.columns ? props.btn.columns.split(",").map((c: string) => c.trim()).filter(Boolean) : meta().columns} 
           />
         </Show>
-        <Show when={kind === "chart"}>
+        <Show when={kind === "chart" && (props.btn.chartType || "bar") !== "timeline"}>
           <DashChart
             data={data()}
             xKey={props.btn.xKey || meta().xKey}
             yKey={props.btn.yKey || meta().yKey}
             chartType={props.btn.chartType || meta().chartType || "bar"}
+          />
+        </Show>
+        <Show when={kind === "chart" && props.btn.chartType === "timeline"}>
+          <DashTimeline
+            data={data()}
+            xKey={props.btn.xKey || meta().xKey}
+            yKey={props.btn.yKey || meta().yKey}
           />
         </Show>
       </Show>
