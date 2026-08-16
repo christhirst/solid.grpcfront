@@ -832,13 +832,16 @@ export default function PublicDashboard() {
                 const kind = () => btn.widgetType || (wf() ? lastStepType(wf()) : "button");
 
                 return (
-                  <Show when={kind() === "chart" || kind() === "table"} fallback={
+                  <Show when={kind() === "chart" || kind() === "table" || kind() === "infographic"} fallback={
                     (() => {
                       if (kind() === "news") {
                         return <NewsWidgetComponent btn={btn} dashboardId={params.id} />;
                       }
                       if (kind() === "toggle") {
                         return <ToggleWidgetComponent btn={btn} dashboardId={params.id} formState={formState()} updateForm={updateForm} triggerButton={triggerButton} />;
+                      }
+                      if (kind() === "infographic") {
+                        return <InfographicWidget syntax={btn.infographicSyntax} editable={btn.infographicEditable} />;
                       }
 
                       const state = () => executing()[btn.id] || "idle";
@@ -973,13 +976,17 @@ export default function PublicDashboard() {
                     })()
                   }>
                     {/* ── Table / Chart widget ── */}
-                    <div class={`rounded-2xl border p-5 shadow-xl ${kind() === "table" ? "border-emerald-500/20 bg-[#0a120d]" : "border-purple-500/20 bg-[#100a14]"}`}>
-                      <Show when={wf()} fallback={
-                        <div class="text-[#5b5b6e] text-sm italic">Loading workflow info...</div>
-                      }>
-                        <AutoWidget dashboardId={params.id!} btn={btn} workflow={wf()} />
-                      </Show>
-                    </div>
+                    <Show when={kind() === "infographic"} fallback={
+                      <div class={`rounded-2xl border p-5 shadow-xl ${kind() === "table" ? "border-emerald-500/20 bg-[#0a120d]" : "border-purple-500/20 bg-[#100a14]"}`}>
+                        <Show when={wf()} fallback={
+                          <div class="text-[#5b5b6e] text-sm italic">Loading workflow info...</div>
+                        }>
+                          <AutoWidget dashboardId={params.id!} btn={btn} workflow={wf()} />
+                        </Show>
+                      </div>
+                    }>
+                      <InfographicWidget syntax={btn.infographicSyntax} editable={btn.infographicEditable} />
+                    </Show>
                   </Show>
                 );
               }}
@@ -995,5 +1002,55 @@ export default function PublicDashboard() {
 
 
     </main>
+  );
+}
+
+// ─── Infographic Widget (AntV @antv/infographic) ──────────────────────────────
+
+function InfographicWidget(props: { syntax?: string; data?: any; editable?: boolean; height?: string }) {
+  let containerRef!: HTMLDivElement;
+  let instance: any = null;
+
+  const getSyntax = () => {
+    if (props.syntax) return props.syntax;
+    if (typeof props.data === "string") return props.data;
+    return "";
+  };
+
+  onMount(async () => {
+    try {
+      const mod = await import("@antv/infographic");
+      const Infographic = mod.Infographic || mod.default;
+      instance = new Infographic({
+        container: containerRef,
+        width: "100%",
+        height: props.height || "400px",
+        editable: props.editable || false,
+      });
+      const syntax = getSyntax();
+      if (syntax) instance.render(syntax);
+    } catch (e) {
+      console.error("[InfographicWidget] Failed to load @antv/infographic:", e);
+      if (containerRef) {
+        containerRef.innerHTML = `<div style="padding:16px;color:#f87171;font-size:12px;border:1px solid rgba(248,113,113,0.2);border-radius:8px;background:rgba(248,113,113,0.05)">Failed to load infographic engine: ${String(e)}</div>`;
+      }
+    }
+  });
+
+  createEffect(() => {
+    const syntax = getSyntax();
+    if (instance && syntax) {
+      try {
+        instance.render(syntax);
+      } catch (e) {
+        console.error("[InfographicWidget] Render error:", e);
+      }
+    }
+  });
+
+  return (
+    <div class="w-full rounded-xl border border-[#2a2a3a] bg-[#0d0f17] overflow-hidden" style={`min-height:${props.height || "300px"}`}>
+      <div ref={containerRef} style="width:100%;min-height:inherit" />
+    </div>
   );
 }

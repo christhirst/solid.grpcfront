@@ -144,7 +144,7 @@ export default function DashboardBuilder() {
     }
   };
 
-  const addWidget = (widgetType: "button" | "form" | "chart" | "table" | "news" | "toggle") => {
+  const addWidget = (widgetType: "button" | "form" | "chart" | "table" | "news" | "toggle" | "infographic") => {
     setShowWidgetPicker(false);
     const labels: Record<string, string> = {
       button: "New Button",
@@ -153,6 +153,7 @@ export default function DashboardBuilder() {
       table: "New Table",
       news: "News Alert Feed",
       toggle: "Toggle Switch",
+      infographic: "New Infographic",
     };
     setButtons([...buttons, {
       id: `btn_${Math.random().toString(36).substr(2, 9)}`,
@@ -176,6 +177,9 @@ export default function DashboardBuilder() {
       offLabel: "INACTIVE",
       formVarName: "toggle_state",
       defaultChecked: false,
+      infographicSyntax: "",
+      infographicTemplate: "list-row-simple-horizontal-arrow",
+      infographicEditable: false,
     }]);
   };
 
@@ -264,6 +268,7 @@ export default function DashboardBuilder() {
                     { type: "table",  icon: "📊", label: "Table",  desc: "Auto-load table data", color: "text-emerald-400" },
                     { type: "news",   icon: "📰", label: "News Alert", desc: "IF/ELSE color & text news feed", color: "text-amber-400" },
                     { type: "toggle", icon: "🎛️", label: "Toggle Switch", desc: "Interactive ON/OFF workflow switch", color: "text-cyan-400" },
+                    { type: "infographic", icon: "🦋", label: "Infographic", desc: "Rich SVG infographic from AntV", color: "text-rose-400" },
                   ] as const).map(opt => (
 
                     <button
@@ -294,14 +299,15 @@ export default function DashboardBuilder() {
                 const accentCls = () =>
                   wt() === "chart" ? "border-l-pink-500" :
                   wt() === "table" ? "border-l-emerald-500" :
-                  wt() === "form"  ? "border-l-purple-500" : "border-l-blue-500";
+                  wt() === "form"  ? "border-l-purple-500" : wt() === "infographic" ? "border-l-rose-500" : "border-l-blue-500";
                 const typeLabel: Record<string, string> = {
-                  button: "⚡ Button", form: "📝 Form", chart: "📈 Chart", table: "📊 Table"
+                  button: "⚡ Button", form: "📝 Form", chart: "📈 Chart", table: "📊 Table", infographic: "🦋 Infographic"
                 };
                 const typeBadgeCls = () =>
                   wt() === "chart" ? "text-pink-400 bg-pink-500/10 border-pink-500/20" :
                   wt() === "table" ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20" :
                   wt() === "form"  ? "text-purple-400 bg-purple-500/10 border-purple-500/20" :
+                  wt() === "infographic" ? "text-rose-400 bg-rose-500/10 border-rose-500/20" :
                   "text-blue-400 bg-blue-500/10 border-blue-500/20";
 
                 const boundWf = createMemo(() => workflows()?.find((w: any) => w.id === btn.workflowId));
@@ -660,6 +666,64 @@ export default function DashboardBuilder() {
                           </div>
                         </div>
                       </Show>
+                      {/* ── Infographic Widget config ── */}
+                      <Show when={wt() === "infographic"}>
+                        <div class="col-span-2 pt-3 border-t border-[#2a2a3a]/50 space-y-3">
+                          <div>
+                            <label class="mb-1 block text-xs text-[#8b8b9e]">Template Preset</label>
+                            <select class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-xs text-white focus:border-rose-500 focus:outline-none"
+                              value={btn.infographicTemplate || "list-row-simple-horizontal-arrow"}
+                              onChange={(e) => {
+                                const tmpl = e.currentTarget.value;
+                                updateButton(index(), "infographicTemplate", tmpl);
+                                if (!btn.infographicSyntax) {
+                                  const presets: Record<string, string> = {
+                                    "list-row-simple-horizontal-arrow": `infographic list-row-simple-horizontal-arrow\ndata\n  title ${btn.label || "My Infographic"}\n  lists\n    - label Step 1\n      desc First step\n    - label Step 2\n      desc Second step\n    - label Step 3\n      desc Third step`,
+                                    "list-row-horizontal-icon-arrow": `infographic list-row-horizontal-icon-arrow\ndata\n  title ${btn.label || "Process Flow"}\n  lists\n    - label Phase 1\n      value 25\n      desc Planning\n      icon mdi/lightbulb-outline\n    - label Phase 2\n      value 50\n      desc Development\n      icon mdi/code-braces\n    - label Phase 3\n      value 100\n      desc Launch\n      icon mdi/rocket-launch`,
+                                    "list-column": `infographic list-column\ndata\n  title ${btn.label || "Items"}\n  lists\n    - label Item A\n      desc Description A\n    - label Item B\n      desc Description B\n    - label Item C\n      desc Description C`,
+                                    "compare": `infographic compare\ndata\n  title ${btn.label || "Comparison"}\n  lists\n    - label Option A\n      desc First option details\n    - label Option B\n      desc Second option details`,
+                                  };
+                                  if (presets[tmpl]) updateButton(index(), "infographicSyntax", presets[tmpl]);
+                                }
+                              }}>
+                              <option value="list-row-simple-horizontal-arrow">Step Flow (Arrows)</option>
+                              <option value="list-row-horizontal-icon-arrow">Step Flow (Icons)</option>
+                              <option value="list-column">List (Vertical)</option>
+                              <option value="list-row">List (Horizontal)</option>
+                              <option value="compare">Compare</option>
+                              <option value="hierarchy">Hierarchy / Org Chart</option>
+                              <option value="relation">Relation Map</option>
+                              <option value="sequence">Sequence / Timeline</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label class="mb-1 flex items-center justify-between text-xs text-[#8b8b9e]">
+                              <span>Infographic Syntax (DSL)</span>
+                              <span class="text-[9px] text-rose-400/70 font-mono">antv/infographic</span>
+                            </label>
+                            <textarea
+                              class="w-full rounded-lg border border-[#2a2a3a] bg-[#0a0a0f] p-3 text-xs text-rose-200 font-mono focus:border-rose-500 focus:outline-none resize-y"
+                              rows="10"
+                              placeholder={`infographic list-row-simple-horizontal-arrow\ndata\n  title My Title\n  lists\n    - label Item 1\n      desc Description`}
+                              value={btn.infographicSyntax || ""}
+                              onInput={(e) => updateButton(index(), "infographicSyntax", e.currentTarget.value)}
+                            />
+                            <p class="mt-1 text-[9px] text-[#5b5b6e]">Write infographic DSL syntax, or bind a workflow that returns syntax as its output.</p>
+                          </div>
+                          <div class="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              id={`editable_${btn.id}`}
+                              checked={btn.infographicEditable || false}
+                              onChange={(e) => updateButton(index(), "infographicEditable", e.currentTarget.checked)}
+                              class="rounded bg-[#0a0a0f] border-[#2a2a3a] text-rose-500"
+                            />
+                            <label for={`editable_${btn.id}`} class="text-xs text-rose-200 cursor-pointer">
+                              Enable built-in editor (interactive)
+                            </label>
+                          </div>
+                        </div>
+                      </Show>
                     </div>
                   </div>
                 );
@@ -714,6 +778,9 @@ export default function DashboardBuilder() {
                     }
                     if (wtype === "news") {
                       return <NewsWidgetComponent btn={btn} dashboardId={params.id} />;
+                    }
+                    if (wtype === "infographic") {
+                      return <InfographicWidget syntax={btn.infographicSyntax} editable={btn.infographicEditable} />;
                     }
                     if (wtype === "toggle") {
                       return <ToggleWidgetComponent btn={btn} dashboardId={params.id} formState={formState()} updateForm={updateForm} triggerButton={triggerButton} />;
@@ -1464,7 +1531,7 @@ function PreviewWidget(props: { btn: any }) {
     <div class="w-full rounded-xl border border-[#2a2a3a] bg-[#0e0e15] p-3 shadow-md text-left">
       <div class="flex items-center justify-between mb-2 pb-1.5 border-b border-[#2a2a3a]">
         <h3 class={`text-[10px] font-bold uppercase tracking-wider ${kind === "table" ? "text-emerald-400" : "text-purple-400"}`}>
-          {kind === "table" ? "📊 Table Preview" : "📈 Chart Preview"}: {props.btn.label}
+          {kind === "table" ? "📊 Table Preview" : kind === "infographic" ? "🦋 Infographic Preview" : "📈 Chart Preview"}: {props.btn.label}
         </h3>
         <div class="flex items-center gap-2">
           <Show when={status() === "loading"}>
@@ -1523,6 +1590,9 @@ function PreviewWidget(props: { btn: any }) {
             xKey={props.btn.xKey || meta().xKey}
             yKey={props.btn.yKey || meta().yKey}
           />
+        </Show>
+        <Show when={kind === "infographic"}>
+          <InfographicWidget syntax={props.btn.infographicSyntax} data={data()} editable={props.btn.infographicEditable} />
         </Show>
       </Show>
     </div>
@@ -1675,3 +1745,54 @@ function ToggleWidgetComponent(props: { btn: any; dashboardId?: string; formStat
   );
 }
 
+// ─── Infographic Widget (AntV @antv/infographic) ──────────────────────────────
+
+function InfographicWidget(props: { syntax?: string; data?: any; editable?: boolean; height?: string }) {
+  let containerRef!: HTMLDivElement;
+  let instance: any = null;
+
+  const getSyntax = () => {
+    // Prefer explicit syntax prop; if data is a string, treat it as syntax
+    if (props.syntax) return props.syntax;
+    if (typeof props.data === "string") return props.data;
+    return "";
+  };
+
+  onMount(async () => {
+    if (isServer) return;
+    try {
+      const mod = await import("@antv/infographic");
+      const Infographic = mod.Infographic || mod.default;
+      instance = new Infographic({
+        container: containerRef,
+        width: "100%",
+        height: props.height || "400px",
+        editable: props.editable || false,
+      });
+      const syntax = getSyntax();
+      if (syntax) instance.render(syntax);
+    } catch (e) {
+      console.error("[InfographicWidget] Failed to load @antv/infographic:", e);
+      if (containerRef) {
+        containerRef.innerHTML = `<div style="padding:16px;color:#f87171;font-size:12px;border:1px solid rgba(248,113,113,0.2);border-radius:8px;background:rgba(248,113,113,0.05)">Failed to load infographic engine: ${String(e)}</div>`;
+      }
+    }
+  });
+
+  createEffect(() => {
+    const syntax = getSyntax();
+    if (instance && syntax) {
+      try {
+        instance.render(syntax);
+      } catch (e) {
+        console.error("[InfographicWidget] Render error:", e);
+      }
+    }
+  });
+
+  return (
+    <div class="w-full rounded-xl border border-[#2a2a3a] bg-[#0d0f17] overflow-hidden" style={`min-height:${props.height || "300px"}`}>
+      <div ref={containerRef} style="width:100%;min-height:inherit" />
+    </div>
+  );
+}

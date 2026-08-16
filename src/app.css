@@ -265,3 +265,132 @@ body {
 .delay-4 { animation-delay: 0.4s; }
 .delay-5 { animation-delay: 0.5s; }
 .delay-6 { animation-delay: 0.6s; }
+
+
+/* ─── Rete.js Visual Workflow Editor Styling ──────────────────────────────── */
+.rete-node, [data-testid="node"] {
+  background: rgba(18, 18, 26, 0.95) !important;
+  backdrop-filter: blur(12px);
+  border: 1px solid #2a2a3a !important;
+  border-radius: 16px !important;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 1px rgba(255, 255, 255, 0.1) inset !important;
+  padding: 16px !important;
+  min-width: 260px !important;
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+  font-family: inherit;
+  color: #fff !important;
+}
+
+.rete-node:hover, [data-testid="node"]:hover {
+  border-color: #4a4a6a !important;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.6), 0 0 20px rgba(168, 85, 247, 0.15) !important;
+}
+
+.rete-node.selected, [data-testid="node"].selected {
+  border-color: #a855f7 !important;
+  box-shadow: 0 0 0 2px rgba(168, 85, 247, 0.4), 0 14px 40px rgba(0, 0, 0, 0.7) !important;
+}
+
+.rete-node .title, [data-testid="title"] {
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  color: #f1f5f9 !important;
+  margin-bottom: 12px !important;
+  padding-bottom: 8px !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rete-node .socket, [data-testid="socket"] {
+  width: 14px !important;
+  height: 14px !important;
+  background: #a855f7 !important;
+  border: 2px solid #0a0a0f !important;
+  border-radius: 50% !important;
+  box-shadow: 0 0 8px rgba(168, 85, 247, 0.6) !important;
+  cursor: crosshair !important;
+  transition: transform 0.15s ease, background-color 0.15s ease;
+}
+
+.rete-node .socket:hover, [data-testid="socket"]:hover {
+  transform: scale(1.4) !important;
+  background: #38bdf8 !important;
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.8) !important;
+}
+
+.rete-node .input, .rete-node .output {
+  display: flex !important;
+  align-items: center !important;
+  margin: 8px 0 !important;
+}
+
+.rete-node .input-title, [data-testid="input-title"],
+.rete-node .output-title, [data-testid="output-title"] {
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  color: #8b8b9e !important;
+  margin: 0 8px !important;
+}
+
+/* ─── Animated Glowing Flow Lines for Rete Connections ─────────────────────── */
+@keyframes flowDash {
+  from {
+    stroke-dashoffset: 32;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes flowGlowPulse {
+  0%, 100% {
+    filter: drop-shadow(0 0 4px rgba(168, 85, 247, 0.7)) drop-shadow(0 0 8px rgba(139, 92, 246, 0.4));
+  }
+  50% {
+    filter: drop-shadow(0 0 10px rgba(56, 189, 248, 0.95)) drop-shadow(0 0 20px rgba(168, 85, 247, 0.8));
+  }
+}
+
+@keyframes liveFlowFast {
+  from {
+    stroke-dashoffset: 32;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+svg.connection, .connection, [data-testid="connection"] {
+  overflow: visible !important;
+  pointer-events: auto !important;
+}
+
+svg.connection path, .connection path, [data-testid="connection"] path {
+  stroke: #a855f7 !important;
+  stroke-width: 3.5px !important;
+  stroke-linecap: round !important;
+  stroke-dasharray: 10 6 !important;
+  animation: flowDash 0.9s linear infinite, flowGlowPulse 2.5s ease-in-out infinite !important;
+  transition: stroke 0.2s ease, stroke-width 0.2s ease;
+}
+
+svg.connection:hover path, .connection:hover path, [data-testid="connection"]:hover path {
+  stroke: #38bdf8 !important;
+  stroke-width: 5px !important;
+  stroke-dasharray: 8 4 !important;
+  animation: flowDash 0.4s linear infinite !important;
+  filter: drop-shadow(0 0 12px rgba(56, 189, 248, 1)) drop-shadow(0 0 22px rgba(168, 85, 247, 0.9)) !important;
+}
+
+/* Energetic high-speed flow animation during live workflow execution */
+.workflow-executing svg.connection path,
+.workflow-executing .connection path,
+.workflow-executing [data-testid="connection"] path {
+  stroke: #38bdf8 !important;
+  stroke-width: 4.5px !important;
+  stroke-dasharray: 8 4 !important;
+  animation: liveFlowFast 0.3s linear infinite, flowGlowPulse 1s ease-in-out infinite !important;
+  filter: drop-shadow(0 0 12px rgba(56, 189, 248, 1)) drop-shadow(0 0 24px rgba(168, 85, 247, 1)) !important;
+}

@@ -1,3 +1,4 @@
+import jsonata from "jsonata";
 import get from "lodash.get";
 import { getDb } from "~/lib/db";
 import { executeGrpcCall, executeGrpcStreamCall } from "~/lib/grpcExecutor";
@@ -6,6 +7,8 @@ import { parseProtoContent } from "~/lib/protoParser";
 import { RecordId } from "surrealdb";
 import * as Sentry from "@sentry/node";
 import { EventEmitter } from "events";
+export { getStepCategory, type StepCategory, type WorkflowStep } from "./stepCategories";
+
 
 export const workflowStreamManager = new EventEmitter();
 workflowStreamManager.setMaxListeners(200);
@@ -100,33 +103,6 @@ async function getStepAuthHeader(step: any, db: any): Promise<string | undefined
   return undefined;
 }
 
-export interface WorkflowStep {
-  id: string;
-  type?: "grpc" | "table" | "chart" | "database" | "rest" | "grpc_stream" | "rest_stream" | "surreal_live";
-  databaseName?: string; // target dynamic DB for 'database' step type
-  databaseUrl?: string;
-  databaseUser?: string;
-  databasePass?: string;
-  databaseNs?: string;
-  serviceName?: string;
-  methodName?: string;
-  restUrl?: string;
-  restMethod?: "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
-  requestBodyTemplate?: string; // JSON string for grpc, SurrealQL template for database
-  headersTemplate?: string; // JSON string with {{ }} templates
-  serverAddress?: string; // Optional override
-  useTls?: boolean; // Optional override
-  caId?: string; // "" = none, "__accept_all__" = TLS without verification, otherwise saved CA ID
-  dataPath?: string;   // lodash path to drill into nested array e.g. "shares"
-  xKey?: string;       // property for X axis
-  yKey?: string;       // property for Y axis
-  chartType?: "bar" | "line"; // chart rendering type
-  columns?: string[];  // optional explicit columns for table step
-  authType?: "none" | "basic" | "oauth";
-  authUsername?: string;
-  authPassword?: string;
-  connectionId?: string;
-}
 
 export interface AuthConfig {
   type: "grpc" | "rest" | "static";
@@ -161,6 +137,7 @@ export interface WorkflowDefinition {
   schedule?: string; // cron expression
   authConfig?: AuthConfig;
   connectionId?: string;
+  graph?: { nodes: any[]; connections: any[]; position?: [number, number]; zoom?: number };
 }
 
 
@@ -247,6 +224,47 @@ function parseJsonString(value: any): any {
   } catch {
     return value;
   }
+}
+
+
+/**
+ * Topologically sort workflow steps so that all upstream dependencies (sourceStepIds)
+ * execute before the target steps that consume them. Cycles gracefully fall back to linear order.
+ */
+export function sortStepsTopologically(steps: WorkflowStep[]): WorkflowStep[] {
+  if (!steps || steps.length <= 1) return steps || [];
+
+  const stepMap = new Map<string, WorkflowStep>();
+  steps.forEach((s) => stepMap.set(s.id, s));
+
+  const visited = new Set<string>();
+  const visiting = new Set<string>();
+  const sorted: WorkflowStep[] = [];
+
+  function visit(stepId: string) {
+    if (visited.has(stepId)) return;
+    if (visiting.has(stepId)) {
+      return; // Cycle detected: avoid infinite recursion
+    }
+    visiting.add(stepId);
+    const step = stepMap.get(stepId);
+    if (step && Array.isArray(step.sourceStepIds)) {
+      for (const srcId of step.sourceStepIds) {
+        if (stepMap.has(srcId)) {
+          visit(srcId);
+        }
+      }
+    }
+    visiting.delete(stepId);
+    visited.add(stepId);
+    if (step) sorted.push(step);
+  }
+
+  for (const step of steps) {
+    visit(step.id);
+  }
+
+  return sorted.length === steps.length ? sorted : steps;
 }
 
 function normalizeVisualData(value: any): any[] {
@@ -515,7 +533,8 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
       }
     }
 
-    for (const step of steps) {
+    const executionSteps = sortStepsTopologically(steps || []);
+    for (const step of executionSteps) {
       // Each step runs inside a Sentry span. The callback returns a signal
       // ("continue" | "abort") so we can control the outer loop without
       // using continue/return across the function boundary.
@@ -776,18 +795,134 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
         return "continue";
       }
 
-      if (step.type === "table" || step.type === "chart") {
 
-        let payload;
+      if (step.type === "transform") {
+        let transformedResult: any;
+        let transformError: string | undefined;
+
         try {
-          const exactMatch = (step.requestBodyTemplate || "").trim().match(/^\{\{\s*([^{}]+?)\s*\}\}$/);
-          if (exactMatch) {
-            payload = get(context, exactMatch[1].trim());
-          } else {
-            payload = evaluatePayload(JSON.parse(step.requestBodyTemplate || "{}"), context);
+          const sourceIds = (step.sourceStepIds && step.sourceStepIds.length > 0)
+            ? step.sourceStepIds
+            : [];
+
+          const sourcesData = sourceIds
+            .map((srcId: string) => context.steps[srcId]?.response)
+            .filter((v: any) => v !== undefined);
+
+          const primaryInput = sourcesData.length === 1 ? sourcesData[0] : sourcesData;
+
+          const evaluationScope = {
+            ...context,
+            steps: context.steps,
+            source: primaryInput,
+            sources: sourcesData,
+            data: primaryInput,
+          };
+
+          const exprString = (step.transformExpression || "").trim() || "$";
+          const expression = jsonata(exprString);
+          transformedResult = await expression.evaluate(evaluationScope);
+
+          if (transformedResult === undefined) {
+            transformedResult = null;
           }
-        } catch (e: any) {
-          payload = { error: `Failed to evaluate visual data source: ${e.message}` };
+        } catch (err: any) {
+          transformError = err.message || String(err);
+          transformedResult = { error: `Transform Error: ${transformError}` };
+        }
+
+        const success = !transformError;
+        context.steps[step.id] = {
+          request: step.transformExpression,
+          response: transformedResult,
+          error: transformError,
+        };
+
+        runRecord.logs.push({
+          stepId: step.id,
+          stepType: "transform",
+          status: success ? "success" : "error",
+          request: step.transformExpression,
+          response: transformedResult,
+          error: transformError,
+          meta: {
+            sourceStepIds: step.sourceStepIds,
+            transformExpression: step.transformExpression,
+          },
+        });
+
+        const { id: _t_tr, ...data_tr } = runRecord;
+        const sId_tr = new RecordId("workflow_run", dbId);
+        await db.query("UPDATE $id CONTENT $data", { id: sId_tr, data: data_tr });
+
+        if (!success) {
+          emitWorkflowEvent(runId, workflow.id || "", "step_failed", { stepId: step.id, error: transformError });
+          runRecord.status = "failed";
+          runRecord.endTime = new Date().toISOString();
+          const { id: _t_tr2, ...data_tr2 } = runRecord;
+          const sId_tr2 = new RecordId("workflow_run", dbId);
+          await db.query("UPDATE $id CONTENT $data", { id: sId_tr2, data: data_tr2 });
+          return "abort";
+        }
+
+        emitWorkflowEvent(runId, workflow.id || "", "step_complete", { stepId: step.id, response: transformedResult });
+        return "continue";
+      }
+
+      if (step.type === "table" || step.type === "chart" || step.type === "infographic") {
+        let payload;
+        const sourceIds = (step.sourceStepIds && step.sourceStepIds.length > 0)
+          ? step.sourceStepIds
+          : [];
+
+        if (sourceIds.length > 0) {
+          const sourcesData = sourceIds
+            .map((srcId: string) => context.steps[srcId]?.response)
+            .filter((v: any) => v !== undefined);
+
+          if (step.requestBodyTemplate?.trim()) {
+            try {
+              const exactMatch = step.requestBodyTemplate.trim().match(/^\{\{\s*([^{}]+?)\s*\}\}$/);
+              if (exactMatch) {
+                payload = get(context, exactMatch[1].trim());
+              } else {
+                payload = evaluatePayload(JSON.parse(step.requestBodyTemplate), context);
+              }
+            } catch {
+              payload = interpolateTemplate(step.requestBodyTemplate, context);
+            }
+          } else if (sourcesData.length === 1) {
+            payload = sourcesData[0];
+          } else if (sourcesData.length > 1) {
+            // Multi-source automatic aggregation (combine arrays or merge objects)
+            const allArrays = sourcesData.every((d: any) => {
+              const parsed = parseJsonString(d);
+              return Array.isArray(parsed);
+            });
+            if (allArrays) {
+              payload = sourcesData.flatMap((d: any) => {
+                const parsed = parseJsonString(d);
+                return Array.isArray(parsed) ? parsed : [parsed];
+              });
+            } else {
+              payload = sourcesData.reduce((acc: any, curr: any, idx: number) => {
+                const key = sourceIds[idx] || `source_${idx + 1}`;
+                acc[key] = curr;
+                return acc;
+              }, {});
+            }
+          }
+        } else {
+          try {
+            const exactMatch = (step.requestBodyTemplate || "").trim().match(/^\{\{\s*([^{}]+?)\s*\}\}$/);
+            if (exactMatch) {
+              payload = get(context, exactMatch[1].trim());
+            } else {
+              payload = evaluatePayload(JSON.parse(step.requestBodyTemplate || "{}"), context);
+            }
+          } catch (e: any) {
+            payload = { error: `Failed to evaluate visual data source: ${e.message}` };
+          }
         }
 
         // Apply dataPath to drill into nested JSON (e.g. "shares" inside the response)
@@ -806,11 +941,14 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
           request: step.requestBodyTemplate,
           response: visData,
           meta: {
+            sourceStepIds: step.sourceStepIds,
             dataPath: step.dataPath,
             xKey: step.xKey,
             yKey: step.yKey,
             chartType: (step as any).chartType || "bar",
             columns: (step as any).columns || [],
+            infographicSyntax: (step as any).infographicSyntax,
+            infographicTemplate: (step as any).infographicTemplate,
           }
         });
 

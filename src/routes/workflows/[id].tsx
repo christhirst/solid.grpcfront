@@ -1,3 +1,5 @@
+import { getStepCategory } from "~/lib/stepCategories";
+import ReteWorkflowEditor from "~/components/workflow/ReteWorkflowEditor";
 import { createSignal, createEffect, onMount, For, Show, createResource, createMemo } from "solid-js";
 import { extractFormVariables, checkWorkflowConfiguredInDashboards } from "~/lib/workflowVariableChecker";
 
@@ -552,6 +554,9 @@ export default function WorkflowBuilder() {
 
   // Form state
   const [name, setName] = createSignal("New Workflow");
+  const [viewMode, setViewMode] = createSignal<"graph" | "steps">("graph");
+  const [graphData, setGraphData] = createSignal<any>(null);
+  const [selectedStepId, setSelectedStepId] = createSignal<string | null>(null);
   const [protoContent, setProtoContent] = createSignal("");
   
   // Track active input for inserting variables
@@ -771,6 +776,9 @@ export default function WorkflowBuilder() {
       setServerAddress(data.serverAddress || "localhost:50051");
       setSchedule(data.schedule || "");
       setConnectionId(data.connectionId || "");
+      if (data.graph) {
+        setGraphData(data.graph);
+      }
         
       const ac = data.authConfig;
       if (ac) {
@@ -793,7 +801,27 @@ export default function WorkflowBuilder() {
         setAuthTokenPath(ac.tokenPath || "accessToken");
       }
       
-      setSteps(reconcile(data.steps || []));
+      // Normalize loaded steps: Ensure every step has category and legacy sequential steps have sourceStepIds
+      const rawSteps = data.steps || [];
+      const normalizedSteps = rawSteps.map((s: any, idx: number) => {
+        const cat = s.category || getStepCategory(s.type);
+        let sources = s.sourceStepIds;
+        // If sources is not explicitly set and this is a downstream step (idx > 0), default to the preceding step
+        if (!sources || sources.length === 0) {
+          if (idx > 0 && rawSteps[idx - 1]?.id) {
+            sources = [rawSteps[idx - 1].id];
+          } else {
+            sources = [];
+          }
+        }
+        return {
+          ...s,
+          category: cat,
+          sourceStepIds: sources,
+        };
+      });
+      
+      setSteps(reconcile(normalizedSteps));
     }
   });
 
@@ -838,6 +866,7 @@ export default function WorkflowBuilder() {
       useTls: useTls(), // retained for backward compatibility; caId is the source of truth
       schedule: schedule(),
       connectionId: connectionId() || undefined,
+      graph: graphData() || workflow()?.graph || undefined,
       steps: steps.map(s => ({
         ...s,
         type: s.type || "grpc"
@@ -863,26 +892,35 @@ export default function WorkflowBuilder() {
     }
   };
 
-  const addStep = (type: string = "grpc") => {
+  const addStep = (type: string = "grpc", explicitCategory?: StepCategory) => {
+    const cat = explicitCategory || getStepCategory(type);
+    const previousSource = steps.filter(s => getStepCategory(s.type, s.category) !== "target").slice(-1)[0];
     const newStep: any = {
       id: `step_${Math.random().toString(36).substr(2, 9)}`,
       type: type,
-      serviceName: "",
-      methodName: "",
+      category: cat,
+      serviceName: parsedProto()?.services[0]?.fullName || "",
+      methodName: parsedProto()?.services[0]?.methods[0]?.name || "",
       requestBodyTemplate: "{}",
       headersTemplate: "{}",
       serverAddress: "",
       caId: caId(),
-      dataPath: "", xKey: "", yKey: ""
+      dataPath: "", xKey: "", yKey: "",
+      transformExpression: "$",
+      transformType: "jsonata",
+      sourceStepIds: cat !== "source" && previousSource ? [previousSource.id] : [],
     };
 
     // Defaults for visualization steps
     if (type === "table" || type === "chart") {
-       const previousSource = [...steps].reverse().find(isDataSourceStep);
        newStep.requestBodyTemplate = previousSource ? stepResponseTemplate(previousSource) : "";
     }
     if (type === "chart") {
        newStep.chartType = "bar";
+    }
+    if (type === "infographic") {
+       newStep.infographicTemplate = "list-row-simple-horizontal-arrow";
+       newStep.infographicSyntax = `infographic list-row-simple-horizontal-arrow\ndata\n  title Workflow Diagram\n  lists\n    - label Step 1\n      desc Start\n    - label Step 2\n      desc Process\n    - label Step 3\n      desc Result`;
     }
 
     setSteps(produce((s: any[]) => s.push(newStep)));
@@ -1161,8 +1199,38 @@ export default function WorkflowBuilder() {
             })()}
           </Show>
 
-          <div class="flex items-center justify-between relative">
-            <h2 class="text-xl font-bold text-white">Workflow Steps</h2>
+          {/* Visual Graph (Rete.js) vs Step List View Switcher */}
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-3 border-b border-[#2a2a3a]">
+            <div class="flex flex-wrap items-center gap-3">
+              <h2 class="text-xl font-bold text-white flex items-center gap-2">
+                Workflow Structure
+              </h2>
+              <div class="flex items-center bg-[#12121a] p-1 rounded-xl border border-[#2a2a3a]">
+                <button
+                  type="button"
+                  onClick={() => setViewMode("graph")}
+                  class={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                    viewMode() === "graph"
+                      ? "bg-purple-600 text-white shadow-lg shadow-purple-600/30"
+                      : "text-[#8b8b9e] hover:text-white hover:bg-[#1a1a24]"
+                  }`}
+                >
+                  <span>🕸️ Visual Graph (Rete.js)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode("steps")}
+                  class={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                    viewMode() === "steps"
+                      ? "bg-purple-600 text-white shadow-lg shadow-purple-600/30"
+                      : "text-[#8b8b9e] hover:text-white hover:bg-[#1a1a24]"
+                  }`}
+                >
+                  <span>📋 Step Details List ({steps.length})</span>
+                </button>
+              </div>
+            </div>
+
             <div class="relative">
               <button 
                 type="button"
@@ -1174,30 +1242,89 @@ export default function WorkflowBuilder() {
               </button>
               
               <Show when={showAddStepMenu()}>
-                <div class="absolute right-0 mt-2 w-56 rounded-xl bg-[#1e1e2e] border border-[#2a2a3a] shadow-2xl z-50 overflow-hidden fade-in py-1">
-                  <div class="px-3 py-2 text-[10px] font-bold text-[#5b5b6e] uppercase tracking-wider border-b border-[#2a2a3a]/50 mb-1">Select Step Type</div>
-                  <button type="button" onClick={() => addStep("grpc")} class="w-full text-left px-4 py-2 text-sm text-[#c8c8d8] hover:bg-blue-500/10 hover:text-blue-400 flex items-center gap-2 transition-colors">
-                    <span class="text-lg">⚡</span> gRPC Request
-                  </button>
-                  <button type="button" onClick={() => addStep("rest")} class="w-full text-left px-4 py-2 text-sm text-[#c8c8d8] hover:bg-blue-500/10 hover:text-blue-400 flex items-center gap-2 transition-colors">
-                    <span class="text-lg">🌐</span> REST Request
-                  </button>
-                  <button type="button" onClick={() => addStep("database")} class="w-full text-left px-4 py-2 text-sm text-[#c8c8d8] hover:bg-blue-500/10 hover:text-blue-400 flex items-center gap-2 transition-colors">
-                    <span class="text-lg">🛢️</span> Database Query
-                  </button>
-                  <div class="h-px bg-[#2a2a3a] my-1 mx-2"></div>
-                  <button type="button" onClick={() => addStep("table")} class="w-full text-left px-4 py-2 text-sm text-[#c8c8d8] hover:bg-blue-500/10 hover:text-blue-400 flex items-center gap-2 transition-colors">
-                    <span class="text-lg">📊</span> View Table
-                  </button>
-                  <button type="button" onClick={() => addStep("chart")} class="w-full text-left px-4 py-2 text-sm text-[#c8c8d8] hover:bg-blue-500/10 hover:text-blue-400 flex items-center gap-2 transition-colors">
-                    <span class="text-lg">📈</span> Chart
-                  </button>
+                <div class="absolute right-0 mt-2 w-72 rounded-2xl bg-[#181824] border border-[#2a2a3a] shadow-2xl z-50 overflow-hidden fade-in py-1 divide-y divide-[#2a2a3a]/50">
+                  {/* 1. SOURCES */}
+                  <div class="p-1">
+                    <div class="px-3 py-1 text-[10px] font-bold text-blue-400 uppercase tracking-wider flex items-center justify-between">
+                      <span>📥 1. SOURCES</span>
+                      <span class="text-[9px] text-[#5b5b6e] font-normal">(Start Flow)</span>
+                    </div>
+                    <button type="button" onClick={() => addStep("grpc", "source")} class="w-full text-left px-3 py-1.5 text-xs text-blue-300 hover:bg-[#222234] rounded-lg flex items-center gap-2 transition-colors">
+                      <span>⚡</span> gRPC Request (Source)
+                    </button>
+                    <button type="button" onClick={() => addStep("rest", "source")} class="w-full text-left px-3 py-1.5 text-xs text-cyan-300 hover:bg-[#222234] rounded-lg flex items-center gap-2 transition-colors">
+                      <span>🌐</span> HTTP / REST API (Source)
+                    </button>
+                    <button type="button" onClick={() => addStep("database", "source")} class="w-full text-left px-3 py-1.5 text-xs text-amber-300 hover:bg-[#222234] rounded-lg flex items-center gap-2 transition-colors">
+                      <span>🗄️</span> Database Query (Source)
+                    </button>
+                  </div>
+
+                  {/* 2. TRANSFORMS & SERVICE CALLS */}
+                  <div class="p-1">
+                    <div class="px-3 py-1 text-[10px] font-bold text-purple-400 uppercase tracking-wider flex items-center justify-between">
+                      <span>🔀 2. TRANSFORMS & SERVICES</span>
+                      <span class="text-[9px] text-[#5b5b6e] font-normal">(In ➔ Out)</span>
+                    </div>
+                    <button type="button" onClick={() => addStep("transform", "transform")} class="w-full text-left px-3 py-1.5 text-xs text-purple-300 hover:bg-[#222234] rounded-lg flex items-center gap-2 transition-colors">
+                      <span>🔀</span> JSONata Transformer / Merger
+                    </button>
+                    <button type="button" onClick={() => addStep("grpc", "transform")} class="w-full text-left px-3 py-1.5 text-xs text-blue-300 hover:bg-[#222234] rounded-lg flex items-center gap-2 transition-colors">
+                      <span>⚡</span> gRPC Service Call (Transform)
+                    </button>
+                    <button type="button" onClick={() => addStep("rest", "transform")} class="w-full text-left px-3 py-1.5 text-xs text-cyan-300 hover:bg-[#222234] rounded-lg flex items-center gap-2 transition-colors">
+                      <span>🌐</span> HTTP / REST API Call (Transform)
+                    </button>
+                    <button type="button" onClick={() => addStep("database", "transform")} class="w-full text-left px-3 py-1.5 text-xs text-amber-300 hover:bg-[#222234] rounded-lg flex items-center gap-2 transition-colors">
+                      <span>🗄️</span> Database Mutation / Query
+                    </button>
+                  </div>
+
+                  {/* 3. TARGETS */}
+                  <div class="p-1">
+                    <div class="px-3 py-1 text-[10px] font-bold text-emerald-400 uppercase tracking-wider">
+                      🎯 3. TARGETS (Terminal Sinks)
+                    </div>
+                    <button type="button" onClick={() => addStep("table")} class="w-full text-left px-3 py-1.5 text-xs text-emerald-300 hover:bg-[#222234] rounded-lg flex items-center gap-2 transition-colors">
+                      <span>📊</span> View Data Table
+                    </button>
+                    <button type="button" onClick={() => addStep("chart")} class="w-full text-left px-3 py-1.5 text-xs text-pink-300 hover:bg-[#222234] rounded-lg flex items-center gap-2 transition-colors">
+                      <span>📈</span> Chart Visualizer
+                    </button>
+                    <button type="button" onClick={() => addStep("infographic")} class="w-full text-left px-3 py-1.5 text-xs text-rose-300 hover:bg-[#222234] rounded-lg flex items-center gap-2 transition-colors">
+                      <span>🦋</span> AntV Infographic Diagram
+                    </button>
+                  </div>
                 </div>
               </Show>
             </div>
           </div>
 
-          <div class="space-y-6">
+          {/* Rete.js Visual Node Graph Canvas */}
+          <Show when={viewMode() === "graph"}>
+            <div class="space-y-4">
+              <ReteWorkflowEditor
+                steps={steps}
+                graph={graphData() || workflow()?.graph}
+                onStepsChange={(newSteps) => setSteps(reconcile(newSteps))}
+                onGraphChange={(g) => setGraphData(g)}
+                onSelectStep={(stepId) => setSelectedStepId(stepId)}
+                selectedStepId={selectedStepId()}
+                isExecuting={isRunning()}
+              />
+            </div>
+          </Show>
+
+          {/* Step Details List */}
+          <div class={`space-y-6 ${viewMode() === "graph" ? "mt-8" : ""}`}>
+            <Show when={viewMode() === "graph" && steps.length > 0}>
+              <div class="flex items-center justify-between pt-4 border-t border-[#2a2a3a]/50">
+                <h3 class="text-sm font-bold uppercase tracking-wider text-[#8b8b9e]">
+                  Step Configurations ({steps.length})
+                </h3>
+                <span class="text-xs text-[#5b5b6e]">Select or edit step parameters below</span>
+              </div>
+            </Show>
             <For each={steps}>
               {(step, index) => {
                 const [resultTab, setResultTab] = createSignal<"payload" | "response">("response");
@@ -1209,14 +1336,121 @@ export default function WorkflowBuilder() {
                   return Array.isArray(resp) ? resp : (resp ? [resp] : []);
                 });
                 return (
-                  <div class="card p-5 relative border-l-4 border-l-blue-500">
-                    <div class="absolute -left-[14px] -top-[14px] flex h-6 w-6 items-center justify-center rounded-full bg-blue-500 text-xs font-bold text-white ring-4 ring-[#0a0a0f]">
+                  (() => {
+                    const stepCat = () => getStepCategory(step.type);
+                    const borderCls = () =>
+                      stepCat() === "target" ? "border-l-emerald-500" :
+                      stepCat() === "transform" ? "border-l-purple-500" : "border-l-blue-500";
+                    const badgeCls = () =>
+                      stepCat() === "target" ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/30" :
+                      stepCat() === "transform" ? "bg-purple-500/10 text-purple-300 border-purple-500/30" :
+                      "bg-blue-500/10 text-blue-300 border-blue-500/30";
+                    const badgeText = () =>
+                      stepCat() === "target" ? "🎯 TARGET (Terminal Sink)" :
+                      stepCat() === "transform" ? "🔀 TRANSFORM (Data Processing)" :
+                      "📥 SOURCE (Data Producer)";
+
+                    return (
+                  <div class={`card p-5 relative border-l-4 ${borderCls()}`}>
+                    <div class="absolute -left-[14px] -top-[14px] flex h-6 w-6 items-center justify-center rounded-full bg-purple-600 text-xs font-bold text-white ring-4 ring-[#0a0a0f]">
                       {index() + 1}
+                    </div>
+                    <div class="mb-3 flex items-center justify-between">
+                      <span class={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${badgeCls()}`}>
+                        {badgeText()}
+                      </span>
+                      <Show when={stepCat() === "target"}>
+                        <span class="text-[10px] text-[#5b5b6e] italic">
+                          No outgoing data flow
+                        </span>
+                      </Show>
                     </div>
                     <div class={`grid grid-cols-1 ${runData() ? "lg:grid-cols-2" : ""} gap-6`}>
                       {/* Left Column: Configuration */}
                       <div class="space-y-4">
                   
+                  {/* Interactive Connected Input Sources Widget */}
+                  <Show when={stepCat() !== "source"}>
+                    <div class="mb-4 p-3 rounded-xl bg-[#141420] border border-[#2a2a3a] space-y-2">
+                      <div class="flex items-center justify-between">
+                        <span class="text-xs font-bold text-purple-300 flex items-center gap-1.5">
+                          <span>🔗 Connected Upstream Sources</span>
+                          <span class="text-[10px] text-purple-400 font-semibold bg-purple-500/20 px-1.5 py-0.5 rounded border border-purple-500/30">
+                            {(step.sourceStepIds || []).length} connected
+                          </span>
+                        </span>
+                        <span class="text-[10px] text-[#6b6b7e]">
+                          Toggle upstream steps to automatically connect in visual graph
+                        </span>
+                      </div>
+
+                      {(() => {
+                        const candidateSteps = () => steps.filter((s) => s.id !== step.id && getStepCategory(s.type) !== "target");
+                        const isConnected = (sId: string) => (step.sourceStepIds || []).includes(sId);
+
+                        const toggleConnection = (sId: string) => {
+                          const current = step.sourceStepIds || [];
+                          let next: string[];
+                          if (current.includes(sId)) {
+                            next = current.filter(id => id !== sId);
+                          } else {
+                            next = [...current, sId];
+                          }
+                          updateStep(index(), "sourceStepIds", next);
+                        };
+
+                        return (
+                          <div class="space-y-2">
+                            <Show when={candidateSteps().length > 0} fallback={
+                              <p class="text-[11px] text-[#5b5b6e] italic">No upstream source/transform steps available. Add a source step first.</p>
+                            }>
+                              <div class="flex flex-wrap gap-2">
+                                <For each={candidateSteps()}>
+                                  {(cStep) => {
+                                    const cCat = getStepCategory(cStep.type);
+                                    const connected = () => isConnected(cStep.id);
+                                    return (
+                                      <button
+                                        type="button"
+                                        onClick={() => toggleConnection(cStep.id)}
+                                        class={`px-2.5 py-1.5 rounded-lg text-xs font-medium border flex items-center gap-1.5 transition-all ${
+                                          connected()
+                                            ? "bg-purple-600/30 border-purple-500 text-purple-200 shadow-md shadow-purple-500/20 ring-1 ring-purple-500/50"
+                                            : "bg-[#1e1e2e] border-[#2a2a3a] text-[#8b8b9e] hover:text-white hover:border-[#4a4a5e]"
+                                        }`}
+                                        title={connected() ? "Click to disconnect" : "Click to connect to this step"}
+                                      >
+                                        <span class="font-bold">{connected() ? "✓" : "+"}</span>
+                                        <span>{cCat === "source" ? "📥" : "🔀"}</span>
+                                        <span class="font-mono">{cStep.id}</span>
+                                        <span class="text-[10px] opacity-70">({cStep.type || "grpc"})</span>
+                                      </button>
+                                    );
+                                  }}
+                                </For>
+                              </div>
+                            </Show>
+
+                            <Show when={step.type === "transform" && (step.sourceStepIds || []).length > 1}>
+                              <div class="mt-2 pt-2 border-t border-[#2a2a3a] flex items-center justify-between">
+                                <span class="text-[11px] text-purple-300 font-medium">Multi-Source Merge Strategy:</span>
+                                <select
+                                  class="bg-[#1e1e2e] border border-[#2a2a3a] rounded px-2 py-1 text-xs text-white focus:border-purple-500 outline-none"
+                                  value={step.mergeStrategy || "concat"}
+                                  onChange={(e) => updateStep(index(), "mergeStrategy", e.currentTarget.value as any)}
+                                >
+                                  <option value="concat">Array Concatenate (concat)</option>
+                                  <option value="merge_object">Object Deep Merge (merge_object)</option>
+                                  <option value="keyed">Keyed by Step ID (keyed)</option>
+                                </select>
+                              </div>
+                            </Show>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </Show>
+
                   <div class="flex justify-between items-start mb-4">
                     <div class="flex items-center gap-4 flex-1">
                       <div class="w-1/3">
@@ -1234,10 +1468,26 @@ export default function WorkflowBuilder() {
                             }
                           }}
                         >
-                          <option value="grpc">⚡ gRPC Request</option>
-                          <option value="rest">🌐 REST Request</option>
-                          <option value="database">🛢️ Database Query</option>
-                          <option value="table">📊 View Data Table</option>
+                          <optgroup label="📥 1. Sources (Start Flow)">
+                            <option value="grpc">⚡ gRPC Request</option>
+                            <option value="rest">🌐 HTTP / REST Request</option>
+                            <option value="database">🛢️ Database Query</option>
+                          </optgroup>
+                          <optgroup label="🔀 2. Transforms (Processing)">
+                            <option value="transform">🔀 JSONata Transformer / Merger</option>
+                          </optgroup>
+                          <optgroup label="🎯 3. Targets (Terminal Sinks)">
+                            <option value="table">📊 View Data Table</option>
+                            <option value="infographic">🦋 AntV Infographic Diagram</option>
+                            <option value="bar">📊 Bar Chart</option>
+                            <option value="line">📈 Line Chart</option>
+                            <option value="doughnut">🍩 Doughnut Chart</option>
+                            <option value="pie">🥧 Pie Chart</option>
+                            <option value="scatter">📉 Scatter Chart</option>
+                            <option value="timeline">⟳ Timeline</option>
+                            <option value="choropleth-us">🗺️ US Choropleth Map</option>
+                            <option value="choropleth-world">🗺️ World Choropleth Map</option>
+                          </optgroup>
                           <option value="bar">📊 Bar Chart</option>
                           <option value="line">📈 Line Chart</option>
                           <option value="doughnut">🍩 Doughnut Chart</option>
@@ -1473,6 +1723,76 @@ export default function WorkflowBuilder() {
                   </Show>
 
                   {/* Database Query Config */}
+                  
+                  {/* Transform Step Configuration (JSONata) */}
+                  <Show when={step.type === "transform"}>
+                    <div class="rounded-xl border border-purple-500/30 bg-[#120e1c] p-4 space-y-3">
+                      <div class="flex items-center justify-between">
+                        <p class="text-[11px] font-bold text-purple-300 uppercase tracking-wider flex items-center gap-1.5">
+                          <span>🔀</span> JSONata Transformation Engine
+                        </p>
+                        <span class="text-[10px] text-purple-400/80 font-mono">jsonata v2</span>
+                      </div>
+
+                      {/* Quick Presets */}
+                      <div>
+                        <label class="mb-1 block text-xs text-[#8b8b9e]">Quick Presets</label>
+                        <div class="flex flex-wrap gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => updateStep(index(), "transformExpression", "$")}
+                            class="px-2 py-1 rounded bg-[#1e1a2a] hover:bg-[#2e2640] border border-purple-500/20 text-[10px] text-purple-200"
+                          >
+                            Pass Through ($)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateStep(index(), "transformExpression", "{\n  \"source_1\": steps.source_1.response,\n  \"source_2\": steps.source_2.response\n}")}
+                            class="px-2 py-1 rounded bg-[#1e1a2a] hover:bg-[#2e2640] border border-purple-500/20 text-[10px] text-purple-200"
+                          >
+                            Merge 2 Sources
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateStep(index(), "transformExpression", "source[status = 'ACTIVE']")}
+                            class="px-2 py-1 rounded bg-[#1e1a2a] hover:bg-[#2e2640] border border-purple-500/20 text-[10px] text-purple-200"
+                          >
+                            Filter Array
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateStep(index(), "transformExpression", "source.{\n  \"id\": id,\n  \"name\": name,\n  \"total\": price * quantity\n}")}
+                            class="px-2 py-1 rounded bg-[#1e1a2a] hover:bg-[#2e2640] border border-purple-500/20 text-[10px] text-purple-200"
+                          >
+                            Map & Compute
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateStep(index(), "transformExpression", "{\n  \"count\": $count(source),\n  \"totalAmount\": $sum(source.amount)\n}")}
+                            class="px-2 py-1 rounded bg-[#1e1a2a] hover:bg-[#2e2640] border border-purple-500/20 text-[10px] text-purple-200"
+                          >
+                            Math Aggregate
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Expression Textarea */}
+                      <div>
+                        <label class="mb-1 flex items-center justify-between text-xs text-[#8b8b9e]">
+                          <span>Transformation Expression</span>
+                          <span class="text-[9px] text-[#5b5b6e]">Variables: $, source, sources, steps.&lt;id&gt;.response</span>
+                        </label>
+                        <textarea
+                          class="w-full rounded-lg border border-[#2a2a3a] bg-[#0a0a0f] p-3 text-xs text-purple-200 font-mono focus:border-purple-500 focus:outline-none resize-y"
+                          rows="6"
+                          placeholder="$"
+                          value={step.transformExpression || "$"}
+                          onInput={(e) => updateStep(index(), "transformExpression", e.currentTarget.value)}
+                        />
+                      </div>
+                    </div>
+                  </Show>
+
                   <Show when={step.type === "database"}>
                     <div class="mb-4 space-y-4">
                       <div class="grid grid-cols-2 gap-4">
@@ -1714,7 +2034,7 @@ export default function WorkflowBuilder() {
                                 </Show>
                               </div>
                               
-                              <Show when={!step.type || step.type === "grpc" || step.type === "rest" || step.type === "database"}>
+                              <Show when={!step.type || step.type === "grpc" || step.type === "rest" || step.type === "database" || step.type === "transform"}>
                                 <div class="flex p-0.5 bg-[#12121a] border border-[#2a2a3a] rounded-lg shadow-sm">
                                   <button
                                     type="button"
@@ -1745,7 +2065,7 @@ export default function WorkflowBuilder() {
                             </div>
                             
                             <div class="flex-1 flex flex-col justify-start overflow-hidden">
-                              <Show when={!step.type || step.type === "grpc" || step.type === "rest" || step.type === "database"}>
+                              <Show when={!step.type || step.type === "grpc" || step.type === "rest" || step.type === "database" || step.type === "transform"}>
                                 <Show when={resultTab() === "payload"}>
                                   <p class="text-[10px] text-[#5b5b6e] uppercase mb-1 font-semibold">Rendered Request Payload</p>
                                   <pre class="text-[11px] text-blue-300 font-mono overflow-auto max-h-[220px] bg-[#0a0a0f] p-3 rounded-lg border border-[#2a2a3a]/40 custom-scrollbar whitespace-pre-wrap break-all flex-1">
@@ -1804,6 +2124,8 @@ export default function WorkflowBuilder() {
                       </Show>
                     </div>
                   </div>
+                    );
+                  })()
                 );
               }}
             </For>
