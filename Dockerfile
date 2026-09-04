@@ -32,11 +32,12 @@ ENV SURREALDB_DB="main"
 
 # Authentication (pass real secrets at runtime)
 ENV AUTH_SECRET=""
-ENV OIDC_CLIENT_ID="mock-client-id"
-ENV OIDC_CLIENT_SECRET="mock-client-secret"
-ENV OIDC_ISSUER="https://oauth.wiremockapi.cloud"
+ENV OIDC_CLIENT_ID="solid-grpcfront"
+ENV OIDC_CLIENT_SECRET=""
+ENV OIDC_ISSUER="https://auth.401c6411-20e6-4053-8c2b-062d3c6ffcc0.k8s.civo.com/api/realms/master"
+ENV OIDC_REDIRECT_URI="https://401c6411-20e6-4053-8c2b-062d3c6ffcc0.k8s.civo.com/"
 
-ENV APP_ORIGIN=http://raynkami-solid-grpcfront.sliplane.app
+ENV APP_ORIGIN=https://401c6411-20e6-4053-8c2b-062d3c6ffcc0.k8s.civo.com
 
 # Sentry
 ENV SENTRY_DSN=""

@@ -1,5 +1,6 @@
 import { getSession } from "@auth/solid-start";
 import { authOpts } from "~/routes/api/auth/[...solidauth]";
+import { createDynamicRequest } from "~/lib/authUrl";
 
 export interface AuthUser {
   sub: string;
@@ -13,7 +14,8 @@ export interface AuthUser {
  */
 export async function getAuthUser(request: Request): Promise<AuthUser | null> {
   try {
-    const session = await getSession(request, authOpts);
+    const { request: dynamicReq } = createDynamicRequest(request);
+    const session = await getSession(dynamicReq, authOpts);
     if (!session?.user) return null;
     const user = session.user as any;
     return {

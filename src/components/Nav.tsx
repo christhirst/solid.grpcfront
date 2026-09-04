@@ -80,7 +80,7 @@ export default function Nav() {
               when={session()}
               fallback={
                 <button
-                  onClick={() => signIn("oidc")}
+                  onClick={() => signIn("oidc", { callbackUrl: typeof window !== "undefined" ? window.location.href : "/" })}
                   class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors duration-200 hover:bg-blue-700"
                 >
                   Log In
