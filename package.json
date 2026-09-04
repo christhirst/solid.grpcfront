@@ -7,6 +7,7 @@
     "start": "vite start",
     "preview": "vite preview"
   },
+  "packageManager": "bun@1.4.0",
   "dependencies": {
     "@antv/infographic": "^0.2.19",
     "@auth/core": "^0.41.2",

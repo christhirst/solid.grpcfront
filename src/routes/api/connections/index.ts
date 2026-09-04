@@ -3,6 +3,7 @@ import { getDb } from "~/lib/db";
 import { v4 as uuidv4 } from "uuid";
 import { RecordId } from "surrealdb";
 import { getOwnerFromRequest } from "~/lib/auth";
+import { normalizeConnection } from "~/lib/connections";
 
 export async function GET(event: APIEvent) {
   try {
@@ -10,7 +11,8 @@ export async function GET(event: APIEvent) {
     let connections: any = [];
     try {
       const result = await db.query("SELECT * FROM connection ORDER BY updated_at DESC");
-      connections = ((result[0] as any[]) || []).map((c: any) => ({ ...c, id: c.id?.toString().replace(/[⟨⟩]/g, "") }));
+      const rawRecords = (result[0] as any[]) || [];
+      connections = rawRecords.map((c: any) => normalizeConnection(c));
     } catch (e: any) {
       if (!e.message?.includes("does not exist")) throw e;
     }
@@ -36,25 +38,25 @@ export async function POST(event: APIEvent) {
     const rawId = body.id || `connection:${uuidv4()}`;
     const dbId = rawId.includes(":") ? rawId.split(":")[1] : rawId;
     const now = new Date().toISOString();
-    const connection = {
+
+    const normalized = normalizeConnection({
       ...body,
       id: rawId,
       owner,
       visibility: body.visibility || "public",
       created_at: body.created_at || now,
       updated_at: now,
-    };
+    });
 
-    const { id: _, ...dataWithoutId } = connection;
+    const { id: _, ...dataWithoutId } = normalized;
     const recordId = new RecordId("connection", dbId);
     const result = await db.query("CREATE $id CONTENT $data", { id: recordId, data: dataWithoutId });
     const records = Array.isArray(result) ? (result[0] || result) : result;
     const record = Array.isArray(records) ? records[0] : records;
-    if (record) {
-      record.id = `connection:${dbId}`;
-    }
+    
+    const output = normalizeConnection(record ? { ...record, id: `connection:${dbId}` } : normalized);
 
-    return new Response(JSON.stringify({ success: true, data: record }), {
+    return new Response(JSON.stringify({ success: true, data: output }), {
       headers: { "Content-Type": "application/json" },
     });
   } catch (err: any) {

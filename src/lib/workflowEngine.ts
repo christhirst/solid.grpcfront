@@ -7,6 +7,7 @@ import { parseProtoContent } from "~/lib/protoParser";
 import { RecordId } from "surrealdb";
 import * as Sentry from "@sentry/node";
 import { EventEmitter } from "events";
+import { normalizeConnection, fetchPreRequestToken } from "~/lib/connections";
 export { getStepCategory, type StepCategory, type WorkflowStep } from "./stepCategories";
 
 
@@ -28,70 +29,52 @@ export function emitWorkflowEvent(runId: string, workflowId: string, type: strin
 }
 
 async function getStepAuthHeader(step: any, db: any): Promise<string | undefined> {
-
   const authType = step.authType || "none";
   if (authType === "basic" && (step.authUsername || step.authPassword)) {
     const auth = Buffer.from(`${step.authUsername || ""}:${step.authPassword || ""}`).toString("base64");
     return `Basic ${auth}`;
   }
   
-  if (authType === "oauth" && step.connectionId) {
+  if ((authType === "oauth" || step.connectionId) && step.connectionId) {
     console.log(`[STEP AUTH] Fetching connection details for ID: ${step.connectionId}`);
     try {
       const connDbId = step.connectionId.includes(":") ? step.connectionId.split(":")[1] : step.connectionId;
       const connRecord = await db.select(new RecordId("connection", connDbId));
-      const connection = Array.isArray(connRecord) ? connRecord[0] : connRecord;
+      const rawConnection = Array.isArray(connRecord) ? connRecord[0] : connRecord;
       
-      if (connection) {
-        console.log(`[STEP AUTH] Executing REST auth call for connection: ${connection.name}`);
-        const headers: Record<string, string> = {
-          "Content-Type": "application/json",
-        };
+      if (rawConnection) {
+        const connection = normalizeConnection(rawConnection);
+        console.log(`[STEP AUTH] Resolving auth for connection: ${connection.name} (type: ${connection.type})`);
 
-        if (connection.headers) {
-           try {
-              const parsedHeaders = JSON.parse(connection.headers);
-              Object.assign(headers, parsedHeaders);
-           } catch (e) {
-              console.error(`[STEP AUTH] Failed to parse custom headers for connection:`, e);
-           }
-        }
-
-        if (connection.authScheme === "basic" && (connection.username || connection.password)) {
+        if (connection.authType === "basic" && (connection.username || connection.password)) {
           const auth = Buffer.from(`${connection.username || ""}:${connection.password || ""}`).toString("base64");
-          headers["Authorization"] = `Basic ${auth}`;
-        } else if (connection.authScheme === "bearer" && connection.bearerToken) {
-          headers["Authorization"] = `Bearer ${connection.bearerToken}`;
+          return `Basic ${auth}`;
         }
 
-        let authUrl = connection.url || "";
-        if (authUrl && !authUrl.startsWith("http://") && !authUrl.startsWith("https://")) {
-          if (/^[a-zA-Z0-9._-]+(:\d+)/.test(authUrl.split("/")[0])) {
-            authUrl = `http://${authUrl}`;
-          } else {
-            const separator = authUrl.startsWith("/") ? "" : "/";
-            const port = process.env.PORT || 3000;
-            authUrl = `http://127.0.0.1:${port}${separator}${authUrl}`;
+        if (connection.authType === "bearer" && connection.bearerToken) {
+          return `Bearer ${connection.bearerToken}`;
+        }
+
+        if (connection.authType === "oauth" || connection.tokenUrl) {
+          const tokenRes = await fetchPreRequestToken({
+            tokenUrl: connection.tokenUrl,
+            tokenMethod: connection.tokenMethod,
+            tokenAuthScheme: connection.tokenAuthScheme,
+            tokenUsername: connection.tokenUsername,
+            tokenPassword: connection.tokenPassword,
+            tokenBearerToken: connection.tokenBearerToken,
+            tokenBody: connection.tokenBody,
+            tokenHeaders: connection.tokenHeaders,
+            tokenPath: connection.tokenPath,
+          });
+
+          if (!tokenRes.success) {
+            throw new Error(tokenRes.error);
           }
-        }
 
-        const res = await fetch(authUrl, {
-          method: connection.method || "POST",
-          headers,
-          body: connection.method !== "GET" ? (connection.body || "{}") : undefined,
-        });
-
-        if (!res.ok) {
-          const errText = await res.text();
-          throw new Error(`HTTP ${res.status}: ${errText}`);
+          const prefix = connection.tokenHeaderPrefix !== undefined ? connection.tokenHeaderPrefix : "Bearer ";
+          return `${prefix}${tokenRes.token}`;
         }
-
-        const authData = await res.json();
-        const token = get(authData, connection.tokenPath || "access_token");
-        if (!token) {
-          throw new Error(`Token not found at JSON path '${connection.tokenPath || "access_token"}'`);
-        }
-        return `Bearer ${token}`;
       } else {
         throw new Error(`Connection ${step.connectionId} not found in database`);
       }
@@ -396,56 +379,39 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
       try {
         const connDbId = connectionId.includes(":") ? connectionId.split(":")[1] : connectionId;
         const connRecord = await db.select(new RecordId("connection", connDbId));
-        const connection = Array.isArray(connRecord) ? connRecord[0] : connRecord;
+        const rawConnection = Array.isArray(connRecord) ? connRecord[0] : connRecord;
         
-        if (connection) {
-          console.log(`[AUTH] Executing REST auth call for connection: ${connection.name}`);
-          const headers: Record<string, string> = {
-            "Content-Type": "application/json",
-          };
+        if (rawConnection) {
+          const connection = normalizeConnection(rawConnection);
+          console.log(`[AUTH] Resolving workflow connection auth: ${connection.name}`);
 
-          if (connection.headers) {
-             try {
-                const parsedHeaders = JSON.parse(connection.headers);
-                Object.assign(headers, parsedHeaders);
-             } catch (e) {
-                console.error(`[AUTH] Failed to parse custom headers for connection:`, e);
-             }
-          }
+          if (connection.authType === "bearer" && connection.bearerToken) {
+            authToken = connection.bearerToken;
+            context.auth = { token: authToken };
+          } else if (connection.authType === "basic" && (connection.username || connection.password)) {
+            authToken = Buffer.from(`${connection.username || ""}:${connection.password || ""}`).toString("base64");
+            context.auth = { token: authToken };
+          } else if (connection.authType === "oauth" || connection.tokenUrl) {
+            const tokenRes = await fetchPreRequestToken({
+              tokenUrl: connection.tokenUrl,
+              tokenMethod: connection.tokenMethod,
+              tokenAuthScheme: connection.tokenAuthScheme,
+              tokenUsername: connection.tokenUsername,
+              tokenPassword: connection.tokenPassword,
+              tokenBearerToken: connection.tokenBearerToken,
+              tokenBody: connection.tokenBody,
+              tokenHeaders: connection.tokenHeaders,
+              tokenPath: connection.tokenPath,
+            });
 
-          if (connection.authScheme === "basic" && (connection.username || connection.password)) {
-            const auth = Buffer.from(`${connection.username || ""}:${connection.password || ""}`).toString("base64");
-            headers["Authorization"] = `Basic ${auth}`;
-          } else if (connection.authScheme === "bearer" && connection.bearerToken) {
-            headers["Authorization"] = `Bearer ${connection.bearerToken}`;
-          }
-
-          let authUrl = connection.url || "";
-          if (authUrl && !authUrl.startsWith("http://") && !authUrl.startsWith("https://")) {
-            if (/^[a-zA-Z0-9._-]+(:\d+)/.test(authUrl.split("/")[0])) {
-              authUrl = `http://${authUrl}`;
-            } else {
-              const separator = authUrl.startsWith("/") ? "" : "/";
-              const port = process.env.PORT || 3000;
-              authUrl = `http://127.0.0.1:${port}${separator}${authUrl}`;
+            if (!tokenRes.success) {
+              throw new Error(tokenRes.error);
             }
+
+            authToken = tokenRes.token;
+            context.auth = { token: authToken, response: tokenRes.response };
+            console.log(`[AUTH] Success. Connection token obtained.`);
           }
-
-          const res = await fetch(authUrl, {
-            method: connection.method || "POST",
-            headers,
-            body: connection.method !== "GET" ? (connection.body || "{}") : undefined,
-          });
-
-          if (!res.ok) {
-            const errText = await res.text();
-            throw new Error(`HTTP ${res.status}: ${errText}`);
-          }
-
-          const authData = await res.json();
-          authToken = get(authData, connection.tokenPath || "access_token");
-          context.auth = { token: authToken, response: authData };
-          console.log(`[AUTH] Success. Connection token obtained.`);
         } else {
           throw new Error(`Connection ${connectionId} not found in database`);
         }
@@ -726,11 +692,29 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
 
       if (step.type === "surreal_live") {
         const targetTable = step.requestBodyTemplate?.trim() || "workflow_run";
-        const targetDbName = interpolateTemplate(step.databaseName || "", context) || undefined;
-        const targetDbUrl = interpolateTemplate(step.databaseUrl || "", context) || undefined;
-        const targetDbUser = interpolateTemplate(step.databaseUser || "", context) || undefined;
-        const targetDbPass = interpolateTemplate(step.databasePass || "", context) || undefined;
-        const targetDbNs = interpolateTemplate(step.databaseNs || "", context) || undefined;
+        let targetDbName = interpolateTemplate(step.databaseName || "", context) || undefined;
+        let targetDbUrl = interpolateTemplate(step.databaseUrl || "", context) || undefined;
+        let targetDbUser = interpolateTemplate(step.databaseUser || "", context) || undefined;
+        let targetDbPass = interpolateTemplate(step.databasePass || "", context) || undefined;
+        let targetDbNs = interpolateTemplate(step.databaseNs || "", context) || undefined;
+
+        if (step.connectionId && (!targetDbUrl || !targetDbName)) {
+          try {
+            const connDbId = step.connectionId.includes(":") ? step.connectionId.split(":")[1] : step.connectionId;
+            const connRecord = await db.select(new RecordId("connection", connDbId));
+            const rawConn = Array.isArray(connRecord) ? connRecord[0] : connRecord;
+            if (rawConn) {
+              const conn = normalizeConnection(rawConn) as any;
+              if (conn.url && !targetDbUrl) targetDbUrl = conn.url;
+              if (conn.username && !targetDbUser) targetDbUser = conn.username;
+              if (conn.password && !targetDbPass) targetDbPass = conn.password;
+              if (conn.namespace && !targetDbNs) targetDbNs = conn.namespace;
+              if (conn.database && !targetDbName) targetDbName = conn.database;
+            }
+          } catch (e) {
+            console.error("[WORKFLOW] Could not resolve SurrealDB connection for live step:", e);
+          }
+        }
 
         const chunks: any[] = [];
         let streamError: string | undefined = undefined;
@@ -972,11 +956,29 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
         let latencyMs = 0;
         try {
           const startTimeMs = Date.now();
-          const targetDbName = interpolateTemplate(step.databaseName || "", context) || undefined;
-          const targetDbUrl = interpolateTemplate(step.databaseUrl || "", context) || undefined;
-          const targetDbUser = interpolateTemplate(step.databaseUser || "", context) || undefined;
-          const targetDbPass = interpolateTemplate(step.databasePass || "", context) || undefined;
-          const targetDbNs = interpolateTemplate(step.databaseNs || "", context) || undefined;
+          let targetDbName = interpolateTemplate(step.databaseName || "", context) || undefined;
+          let targetDbUrl = interpolateTemplate(step.databaseUrl || "", context) || undefined;
+          let targetDbUser = interpolateTemplate(step.databaseUser || "", context) || undefined;
+          let targetDbPass = interpolateTemplate(step.databasePass || "", context) || undefined;
+          let targetDbNs = interpolateTemplate(step.databaseNs || "", context) || undefined;
+
+          if (step.connectionId && (!targetDbUrl || !targetDbName)) {
+            try {
+              const connDbId = step.connectionId.includes(":") ? step.connectionId.split(":")[1] : step.connectionId;
+              const connRecord = await db.select(new RecordId("connection", connDbId));
+              const rawConn = Array.isArray(connRecord) ? connRecord[0] : connRecord;
+              if (rawConn) {
+                const conn = normalizeConnection(rawConn) as any;
+                if (conn.url && !targetDbUrl) targetDbUrl = conn.url;
+                if (conn.username && !targetDbUser) targetDbUser = conn.username;
+                if (conn.password && !targetDbPass) targetDbPass = conn.password;
+                if (conn.namespace && !targetDbNs) targetDbNs = conn.namespace;
+                if (conn.database && !targetDbName) targetDbName = conn.database;
+              }
+            } catch (e) {
+              console.error("[WORKFLOW] Could not resolve SurrealDB connection for database step:", e);
+            }
+          }
           
           // Import here to avoid circular dependency if one existed, but it's fine at top-level
           const { getCustomDb } = await import("~/lib/db");

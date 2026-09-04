@@ -1,6 +1,7 @@
 import { APIEvent } from "@solidjs/start/server";
 import { getDb } from "~/lib/db";
 import { RecordId } from "surrealdb";
+import { normalizeConnection } from "~/lib/connections";
 
 export async function GET(event: APIEvent) {
   try {
@@ -20,8 +21,8 @@ export async function GET(event: APIEvent) {
       });
     }
 
-    connection.id = `connection:${dbId}`;
-    return new Response(JSON.stringify({ success: true, data: connection }), {
+    const normalized = normalizeConnection({ ...connection, id: `connection:${dbId}` });
+    return new Response(JSON.stringify({ success: true, data: normalized }), {
       headers: { "Content-Type": "application/json" },
     });
   } catch (err: any) {
@@ -40,17 +41,20 @@ export async function PUT(event: APIEvent) {
     const dbId = id.includes(":") ? id.split(":")[1] : id;
     const recordId = new RecordId("connection", dbId);
 
-    const connection = { ...body, updated_at: new Date().toISOString() };
-    const { id: _, ...dataWithoutId } = connection;
+    const normalized = normalizeConnection({
+      ...body,
+      id: `connection:${dbId}`,
+      updated_at: new Date().toISOString(),
+    });
+    const { id: _, ...dataWithoutId } = normalized;
 
     const result = await db.query("UPDATE $id CONTENT $data", { id: recordId, data: dataWithoutId });
     const records = Array.isArray(result) ? (result[0] || result) : result;
     const record = Array.isArray(records) ? records[0] : records;
-    if (record) {
-      record.id = `connection:${dbId}`;
-    }
 
-    return new Response(JSON.stringify({ success: true, data: record }), {
+    const output = normalizeConnection(record ? { ...record, id: `connection:${dbId}` } : normalized);
+
+    return new Response(JSON.stringify({ success: true, data: output }), {
       headers: { "Content-Type": "application/json" },
     });
   } catch (err: any) {

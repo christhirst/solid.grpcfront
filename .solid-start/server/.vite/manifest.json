@@ -1,6 +1,6 @@
 {
-  "_auth-BNAJzjej.js": {
-    "file": "_build/assets/auth-BNAJzjej.js",
+  "_auth-BHxeiPET.js": {
+    "file": "_build/assets/auth-BHxeiPET.js",
     "name": "auth",
     "imports": [
       "_logger-BDLv3oYI.js"
@@ -13,14 +13,23 @@
       "src/entry-server.tsx"
     ]
   },
-  "_db-BycVvFuO.js": {
-    "file": "_build/assets/db-BycVvFuO.js",
+  "_connections-BimqTFQY.js": {
+    "file": "_build/assets/connections-BimqTFQY.js",
+    "name": "connections",
+    "dynamicImports": [
+      "_db-CWsCtsJQ.js"
+    ]
+  },
+  "_db-CWsCtsJQ.js": {
+    "file": "_build/assets/db-CWsCtsJQ.js",
     "name": "db",
+    "isDynamicEntry": true,
     "imports": [
       "_logger-BDLv3oYI.js",
       "_grpcExecutor-DlteWgV8.js",
       "_httpExecutor-C7gv4kID.js",
-      "_protoParser-C1XlV9an.js"
+      "_protoParser-C1XlV9an.js",
+      "_connections-BimqTFQY.js"
     ]
   },
   "_grpcExecutor-DlteWgV8.js": {
@@ -137,6 +146,8 @@
       "src/routes/api/connections/index.ts?pick=POST",
       "src/routes/api/connections/test-token.ts?pick=POST",
       "src/routes/api/connections/test-token.ts?pick=POST",
+      "src/routes/api/connections/test.ts?pick=POST",
+      "src/routes/api/connections/test.ts?pick=POST",
       "src/routes/api/dashboards/index.ts?pick=GET",
       "src/routes/api/dashboards/index.ts?pick=GET",
       "src/routes/api/dashboards/index.ts?pick=GET",
@@ -233,7 +244,7 @@
       "src/routes/api/workflows/runs/[id]/stream.ts?pick=POST"
     ],
     "css": [
-      "_build/assets/entry-server-Bul56bIz.css"
+      "_build/assets/entry-server-D1ij-2Jx.css"
     ]
   },
   "src/routes/TrustedCA.tsx?pick=default&pick=$css": {
@@ -263,7 +274,7 @@
     ]
   },
   "src/routes/api/auth/[...solidauth].ts?pick=GET": {
-    "file": "_build/assets/_...solidauth_-BCuQeedD.js",
+    "file": "_build/assets/_...solidauth_-KNnM9XxM.js",
     "name": "_...solidauth_",
     "src": "src/routes/api/auth/[...solidauth].ts?pick=GET",
     "isDynamicEntry": true,
@@ -272,7 +283,7 @@
     ]
   },
   "src/routes/api/auth/[...solidauth].ts?pick=POST": {
-    "file": "_build/assets/_...solidauth_-CcNQu43f.js",
+    "file": "_build/assets/_...solidauth_-C-4nU_N1.js",
     "name": "_...solidauth_",
     "src": "src/routes/api/auth/[...solidauth].ts?pick=POST",
     "isDynamicEntry": true,
@@ -281,91 +292,98 @@
     ]
   },
   "src/routes/api/cas/[id].ts?pick=DELETE": {
-    "file": "_build/assets/_id_-DxVmOMmN.js",
+    "file": "_build/assets/_id_-Dv3DR-Bg.js",
     "name": "_id_",
     "src": "src/routes/api/cas/[id].ts?pick=DELETE",
     "isDynamicEntry": true,
     "imports": [
-      "_db-BycVvFuO.js",
+      "_db-CWsCtsJQ.js",
       "_logger-BDLv3oYI.js",
       "_grpcExecutor-DlteWgV8.js",
       "_httpExecutor-C7gv4kID.js",
-      "_protoParser-C1XlV9an.js"
+      "_protoParser-C1XlV9an.js",
+      "_connections-BimqTFQY.js"
     ]
   },
   "src/routes/api/cas/[id].ts?pick=GET": {
-    "file": "_build/assets/_id_-C5v5Nhoy.js",
+    "file": "_build/assets/_id_-DmBiWPDK.js",
     "name": "_id_",
     "src": "src/routes/api/cas/[id].ts?pick=GET",
     "isDynamicEntry": true,
     "imports": [
-      "_db-BycVvFuO.js",
+      "_db-CWsCtsJQ.js",
       "_logger-BDLv3oYI.js",
       "_grpcExecutor-DlteWgV8.js",
       "_httpExecutor-C7gv4kID.js",
-      "_protoParser-C1XlV9an.js"
+      "_protoParser-C1XlV9an.js",
+      "_connections-BimqTFQY.js"
     ]
   },
   "src/routes/api/cas/[id].ts?pick=PUT": {
-    "file": "_build/assets/_id_-CYpXdTLX.js",
+    "file": "_build/assets/_id_-WGFU9Gdb.js",
     "name": "_id_",
     "src": "src/routes/api/cas/[id].ts?pick=PUT",
     "isDynamicEntry": true,
     "imports": [
-      "_db-BycVvFuO.js",
+      "_db-CWsCtsJQ.js",
       "_logger-BDLv3oYI.js",
       "_grpcExecutor-DlteWgV8.js",
       "_httpExecutor-C7gv4kID.js",
-      "_protoParser-C1XlV9an.js"
+      "_protoParser-C1XlV9an.js",
+      "_connections-BimqTFQY.js"
     ]
   },
   "src/routes/api/cas/index.ts?pick=GET": {
-    "file": "_build/assets/index-DQoR5ZZj.js",
+    "file": "_build/assets/index-Br0wWsf9.js",
     "name": "index",
     "src": "src/routes/api/cas/index.ts?pick=GET",
     "isDynamicEntry": true,
     "imports": [
-      "_db-BycVvFuO.js",
+      "_db-CWsCtsJQ.js",
       "_logger-BDLv3oYI.js",
       "_grpcExecutor-DlteWgV8.js",
       "_httpExecutor-C7gv4kID.js",
-      "_protoParser-C1XlV9an.js"
+      "_protoParser-C1XlV9an.js",
+      "_connections-BimqTFQY.js"
     ]
   },
   "src/routes/api/cas/index.ts?pick=POST": {
-    "file": "_build/assets/index-B7UD7HEj.js",
+    "file": "_build/assets/index-B517U2Wf.js",
     "name": "index",
     "src": "src/routes/api/cas/index.ts?pick=POST",
     "isDynamicEntry": true,
     "imports": [
-      "_db-BycVvFuO.js",
-      "_auth-BNAJzjej.js",
+      "_db-CWsCtsJQ.js",
+      "_auth-BHxeiPET.js",
       "_logger-BDLv3oYI.js",
       "_grpcExecutor-DlteWgV8.js",
       "_httpExecutor-C7gv4kID.js",
-      "_protoParser-C1XlV9an.js"
+      "_protoParser-C1XlV9an.js",
+      "_connections-BimqTFQY.js"
     ]
   },
   "src/routes/api/connections/[id].ts?pick=DELETE": {
-    "file": "_build/assets/_id_-atc7ngAr.js",
+    "file": "_build/assets/_id_-fG_mYy1s.js",
     "name": "_id_",
     "src": "src/routes/api/connections/[id].ts?pick=DELETE",
     "isDynamicEntry": true,
     "imports": [
-      "_db-BycVvFuO.js",
+      "_db-CWsCtsJQ.js",
       "_logger-BDLv3oYI.js",
       "_grpcExecutor-DlteWgV8.js",
       "_httpExecutor-C7gv4kID.js",
-      "_protoParser-C1XlV9an.js"
+      "_protoParser-C1XlV9an.js",
+      "_connections-BimqTFQY.js"
     ]
   },
   "src/routes/api/connections/[id].ts?pick=GET": {
-    "file": "_build/assets/_id_-C9FQFMcC.js",
+    "file": "_build/assets/_id_-Dlnz5zxe.js",
     "name": "_id_",
     "src": "src/routes/api/connections/[id].ts?pick=GET",
     "isDynamicEntry": true,
     "imports": [
-      "_db-BycVvFuO.js",
+      "_db-CWsCtsJQ.js",
+      "_connections-BimqTFQY.js",
       "_logger-BDLv3oYI.js",
       "_grpcExecutor-DlteWgV8.js",
       "_httpExecutor-C7gv4kID.js",
@@ -373,12 +391,13 @@
     ]
   },
   "src/routes/api/connections/[id].ts?pick=PUT": {
-    "file": "_build/assets/_id_-CEDADMID.js",
+    "file": "_build/assets/_id_-CPBN_4js.js",
     "name": "_id_",
     "src": "src/routes/api/connections/[id].ts?pick=PUT",
     "isDynamicEntry": true,
     "imports": [
-      "_db-BycVvFuO.js",
+      "_db-CWsCtsJQ.js",
+      "_connections-BimqTFQY.js",
       "_logger-BDLv3oYI.js",
       "_grpcExecutor-DlteWgV8.js",
       "_httpExecutor-C7gv4kID.js",
@@ -386,12 +405,13 @@
     ]
   },
   "src/routes/api/connections/index.ts?pick=GET": {
-    "file": "_build/assets/index-BnxoCgIY.js",
+    "file": "_build/assets/index-DT9_44vk.js",
     "name": "index",
     "src": "src/routes/api/connections/index.ts?pick=GET",
     "isDynamicEntry": true,
     "imports": [
-      "_db-BycVvFuO.js",
+      "_db-CWsCtsJQ.js",
+      "_connections-BimqTFQY.js",
       "_logger-BDLv3oYI.js",
       "_grpcExecutor-DlteWgV8.js",
       "_httpExecutor-C7gv4kID.js",
@@ -399,13 +419,14 @@
     ]
   },
   "src/routes/api/connections/index.ts?pick=POST": {
-    "file": "_build/assets/index-BhWO3G93.js",
+    "file": "_build/assets/index-5TMUg33K.js",
     "name": "index",
     "src": "src/routes/api/connections/index.ts?pick=POST",
     "isDynamicEntry": true,
     "imports": [
-      "_db-BycVvFuO.js",
-      "_auth-BNAJzjej.js",
+      "_db-CWsCtsJQ.js",
+      "_auth-BHxeiPET.js",
+      "_connections-BimqTFQY.js",
       "_logger-BDLv3oYI.js",
       "_grpcExecutor-DlteWgV8.js",
       "_httpExecutor-C7gv4kID.js",
@@ -413,127 +434,153 @@
     ]
   },
   "src/routes/api/connections/test-token.ts?pick=POST": {
-    "file": "_build/assets/test-token-FSxWnVgd.js",
+    "file": "_build/assets/test-token-Dm9X8S-k.js",
     "name": "test-token",
     "src": "src/routes/api/connections/test-token.ts?pick=POST",
-    "isDynamicEntry": true
+    "isDynamicEntry": true,
+    "imports": [
+      "_connections-BimqTFQY.js"
+    ]
+  },
+  "src/routes/api/connections/test.ts?pick=POST": {
+    "file": "_build/assets/test-BzwQMxEy.js",
+    "name": "test",
+    "src": "src/routes/api/connections/test.ts?pick=POST",
+    "isDynamicEntry": true,
+    "imports": [
+      "_db-CWsCtsJQ.js",
+      "_connections-BimqTFQY.js",
+      "_logger-BDLv3oYI.js",
+      "_grpcExecutor-DlteWgV8.js",
+      "_httpExecutor-C7gv4kID.js",
+      "_protoParser-C1XlV9an.js"
+    ]
   },
   "src/routes/api/dashboards/[id]/index.ts?pick=DELETE": {
-    "file": "_build/assets/index-XNqxm0ZY.js",
+    "file": "_build/assets/index-CYk38RIq.js",
     "name": "index",
     "src": "src/routes/api/dashboards/[id]/index.ts?pick=DELETE",
     "isDynamicEntry": true,
     "imports": [
-      "_db-BycVvFuO.js",
+      "_db-CWsCtsJQ.js",
       "_logger-BDLv3oYI.js",
       "_grpcExecutor-DlteWgV8.js",
       "_httpExecutor-C7gv4kID.js",
-      "_protoParser-C1XlV9an.js"
+      "_protoParser-C1XlV9an.js",
+      "_connections-BimqTFQY.js"
     ]
   },
   "src/routes/api/dashboards/[id]/index.ts?pick=GET": {
-    "file": "_build/assets/index-C-o7Z2xR.js",
+    "file": "_build/assets/index-cGgXpZ9w.js",
     "name": "index",
     "src": "src/routes/api/dashboards/[id]/index.ts?pick=GET",
     "isDynamicEntry": true,
     "imports": [
-      "_db-BycVvFuO.js",
+      "_db-CWsCtsJQ.js",
       "_logger-BDLv3oYI.js",
       "_grpcExecutor-DlteWgV8.js",
       "_httpExecutor-C7gv4kID.js",
-      "_protoParser-C1XlV9an.js"
+      "_protoParser-C1XlV9an.js",
+      "_connections-BimqTFQY.js"
     ]
   },
   "src/routes/api/dashboards/[id]/index.ts?pick=PUT": {
-    "file": "_build/assets/index-2y9B74Jf.js",
+    "file": "_build/assets/index-B7gYdSXK.js",
     "name": "index",
     "src": "src/routes/api/dashboards/[id]/index.ts?pick=PUT",
     "isDynamicEntry": true,
     "imports": [
-      "_db-BycVvFuO.js",
+      "_db-CWsCtsJQ.js",
       "_logger-BDLv3oYI.js",
       "_grpcExecutor-DlteWgV8.js",
       "_httpExecutor-C7gv4kID.js",
-      "_protoParser-C1XlV9an.js"
+      "_protoParser-C1XlV9an.js",
+      "_connections-BimqTFQY.js"
     ]
   },
   "src/routes/api/dashboards/[id]/trigger/[buttonId].ts?pick=POST": {
-    "file": "_build/assets/_buttonId_-CyxtltJz.js",
+    "file": "_build/assets/_buttonId_-BWA-vMCb.js",
     "name": "_buttonId_",
     "src": "src/routes/api/dashboards/[id]/trigger/[buttonId].ts?pick=POST",
     "isDynamicEntry": true,
     "imports": [
-      "_db-BycVvFuO.js",
+      "_db-CWsCtsJQ.js",
       "_logger-BDLv3oYI.js",
       "_grpcExecutor-DlteWgV8.js",
       "_httpExecutor-C7gv4kID.js",
-      "_protoParser-C1XlV9an.js"
+      "_protoParser-C1XlV9an.js",
+      "_connections-BimqTFQY.js"
     ]
   },
   "src/routes/api/dashboards/index.ts?pick=GET": {
-    "file": "_build/assets/index-BGUr0_Gl.js",
+    "file": "_build/assets/index-AxGW3yDG.js",
     "name": "index",
     "src": "src/routes/api/dashboards/index.ts?pick=GET",
     "isDynamicEntry": true,
     "imports": [
-      "_db-BycVvFuO.js",
+      "_db-CWsCtsJQ.js",
       "_logger-BDLv3oYI.js",
       "_grpcExecutor-DlteWgV8.js",
       "_httpExecutor-C7gv4kID.js",
-      "_protoParser-C1XlV9an.js"
+      "_protoParser-C1XlV9an.js",
+      "_connections-BimqTFQY.js"
     ]
   },
   "src/routes/api/dashboards/index.ts?pick=POST": {
-    "file": "_build/assets/index-By5jysY9.js",
+    "file": "_build/assets/index-017fmGhB.js",
     "name": "index",
     "src": "src/routes/api/dashboards/index.ts?pick=POST",
     "isDynamicEntry": true,
     "imports": [
-      "_db-BycVvFuO.js",
-      "_auth-BNAJzjej.js",
+      "_db-CWsCtsJQ.js",
+      "_auth-BHxeiPET.js",
       "_logger-BDLv3oYI.js",
       "_grpcExecutor-DlteWgV8.js",
       "_httpExecutor-C7gv4kID.js",
-      "_protoParser-C1XlV9an.js"
+      "_protoParser-C1XlV9an.js",
+      "_connections-BimqTFQY.js"
     ]
   },
   "src/routes/api/database/[db]/[table]/index.ts?pick=GET": {
-    "file": "_build/assets/index-DJhDEDPP.js",
+    "file": "_build/assets/index-WjQ2zzl9.js",
     "name": "index",
     "src": "src/routes/api/database/[db]/[table]/index.ts?pick=GET",
     "isDynamicEntry": true,
     "imports": [
-      "_db-BycVvFuO.js",
+      "_db-CWsCtsJQ.js",
       "_logger-BDLv3oYI.js",
       "_grpcExecutor-DlteWgV8.js",
       "_httpExecutor-C7gv4kID.js",
-      "_protoParser-C1XlV9an.js"
+      "_protoParser-C1XlV9an.js",
+      "_connections-BimqTFQY.js"
     ]
   },
   "src/routes/api/database/[db]/[table]/index.ts?pick=POST": {
-    "file": "_build/assets/index-BxfrSKFp.js",
+    "file": "_build/assets/index-DYL1wqaE.js",
     "name": "index",
     "src": "src/routes/api/database/[db]/[table]/index.ts?pick=POST",
     "isDynamicEntry": true,
     "imports": [
-      "_db-BycVvFuO.js",
+      "_db-CWsCtsJQ.js",
       "_logger-BDLv3oYI.js",
       "_grpcExecutor-DlteWgV8.js",
       "_httpExecutor-C7gv4kID.js",
-      "_protoParser-C1XlV9an.js"
+      "_protoParser-C1XlV9an.js",
+      "_connections-BimqTFQY.js"
     ]
   },
   "src/routes/api/database/[db]/live.ts?pick=GET": {
-    "file": "_build/assets/live-B5yYqfhe.js",
+    "file": "_build/assets/live-BbjlHsEY.js",
     "name": "live",
     "src": "src/routes/api/database/[db]/live.ts?pick=GET",
     "isDynamicEntry": true,
     "imports": [
-      "_db-BycVvFuO.js",
+      "_db-CWsCtsJQ.js",
       "_logger-BDLv3oYI.js",
       "_grpcExecutor-DlteWgV8.js",
       "_httpExecutor-C7gv4kID.js",
-      "_protoParser-C1XlV9an.js"
+      "_protoParser-C1XlV9an.js",
+      "_connections-BimqTFQY.js"
     ]
   },
   "src/routes/api/database/[db]/live.ts?pick=POST": {
@@ -543,55 +590,59 @@
     "isDynamicEntry": true
   },
   "src/routes/api/database/[db]/query.ts?pick=POST": {
-    "file": "_build/assets/query-BwKAv6Vn.js",
+    "file": "_build/assets/query-2AZkO1_g.js",
     "name": "query",
     "src": "src/routes/api/database/[db]/query.ts?pick=POST",
     "isDynamicEntry": true,
     "imports": [
-      "_db-BycVvFuO.js",
+      "_db-CWsCtsJQ.js",
       "_logger-BDLv3oYI.js",
       "_grpcExecutor-DlteWgV8.js",
       "_httpExecutor-C7gv4kID.js",
-      "_protoParser-C1XlV9an.js"
+      "_protoParser-C1XlV9an.js",
+      "_connections-BimqTFQY.js"
     ]
   },
   "src/routes/api/database/[db]/tables.ts?pick=GET": {
-    "file": "_build/assets/tables-Qa90--tJ.js",
+    "file": "_build/assets/tables-D5TKdv6Y.js",
     "name": "tables",
     "src": "src/routes/api/database/[db]/tables.ts?pick=GET",
     "isDynamicEntry": true,
     "imports": [
-      "_db-BycVvFuO.js",
+      "_db-CWsCtsJQ.js",
       "_logger-BDLv3oYI.js",
       "_grpcExecutor-DlteWgV8.js",
       "_httpExecutor-C7gv4kID.js",
-      "_protoParser-C1XlV9an.js"
+      "_protoParser-C1XlV9an.js",
+      "_connections-BimqTFQY.js"
     ]
   },
   "src/routes/api/database/index.ts?pick=GET": {
-    "file": "_build/assets/index-By6lqwYW.js",
+    "file": "_build/assets/index-BxVpfagu.js",
     "name": "index",
     "src": "src/routes/api/database/index.ts?pick=GET",
     "isDynamicEntry": true,
     "imports": [
-      "_db-BycVvFuO.js",
+      "_db-CWsCtsJQ.js",
       "_logger-BDLv3oYI.js",
       "_grpcExecutor-DlteWgV8.js",
       "_httpExecutor-C7gv4kID.js",
-      "_protoParser-C1XlV9an.js"
+      "_protoParser-C1XlV9an.js",
+      "_connections-BimqTFQY.js"
     ]
   },
   "src/routes/api/database/index.ts?pick=POST": {
-    "file": "_build/assets/index-DX-hqvlL.js",
+    "file": "_build/assets/index-BimlKHBm.js",
     "name": "index",
     "src": "src/routes/api/database/index.ts?pick=POST",
     "isDynamicEntry": true,
     "imports": [
-      "_db-BycVvFuO.js",
+      "_db-CWsCtsJQ.js",
       "_logger-BDLv3oYI.js",
       "_grpcExecutor-DlteWgV8.js",
       "_httpExecutor-C7gv4kID.js",
-      "_protoParser-C1XlV9an.js"
+      "_protoParser-C1XlV9an.js",
+      "_connections-BimqTFQY.js"
     ]
   },
   "src/routes/api/grpc.ts?pick=POST": {
@@ -613,82 +664,88 @@
     ]
   },
   "src/routes/api/health.ts?pick=GET": {
-    "file": "_build/assets/health-BuYbB1kA.js",
+    "file": "_build/assets/health-CfYk39hW.js",
     "name": "health",
     "src": "src/routes/api/health.ts?pick=GET",
     "isDynamicEntry": true,
     "imports": [
-      "_db-BycVvFuO.js",
+      "_db-CWsCtsJQ.js",
       "_logger-BDLv3oYI.js",
       "_grpcExecutor-DlteWgV8.js",
       "_httpExecutor-C7gv4kID.js",
-      "_protoParser-C1XlV9an.js"
+      "_protoParser-C1XlV9an.js",
+      "_connections-BimqTFQY.js"
     ]
   },
   "src/routes/api/protos/[id].ts?pick=DELETE": {
-    "file": "_build/assets/_id_-f_35Lyaw.js",
+    "file": "_build/assets/_id_-BxnukBYw.js",
     "name": "_id_",
     "src": "src/routes/api/protos/[id].ts?pick=DELETE",
     "isDynamicEntry": true,
     "imports": [
-      "_db-BycVvFuO.js",
+      "_db-CWsCtsJQ.js",
       "_logger-BDLv3oYI.js",
       "_grpcExecutor-DlteWgV8.js",
       "_httpExecutor-C7gv4kID.js",
-      "_protoParser-C1XlV9an.js"
+      "_protoParser-C1XlV9an.js",
+      "_connections-BimqTFQY.js"
     ]
   },
   "src/routes/api/protos/[id].ts?pick=GET": {
-    "file": "_build/assets/_id_-BxgiBCSf.js",
+    "file": "_build/assets/_id_-s6fu2IFn.js",
     "name": "_id_",
     "src": "src/routes/api/protos/[id].ts?pick=GET",
     "isDynamicEntry": true,
     "imports": [
-      "_db-BycVvFuO.js",
+      "_db-CWsCtsJQ.js",
       "_logger-BDLv3oYI.js",
       "_grpcExecutor-DlteWgV8.js",
       "_httpExecutor-C7gv4kID.js",
-      "_protoParser-C1XlV9an.js"
+      "_protoParser-C1XlV9an.js",
+      "_connections-BimqTFQY.js"
     ]
   },
   "src/routes/api/protos/[id].ts?pick=PUT": {
-    "file": "_build/assets/_id_-CvrsUZYJ.js",
+    "file": "_build/assets/_id_-DZGLAqxv.js",
     "name": "_id_",
     "src": "src/routes/api/protos/[id].ts?pick=PUT",
     "isDynamicEntry": true,
     "imports": [
-      "_db-BycVvFuO.js",
+      "_db-CWsCtsJQ.js",
       "_logger-BDLv3oYI.js",
       "_grpcExecutor-DlteWgV8.js",
       "_httpExecutor-C7gv4kID.js",
-      "_protoParser-C1XlV9an.js"
+      "_protoParser-C1XlV9an.js",
+      "_connections-BimqTFQY.js"
     ]
   },
   "src/routes/api/protos/index.ts?pick=GET": {
-    "file": "_build/assets/index-BNwzRcQ0.js",
+    "file": "_build/assets/index-BOB5-P8a.js",
     "name": "index",
     "src": "src/routes/api/protos/index.ts?pick=GET",
     "isDynamicEntry": true,
     "imports": [
-      "_db-BycVvFuO.js",
+      "_db-CWsCtsJQ.js",
       "_logger-BDLv3oYI.js",
       "_grpcExecutor-DlteWgV8.js",
       "_httpExecutor-C7gv4kID.js",
-      "_protoParser-C1XlV9an.js"
+      "_protoParser-C1XlV9an.js",
+      "_connections-BimqTFQY.js"
     ]
   },
   "src/routes/api/protos/index.ts?pick=POST": {
-    "file": "_build/assets/index-DbSAry3G.js",
+    "file": "_build/assets/index-BRyDC8wM.js",
     "name": "index",
     "src": "src/routes/api/protos/index.ts?pick=POST",
     "isDynamicEntry": true,
     "imports": [
-      "_db-BycVvFuO.js",
-      "_auth-BNAJzjej.js",
+      "_db-CWsCtsJQ.js",
+      "_auth-BHxeiPET.js",
       "_logger-BDLv3oYI.js",
       "_grpcExecutor-DlteWgV8.js",
       "_httpExecutor-C7gv4kID.js",
-      "_protoParser-C1XlV9an.js"
+      "_protoParser-C1XlV9an.js",
+      "_connections-BimqTFQY.js"
     ]
   },
   "src/routes/api/requests/stream.ts?pick=POST": {
@@ -701,81 +758,87 @@
     ]
   },
   "src/routes/api/workflows/[id]/index.ts?pick=DELETE": {
-    "file": "_build/assets/index-BCv4eFS8.js",
+    "file": "_build/assets/index-NhXlIGz5.js",
     "name": "index",
     "src": "src/routes/api/workflows/[id]/index.ts?pick=DELETE",
     "isDynamicEntry": true,
     "imports": [
-      "_db-BycVvFuO.js",
+      "_db-CWsCtsJQ.js",
       "_logger-BDLv3oYI.js",
       "_grpcExecutor-DlteWgV8.js",
       "_httpExecutor-C7gv4kID.js",
-      "_protoParser-C1XlV9an.js"
+      "_protoParser-C1XlV9an.js",
+      "_connections-BimqTFQY.js"
     ]
   },
   "src/routes/api/workflows/[id]/index.ts?pick=GET": {
-    "file": "_build/assets/index-D7-Sbx8e.js",
+    "file": "_build/assets/index-DI2nEFWP.js",
     "name": "index",
     "src": "src/routes/api/workflows/[id]/index.ts?pick=GET",
     "isDynamicEntry": true,
     "imports": [
-      "_db-BycVvFuO.js",
+      "_db-CWsCtsJQ.js",
       "_logger-BDLv3oYI.js",
       "_grpcExecutor-DlteWgV8.js",
       "_httpExecutor-C7gv4kID.js",
-      "_protoParser-C1XlV9an.js"
+      "_protoParser-C1XlV9an.js",
+      "_connections-BimqTFQY.js"
     ]
   },
   "src/routes/api/workflows/[id]/index.ts?pick=PUT": {
-    "file": "_build/assets/index-tH1obtUA.js",
+    "file": "_build/assets/index-C9QwMIqv.js",
     "name": "index",
     "src": "src/routes/api/workflows/[id]/index.ts?pick=PUT",
     "isDynamicEntry": true,
     "imports": [
-      "_db-BycVvFuO.js",
+      "_db-CWsCtsJQ.js",
       "_logger-BDLv3oYI.js",
       "_grpcExecutor-DlteWgV8.js",
       "_httpExecutor-C7gv4kID.js",
-      "_protoParser-C1XlV9an.js"
+      "_protoParser-C1XlV9an.js",
+      "_connections-BimqTFQY.js"
     ]
   },
   "src/routes/api/workflows/[id]/run.ts?pick=GET": {
-    "file": "_build/assets/run-CA7Q7-pY.js",
+    "file": "_build/assets/run-MZ-q95A_.js",
     "name": "run",
     "src": "src/routes/api/workflows/[id]/run.ts?pick=GET",
     "isDynamicEntry": true,
     "imports": [
-      "_db-BycVvFuO.js",
+      "_db-CWsCtsJQ.js",
       "_logger-BDLv3oYI.js",
       "_grpcExecutor-DlteWgV8.js",
       "_httpExecutor-C7gv4kID.js",
-      "_protoParser-C1XlV9an.js"
+      "_protoParser-C1XlV9an.js",
+      "_connections-BimqTFQY.js"
     ]
   },
   "src/routes/api/workflows/[id]/run.ts?pick=POST": {
-    "file": "_build/assets/run-DqwYyCMC.js",
+    "file": "_build/assets/run-vcIhdssW.js",
     "name": "run",
     "src": "src/routes/api/workflows/[id]/run.ts?pick=POST",
     "isDynamicEntry": true,
     "imports": [
-      "_db-BycVvFuO.js",
+      "_db-CWsCtsJQ.js",
       "_logger-BDLv3oYI.js",
       "_grpcExecutor-DlteWgV8.js",
       "_httpExecutor-C7gv4kID.js",
-      "_protoParser-C1XlV9an.js"
+      "_protoParser-C1XlV9an.js",
+      "_connections-BimqTFQY.js"
     ]
   },
   "src/routes/api/workflows/[id]/stream.ts?pick=GET": {
-    "file": "_build/assets/stream-DXtS334d.js",
+    "file": "_build/assets/stream-B7yD2UYq.js",
     "name": "stream",
     "src": "src/routes/api/workflows/[id]/stream.ts?pick=GET",
     "isDynamicEntry": true,
     "imports": [
-      "_db-BycVvFuO.js",
+      "_db-CWsCtsJQ.js",
       "_logger-BDLv3oYI.js",
       "_grpcExecutor-DlteWgV8.js",
       "_httpExecutor-C7gv4kID.js",
-      "_protoParser-C1XlV9an.js"
+      "_protoParser-C1XlV9an.js",
+      "_connections-BimqTFQY.js"
     ]
   },
   "src/routes/api/workflows/[id]/stream.ts?pick=POST": {
@@ -785,56 +848,60 @@
     "isDynamicEntry": true
   },
   "src/routes/api/workflows/index.ts?pick=GET": {
-    "file": "_build/assets/index-BY9w5voV.js",
+    "file": "_build/assets/index-U3rJE49c.js",
     "name": "index",
     "src": "src/routes/api/workflows/index.ts?pick=GET",
     "isDynamicEntry": true,
     "imports": [
-      "_db-BycVvFuO.js",
+      "_db-CWsCtsJQ.js",
       "_logger-BDLv3oYI.js",
       "_grpcExecutor-DlteWgV8.js",
       "_httpExecutor-C7gv4kID.js",
-      "_protoParser-C1XlV9an.js"
+      "_protoParser-C1XlV9an.js",
+      "_connections-BimqTFQY.js"
     ]
   },
   "src/routes/api/workflows/index.ts?pick=POST": {
-    "file": "_build/assets/index-69RXjp63.js",
+    "file": "_build/assets/index-Ct1FqIyH.js",
     "name": "index",
     "src": "src/routes/api/workflows/index.ts?pick=POST",
     "isDynamicEntry": true,
     "imports": [
-      "_db-BycVvFuO.js",
-      "_auth-BNAJzjej.js",
+      "_db-CWsCtsJQ.js",
+      "_auth-BHxeiPET.js",
       "_logger-BDLv3oYI.js",
       "_grpcExecutor-DlteWgV8.js",
       "_httpExecutor-C7gv4kID.js",
-      "_protoParser-C1XlV9an.js"
+      "_protoParser-C1XlV9an.js",
+      "_connections-BimqTFQY.js"
     ]
   },
   "src/routes/api/workflows/runs/[id].ts?pick=GET": {
-    "file": "_build/assets/_id_-Cw4IQZO8.js",
+    "file": "_build/assets/_id_-7LA1Q3_D.js",
     "name": "_id_",
     "src": "src/routes/api/workflows/runs/[id].ts?pick=GET",
     "isDynamicEntry": true,
     "imports": [
-      "_db-BycVvFuO.js",
+      "_db-CWsCtsJQ.js",
       "_logger-BDLv3oYI.js",
       "_grpcExecutor-DlteWgV8.js",
       "_httpExecutor-C7gv4kID.js",
-      "_protoParser-C1XlV9an.js"
+      "_protoParser-C1XlV9an.js",
+      "_connections-BimqTFQY.js"
     ]
   },
   "src/routes/api/workflows/runs/[id]/stream.ts?pick=GET": {
-    "file": "_build/assets/stream-BuH3b130.js",
+    "file": "_build/assets/stream-C1c89EPZ.js",
     "name": "stream",
     "src": "src/routes/api/workflows/runs/[id]/stream.ts?pick=GET",
     "isDynamicEntry": true,
     "imports": [
-      "_db-BycVvFuO.js",
+      "_db-CWsCtsJQ.js",
       "_logger-BDLv3oYI.js",
       "_grpcExecutor-DlteWgV8.js",
       "_httpExecutor-C7gv4kID.js",
-      "_protoParser-C1XlV9an.js"
+      "_protoParser-C1XlV9an.js",
+      "_connections-BimqTFQY.js"
     ]
   },
   "src/routes/api/workflows/runs/[id]/stream.ts?pick=POST": {
@@ -850,7 +917,7 @@
     "isDynamicEntry": true
   },
   "src/routes/connections/index.tsx?pick=default&pick=$css": {
-    "file": "_build/assets/index-DdxNxgBB.js",
+    "file": "_build/assets/index-e1WkGE4Q.js",
     "name": "index",
     "src": "src/routes/connections/index.tsx?pick=default&pick=$css",
     "isDynamicEntry": true

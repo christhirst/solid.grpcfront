@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
+  Object.assign(process.env, env);
   return {
     plugins: [
       solidStart(),

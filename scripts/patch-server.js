@@ -12,34 +12,114 @@ const publicDir = path.join(rootDir, ".output", "public");
 // 1. Patch dependencies in node_modules BEFORE or AFTER build
 const patchNodeModules = () => {
     const solidJsDistDir = path.join(rootDir, "node_modules", "solid-js", "dist");
-    if (!fs.existsSync(solidJsDistDir)) return;
+    if (fs.existsSync(solidJsDistDir)) {
+        const filesToPatch = ["solid.js", "dev.js", "server.js", "solid.cjs", "server.cjs"];
+        for (const file of filesToPatch) {
+            const fullPath = path.join(solidJsDistDir, file);
+            if (fs.existsSync(fullPath)) {
+                let code = fs.readFileSync(fullPath, "utf8");
+                let changed = false;
 
-    const filesToPatch = ["solid.js", "dev.js", "server.js", "solid.cjs", "server.cjs"];
-    
-    for (const file of filesToPatch) {
-        const fullPath = path.join(solidJsDistDir, file);
-        if (fs.existsSync(fullPath)) {
-            let code = fs.readFileSync(fullPath, "utf8");
-            let changed = false;
-
-            if (code.includes("Effects.push.apply(Effects, e)")) {
-                code = code.replace(
-                    /function resumeEffects\(e\) \{\s*Effects\.push\.apply\(Effects, e\);\s*e\.length = 0;\s*\}/g,
-                    `function resumeEffects(e) {
+                if (code.includes("Effects.push.apply(Effects, e)")) {
+                    code = code.replace(
+                        /function resumeEffects\(e\) \{\s*Effects\.push\.apply\(Effects, e\);\s*e\.length = 0;\s*\}/g,
+                        `function resumeEffects(e) {
   if (Effects) Effects.push.apply(Effects, e);
   else e.forEach(updateComputation);
   e.length = 0;
 }`,
-                );
-                changed = true;
-            }
+                    );
+                    changed = true;
+                }
 
-            if (changed) {
-                fs.writeFileSync(fullPath, code);
-                console.log(`Patched node_modules: ${fullPath}`);
+                if (changed) {
+                    fs.writeFileSync(fullPath, code);
+                    console.log(`Patched node_modules: ${fullPath}`);
+                }
             }
         }
     }
+
+    // Also patch @auth/core in root node_modules
+    const authWebPaths = [
+        path.join(rootDir, "node_modules", "@auth", "core", "lib", "utils", "web.js"),
+        path.join(serverDir, "node_modules", "@auth", "core", "lib", "utils", "web.js"),
+    ];
+    for (const p of authWebPaths) {
+        if (fs.existsSync(p)) {
+            patchAuthWebFile(p);
+        }
+    }
+};
+
+const safeGetBodyCode = `async function getBody(req) {
+    if (!("body" in req) || !req.body || (req.method !== "POST" && req.method !== "PUT" && req.method !== "PATCH"))
+        return;
+    const contentType = (typeof req.headers?.get === 'function' ? req.headers.get("content-type") : req.headers?.["content-type"]) || "";
+    
+    let rawText = "";
+    if (typeof req.body === "string") {
+        rawText = req.body;
+    } else if (req.body instanceof ArrayBuffer || (req.body && req.body.constructor && req.body.constructor.name === "ArrayBuffer")) {
+        rawText = new TextDecoder().decode(req.body);
+    } else if (ArrayBuffer.isView(req.body)) {
+        rawText = new TextDecoder().decode(req.body);
+    } else if (typeof Buffer !== "undefined" && Buffer.isBuffer(req.body)) {
+        rawText = req.body.toString("utf8");
+    } else if (req.body instanceof URLSearchParams) {
+        return Object.fromEntries(req.body);
+    } else if (typeof req.body === "object" && req.body !== null && !(req.body instanceof ReadableStream)) {
+        return req.body;
+    }
+
+    if (!rawText && typeof req.text === "function") {
+        try {
+            rawText = await req.text();
+        } catch (e) {}
+    }
+
+    if (contentType.includes("application/json")) {
+        if (rawText) {
+            try { return JSON.parse(rawText); } catch(e) {}
+        }
+        if (typeof req.json === "function") {
+            try { return await req.json(); } catch(e) {}
+        }
+        return typeof req.body === "object" ? req.body : undefined;
+    } else if (contentType.includes("application/x-www-form-urlencoded") || contentType.includes("multipart/form-data")) {
+        if (rawText) {
+            const params = new URLSearchParams(rawText);
+            return Object.fromEntries(params);
+        }
+        return typeof req.body === "object" ? req.body : {};
+    }
+
+    if (rawText) return rawText;
+    return req.body;
+}`;
+
+const patchAuthWebFile = (fullPath) => {
+    let code = fs.readFileSync(fullPath, "utf8");
+    let changed = false;
+
+    code = code.replace(
+        /async function getBody\(req\) \{[\s\S]*?^\}/m,
+        safeGetBodyCode,
+    );
+    code = code.replace(
+        /headers: Object\.fromEntries\(req\.headers\)/,
+        `headers: Object.fromEntries(typeof req.headers?.entries === 'function' ? req.headers.entries() : Object.entries(req.headers || {}))`,
+    );
+    code = code.replace(
+        /req\.headers\.get\((['"])cookie\1\)/g,
+        `(typeof req.headers?.get === 'function' ? req.headers.get("cookie") : (req.headers?.cookie || req.headers?.["cookie"]))`,
+    );
+    code = code.replace(
+        /req\.headers\.get\((['"])content-type\1\)/gi,
+        `(typeof req.headers?.get === 'function' ? req.headers.get("content-type") : req.headers?.["content-type"])`,
+    );
+    fs.writeFileSync(fullPath, code);
+    console.log(`Patched Auth web file: ${fullPath}`);
 };
 
 // 2. Patch the auth library in the built output
@@ -48,21 +128,7 @@ const patchAuthLibrary = () => {
     const authIndexPath = path.join(serverDir, "node_modules", "@auth", "core", "index.js");
 
     if (fs.existsSync(authWebPath)) {
-        let authCode = fs.readFileSync(authWebPath, "utf8");
-        authCode = authCode.replace(
-            /headers: Object\.fromEntries\(req\.headers\)/,
-            `headers: Object.fromEntries(typeof req.headers.entries === 'function' ? req.headers.entries() : Object.entries(req.headers || {}))`,
-        );
-        authCode = authCode.replace(
-            /req\.headers\.get\((['"])cookie\1\)/g,
-            `(typeof req.headers.get === 'function' ? req.headers.get("cookie") : (req.headers.cookie || req.headers["cookie"]))`,
-        );
-        authCode = authCode.replace(
-            /req\.headers\.get\((['"])content-type\1\)/gi,
-            `(typeof req.headers.get === 'function' ? req.headers.get("content-type") : req.headers["content-type"])`,
-        );
-        fs.writeFileSync(authWebPath, authCode);
-        console.log("Auth library patched successfully in .output");
+        patchAuthWebFile(authWebPath);
     }
 
     if (fs.existsSync(authIndexPath)) {

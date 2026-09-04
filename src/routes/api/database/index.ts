@@ -5,12 +5,20 @@ export async function GET({ request }: APIEvent) {
   try {
     const db = await getDb();
     
-    // INFO FOR NAMESPACE returns an object with a 'databases' property map
-    const info = await db.query("INFO FOR NAMESPACE;");
-    const databasesObj = (info[0] as any)?.databases || {};
+    let databases: string[] = [];
+    try {
+      // INFO FOR NAMESPACE returns an object with a 'databases' property map
+      const info = await db.query("INFO FOR NAMESPACE;");
+      const databasesObj = (info[0] as any)?.databases || {};
+      databases = Object.keys(databasesObj);
+    } catch {
+      // Fallback for DB-scoped users who lack IAM permission for INFO FOR NAMESPACE
+      databases = [process.env.SURREALDB_DB || "main"];
+    }
     
-    // the keys of the databases object are the database names
-    const databases = Object.keys(databasesObj);
+    if (databases.length === 0) {
+      databases = [process.env.SURREALDB_DB || "main"];
+    }
     
     return new Response(JSON.stringify({ success: true, data: databases }), {
       headers: { "content-type": "application/json" },

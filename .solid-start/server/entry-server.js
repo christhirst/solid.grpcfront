@@ -7,7 +7,7 @@ import { CustomEventPlugin, DOMExceptionPlugin, EventPlugin, FormDataPlugin, Hea
 import { getRequestIP, parseCookies, defineHandler, H3, redirect, getCookie, setCookie } from "h3";
 import { provideRequestEvent } from "solid-js/web/storage";
 import { parseSetCookie } from "cookie-es";
-const clientViteManifest = { "____vite-browser-external_commonjs-proxy-BszGpYg3.js": { "file": "_build/assets/___vite-browser-external_commonjs-proxy-BszGpYg3.js", "name": "___vite-browser-external_commonjs-proxy", "imports": ["__commonjsHelpers-C8AsYJQK.js"] }, "__commonjsHelpers-C8AsYJQK.js": { "file": "_build/assets/_commonjsHelpers-C8AsYJQK.js", "name": "_commonjsHelpers", "imports": ["_web-C2Wpcewj.js", "_store-DgNrmaxV.js"] }, "_components-D7i7s57U.js": { "file": "_build/assets/components-D7i7s57U.js", "name": "components", "imports": ["_web-C2Wpcewj.js", "_routing-Yspjzo-P.js"] }, "_index-BXRbAmtX.js": { "file": "_build/assets/index-BXRbAmtX.js", "name": "index", "imports": ["__commonjsHelpers-C8AsYJQK.js"] }, "_index-TyJ5s840.js": { "file": "_build/assets/index-TyJ5s840.js", "name": "index", "imports": ["_web-C2Wpcewj.js", "_store-DgNrmaxV.js"] }, "_newsRulesEvaluator-Yqp8ROZY.js": { "file": "_build/assets/newsRulesEvaluator-Yqp8ROZY.js", "name": "newsRulesEvaluator", "imports": ["__commonjsHelpers-C8AsYJQK.js"] }, "_preload-helper-BXl3LOEh.js": { "file": "_build/assets/preload-helper-BXl3LOEh.js", "name": "preload-helper" }, "_protoParser-xvMT20T5.js": { "file": "_build/assets/protoParser-xvMT20T5.js", "name": "protoParser", "imports": ["__commonjsHelpers-C8AsYJQK.js", "____vite-browser-external_commonjs-proxy-BszGpYg3.js"] }, "_routing-Yspjzo-P.js": { "file": "_build/assets/routing-Yspjzo-P.js", "name": "routing", "imports": ["_web-C2Wpcewj.js"] }, "_store-DgNrmaxV.js": { "file": "_build/assets/store-DgNrmaxV.js", "name": "store", "imports": ["_web-C2Wpcewj.js"] }, "_web-C2Wpcewj.js": { "file": "_build/assets/web-C2Wpcewj.js", "name": "web" }, "_workflowVariableChecker-zZqqjosf.js": { "file": "_build/assets/workflowVariableChecker-zZqqjosf.js", "name": "workflowVariableChecker" }, "node_modules/@antv/infographic/esm/index.js": { "file": "_build/assets/index-DApo-3nV.js", "name": "index", "src": "node_modules/@antv/infographic/esm/index.js", "isDynamicEntry": true, "imports": ["_index-BXRbAmtX.js", "__commonjsHelpers-C8AsYJQK.js", "____vite-browser-external_commonjs-proxy-BszGpYg3.js", "_web-C2Wpcewj.js", "_store-DgNrmaxV.js"] }, "src/entry-client.tsx": { "file": "_build/assets/entry-client-Dt-keQaV.js", "name": "entry-client", "src": "src/entry-client.tsx", "isEntry": true, "imports": ["_preload-helper-BXl3LOEh.js", "_web-C2Wpcewj.js", "_routing-Yspjzo-P.js"], "dynamicImports": ["src/routes/TrustedCA.tsx?pick=default&pick=$css", "src/routes/TrustedCA.tsx?pick=default&pick=$css", "src/routes/[...404].tsx?pick=default&pick=$css", "src/routes/[...404].tsx?pick=default&pick=$css", "src/routes/about.tsx?pick=default&pick=$css", "src/routes/about.tsx?pick=default&pick=$css", "src/routes/index.tsx?pick=default&pick=$css", "src/routes/index.tsx?pick=default&pick=$css", "src/routes/requests.tsx?pick=default&pick=$css", "src/routes/requests.tsx?pick=default&pick=$css", "src/routes/cas/index.tsx?pick=default&pick=$css", "src/routes/cas/index.tsx?pick=default&pick=$css", "src/routes/connections/index.tsx?pick=default&pick=$css", "src/routes/connections/index.tsx?pick=default&pick=$css", "src/routes/dashboards/[id].tsx?pick=default&pick=$css", "src/routes/dashboards/[id].tsx?pick=default&pick=$css", "src/routes/dashboards/index.tsx?pick=default&pick=$css", "src/routes/dashboards/index.tsx?pick=default&pick=$css", "src/routes/database/[db].tsx?pick=default&pick=$css", "src/routes/database/[db].tsx?pick=default&pick=$css", "src/routes/database/index.tsx?pick=default&pick=$css", "src/routes/database/index.tsx?pick=default&pick=$css", "src/routes/p/[id].tsx?pick=default&pick=$css", "src/routes/p/[id].tsx?pick=default&pick=$css", "src/routes/protos/index.tsx?pick=default&pick=$css", "src/routes/protos/index.tsx?pick=default&pick=$css", "src/routes/workflows/[id].tsx?pick=default&pick=$css", "src/routes/workflows/[id].tsx?pick=default&pick=$css", "src/routes/workflows/index.tsx?pick=default&pick=$css", "src/routes/workflows/index.tsx?pick=default&pick=$css"], "css": ["_build/assets/entry-client-CWMYSwpz.css"] }, "src/routes/TrustedCA.tsx?pick=default&pick=$css": { "file": "_build/assets/TrustedCA-ZCmVd3aF.js", "name": "TrustedCA", "src": "src/routes/TrustedCA.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-C2Wpcewj.js"] }, "src/routes/[...404].tsx?pick=default&pick=$css": { "file": "_build/assets/_...404_-C51s8wZg.js", "name": "_...404_", "src": "src/routes/[...404].tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-C2Wpcewj.js", "_components-D7i7s57U.js", "_routing-Yspjzo-P.js"] }, "src/routes/about.tsx?pick=default&pick=$css": { "file": "_build/assets/about-fWte5GQG.js", "name": "about", "src": "src/routes/about.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-C2Wpcewj.js", "_components-D7i7s57U.js", "_routing-Yspjzo-P.js"] }, "src/routes/cas/index.tsx?pick=default&pick=$css": { "file": "_build/assets/index-ZCmVd3aF.js", "name": "index", "src": "src/routes/cas/index.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-C2Wpcewj.js"] }, "src/routes/connections/index.tsx?pick=default&pick=$css": { "file": "_build/assets/index-Vq_r5aW7.js", "name": "index", "src": "src/routes/connections/index.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-C2Wpcewj.js"] }, "src/routes/dashboards/[id].tsx?pick=default&pick=$css": { "file": "_build/assets/_id_-Gi8Ls1tF.js", "name": "_id_", "src": "src/routes/dashboards/[id].tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_preload-helper-BXl3LOEh.js", "_web-C2Wpcewj.js", "_store-DgNrmaxV.js", "__commonjsHelpers-C8AsYJQK.js", "_index-BXRbAmtX.js", "_newsRulesEvaluator-Yqp8ROZY.js", "_workflowVariableChecker-zZqqjosf.js", "_routing-Yspjzo-P.js", "_components-D7i7s57U.js"], "dynamicImports": ["node_modules/@antv/infographic/esm/index.js"] }, "src/routes/dashboards/index.tsx?pick=default&pick=$css": { "file": "_build/assets/index-B0USykN6.js", "name": "index", "src": "src/routes/dashboards/index.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-C2Wpcewj.js", "_routing-Yspjzo-P.js"] }, "src/routes/database/[db].tsx?pick=default&pick=$css": { "file": "_build/assets/_db_-C6w-K1_M.js", "name": "_db_", "src": "src/routes/database/[db].tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-C2Wpcewj.js", "_index-TyJ5s840.js", "_routing-Yspjzo-P.js", "_components-D7i7s57U.js", "_store-DgNrmaxV.js"] }, "src/routes/database/index.tsx?pick=default&pick=$css": { "file": "_build/assets/index-9Xi9tm0m.js", "name": "index", "src": "src/routes/database/index.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-C2Wpcewj.js"] }, "src/routes/index.tsx?pick=default&pick=$css": { "file": "_build/assets/index-VAAqMd0H.js", "name": "index", "src": "src/routes/index.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-C2Wpcewj.js"] }, "src/routes/p/[id].tsx?pick=default&pick=$css": { "file": "_build/assets/_id_-fg4A8_Om.js", "name": "_id_", "src": "src/routes/p/[id].tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_preload-helper-BXl3LOEh.js", "_web-C2Wpcewj.js", "__commonjsHelpers-C8AsYJQK.js", "_index-BXRbAmtX.js", "_newsRulesEvaluator-Yqp8ROZY.js", "_routing-Yspjzo-P.js", "_store-DgNrmaxV.js"], "dynamicImports": ["node_modules/@antv/infographic/esm/index.js"] }, "src/routes/protos/index.tsx?pick=default&pick=$css": { "file": "_build/assets/index-Buam4Gwh.js", "name": "index", "src": "src/routes/protos/index.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-C2Wpcewj.js"] }, "src/routes/requests.tsx?pick=default&pick=$css": { "file": "_build/assets/requests-CU5iMzAA.js", "name": "requests", "src": "src/routes/requests.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-C2Wpcewj.js", "_protoParser-xvMT20T5.js", "__commonjsHelpers-C8AsYJQK.js", "_index-TyJ5s840.js", "____vite-browser-external_commonjs-proxy-BszGpYg3.js", "_store-DgNrmaxV.js"] }, "src/routes/workflows/[id].tsx?pick=default&pick=$css": { "file": "_build/assets/_id_-DnL2kKtL.js", "name": "_id_", "src": "src/routes/workflows/[id].tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-C2Wpcewj.js", "__commonjsHelpers-C8AsYJQK.js", "_workflowVariableChecker-zZqqjosf.js", "_store-DgNrmaxV.js", "_protoParser-xvMT20T5.js", "_index-BXRbAmtX.js", "_routing-Yspjzo-P.js", "____vite-browser-external_commonjs-proxy-BszGpYg3.js"] }, "src/routes/workflows/index.tsx?pick=default&pick=$css": { "file": "_build/assets/index-hkR2oeFf.js", "name": "index", "src": "src/routes/workflows/index.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-C2Wpcewj.js", "_workflowVariableChecker-zZqqjosf.js"] } };
+const clientViteManifest = { "__commonjs-dynamic-modules-TDtrdbi3.js": { "file": "_build/assets/_commonjs-dynamic-modules-TDtrdbi3.js", "name": "_commonjs-dynamic-modules" }, "_components-By0kS7RB.js": { "file": "_build/assets/components-By0kS7RB.js", "name": "components", "imports": ["_web-DI5d8uNH.js", "_routing-EUJS6lQu.js"] }, "_index-CVSJVsYU.js": { "file": "_build/assets/index-CVSJVsYU.js", "name": "index", "imports": ["_web-DI5d8uNH.js", "_store-DxL_Dylp.js"] }, "_index-DmRk3BFN.js": { "file": "_build/assets/index-DmRk3BFN.js", "name": "index", "imports": ["_index-CVSJVsYU.js"] }, "_index-DqwbMBXv.js": { "file": "_build/assets/index-DqwbMBXv.js", "name": "index", "imports": ["_web-DI5d8uNH.js", "_store-DxL_Dylp.js"] }, "_newsRulesEvaluator-DelrBLQn.js": { "file": "_build/assets/newsRulesEvaluator-DelrBLQn.js", "name": "newsRulesEvaluator", "imports": ["_index-CVSJVsYU.js"] }, "_preload-helper-BXl3LOEh.js": { "file": "_build/assets/preload-helper-BXl3LOEh.js", "name": "preload-helper" }, "_protoParser-Cz1vMVD5.js": { "file": "_build/assets/protoParser-Cz1vMVD5.js", "name": "protoParser", "imports": ["_index-CVSJVsYU.js", "__commonjs-dynamic-modules-TDtrdbi3.js"] }, "_routing-EUJS6lQu.js": { "file": "_build/assets/routing-EUJS6lQu.js", "name": "routing", "imports": ["_web-DI5d8uNH.js"] }, "_store-DxL_Dylp.js": { "file": "_build/assets/store-DxL_Dylp.js", "name": "store", "imports": ["_web-DI5d8uNH.js"] }, "_web-DI5d8uNH.js": { "file": "_build/assets/web-DI5d8uNH.js", "name": "web" }, "_workflowVariableChecker-zZqqjosf.js": { "file": "_build/assets/workflowVariableChecker-zZqqjosf.js", "name": "workflowVariableChecker" }, "node_modules/@antv/infographic/esm/index.js": { "file": "_build/assets/index-CEKwu_bE.js", "name": "index", "src": "node_modules/@antv/infographic/esm/index.js", "isDynamicEntry": true, "imports": ["_index-DmRk3BFN.js", "_index-CVSJVsYU.js", "__commonjs-dynamic-modules-TDtrdbi3.js", "_web-DI5d8uNH.js", "_store-DxL_Dylp.js"] }, "src/entry-client.tsx": { "file": "_build/assets/entry-client-BcHV-9TM.js", "name": "entry-client", "src": "src/entry-client.tsx", "isEntry": true, "imports": ["_preload-helper-BXl3LOEh.js", "_web-DI5d8uNH.js", "_routing-EUJS6lQu.js"], "dynamicImports": ["src/routes/TrustedCA.tsx?pick=default&pick=$css", "src/routes/TrustedCA.tsx?pick=default&pick=$css", "src/routes/[...404].tsx?pick=default&pick=$css", "src/routes/[...404].tsx?pick=default&pick=$css", "src/routes/about.tsx?pick=default&pick=$css", "src/routes/about.tsx?pick=default&pick=$css", "src/routes/index.tsx?pick=default&pick=$css", "src/routes/index.tsx?pick=default&pick=$css", "src/routes/requests.tsx?pick=default&pick=$css", "src/routes/requests.tsx?pick=default&pick=$css", "src/routes/cas/index.tsx?pick=default&pick=$css", "src/routes/cas/index.tsx?pick=default&pick=$css", "src/routes/connections/index.tsx?pick=default&pick=$css", "src/routes/connections/index.tsx?pick=default&pick=$css", "src/routes/dashboards/[id].tsx?pick=default&pick=$css", "src/routes/dashboards/[id].tsx?pick=default&pick=$css", "src/routes/dashboards/index.tsx?pick=default&pick=$css", "src/routes/dashboards/index.tsx?pick=default&pick=$css", "src/routes/database/[db].tsx?pick=default&pick=$css", "src/routes/database/[db].tsx?pick=default&pick=$css", "src/routes/database/index.tsx?pick=default&pick=$css", "src/routes/database/index.tsx?pick=default&pick=$css", "src/routes/p/[id].tsx?pick=default&pick=$css", "src/routes/p/[id].tsx?pick=default&pick=$css", "src/routes/protos/index.tsx?pick=default&pick=$css", "src/routes/protos/index.tsx?pick=default&pick=$css", "src/routes/workflows/[id].tsx?pick=default&pick=$css", "src/routes/workflows/[id].tsx?pick=default&pick=$css", "src/routes/workflows/index.tsx?pick=default&pick=$css", "src/routes/workflows/index.tsx?pick=default&pick=$css"], "css": ["_build/assets/entry-client-Cwzc4pBN.css"] }, "src/routes/TrustedCA.tsx?pick=default&pick=$css": { "file": "_build/assets/TrustedCA-14QL52dX.js", "name": "TrustedCA", "src": "src/routes/TrustedCA.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-DI5d8uNH.js"] }, "src/routes/[...404].tsx?pick=default&pick=$css": { "file": "_build/assets/_...404_-DKTvdAJR.js", "name": "_...404_", "src": "src/routes/[...404].tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-DI5d8uNH.js", "_components-By0kS7RB.js", "_routing-EUJS6lQu.js"] }, "src/routes/about.tsx?pick=default&pick=$css": { "file": "_build/assets/about-CyCZU_QX.js", "name": "about", "src": "src/routes/about.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-DI5d8uNH.js", "_components-By0kS7RB.js", "_routing-EUJS6lQu.js"] }, "src/routes/cas/index.tsx?pick=default&pick=$css": { "file": "_build/assets/index-14QL52dX.js", "name": "index", "src": "src/routes/cas/index.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-DI5d8uNH.js"] }, "src/routes/connections/index.tsx?pick=default&pick=$css": { "file": "_build/assets/index-BFs-G75h.js", "name": "index", "src": "src/routes/connections/index.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-DI5d8uNH.js"] }, "src/routes/dashboards/[id].tsx?pick=default&pick=$css": { "file": "_build/assets/_id_-BA7dzFO0.js", "name": "_id_", "src": "src/routes/dashboards/[id].tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_preload-helper-BXl3LOEh.js", "_web-DI5d8uNH.js", "_store-DxL_Dylp.js", "_index-CVSJVsYU.js", "_index-DmRk3BFN.js", "_newsRulesEvaluator-DelrBLQn.js", "_workflowVariableChecker-zZqqjosf.js", "_routing-EUJS6lQu.js", "_components-By0kS7RB.js"], "dynamicImports": ["node_modules/@antv/infographic/esm/index.js"] }, "src/routes/dashboards/index.tsx?pick=default&pick=$css": { "file": "_build/assets/index-BiH6CmFR.js", "name": "index", "src": "src/routes/dashboards/index.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-DI5d8uNH.js", "_routing-EUJS6lQu.js"] }, "src/routes/database/[db].tsx?pick=default&pick=$css": { "file": "_build/assets/_db_-DMTlIxVy.js", "name": "_db_", "src": "src/routes/database/[db].tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-DI5d8uNH.js", "_index-DqwbMBXv.js", "_routing-EUJS6lQu.js", "_components-By0kS7RB.js", "_store-DxL_Dylp.js"] }, "src/routes/database/index.tsx?pick=default&pick=$css": { "file": "_build/assets/index-Ch26PiLS.js", "name": "index", "src": "src/routes/database/index.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-DI5d8uNH.js"] }, "src/routes/index.tsx?pick=default&pick=$css": { "file": "_build/assets/index-GOxXb3s5.js", "name": "index", "src": "src/routes/index.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-DI5d8uNH.js"] }, "src/routes/p/[id].tsx?pick=default&pick=$css": { "file": "_build/assets/_id_-BMCw87Wa.js", "name": "_id_", "src": "src/routes/p/[id].tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_preload-helper-BXl3LOEh.js", "_web-DI5d8uNH.js", "_index-CVSJVsYU.js", "_index-DmRk3BFN.js", "_newsRulesEvaluator-DelrBLQn.js", "_routing-EUJS6lQu.js", "_store-DxL_Dylp.js"], "dynamicImports": ["node_modules/@antv/infographic/esm/index.js"] }, "src/routes/protos/index.tsx?pick=default&pick=$css": { "file": "_build/assets/index-jV3cxgfW.js", "name": "index", "src": "src/routes/protos/index.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-DI5d8uNH.js"] }, "src/routes/requests.tsx?pick=default&pick=$css": { "file": "_build/assets/requests-D-Ha7GTv.js", "name": "requests", "src": "src/routes/requests.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-DI5d8uNH.js", "_protoParser-Cz1vMVD5.js", "_index-CVSJVsYU.js", "_index-DqwbMBXv.js", "__commonjs-dynamic-modules-TDtrdbi3.js", "_store-DxL_Dylp.js"] }, "src/routes/workflows/[id].tsx?pick=default&pick=$css": { "file": "_build/assets/_id_-EB3uKDP4.js", "name": "_id_", "src": "src/routes/workflows/[id].tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-DI5d8uNH.js", "_index-CVSJVsYU.js", "__commonjs-dynamic-modules-TDtrdbi3.js", "_workflowVariableChecker-zZqqjosf.js", "_store-DxL_Dylp.js", "_protoParser-Cz1vMVD5.js", "_index-DmRk3BFN.js", "_routing-EUJS6lQu.js"] }, "src/routes/workflows/index.tsx?pick=default&pick=$css": { "file": "_build/assets/index-eZt3NaCy.js", "name": "index", "src": "src/routes/workflows/index.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-DI5d8uNH.js", "_workflowVariableChecker-zZqqjosf.js"] } };
 function getSsrProdManifest() {
   const viteManifest = clientViteManifest;
   return {
@@ -1187,16 +1187,16 @@ const fileRoutes = [{ "page": true, "$component": { "src": "src/routes/TrustedCA
   "./_build/assets/grpc-WMfO0-_6.js"
 ) }, "path": "/api/grpc" }, { "page": false, "$GET": { "src": "src/routes/api/health.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/health-BuYbB1kA.js"
+  "./_build/assets/health-CfYk39hW.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/health-BuYbB1kA.js"
+  "./_build/assets/health-CfYk39hW.js"
 ) }, "$HEAD": { "src": "src/routes/api/health.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/health-BuYbB1kA.js"
+  "./_build/assets/health-CfYk39hW.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/health-BuYbB1kA.js"
+  "./_build/assets/health-CfYk39hW.js"
 ) }, "path": "/api/health" }, { "page": true, "$component": { "src": "src/routes/cas/index.tsx?pick=default&pick=$css", "build": () => import(
   /* @vite-ignore */
   "./_build/assets/index-BI_Xp4ur.js"
@@ -1205,10 +1205,10 @@ const fileRoutes = [{ "page": true, "$component": { "src": "src/routes/TrustedCA
   "./_build/assets/index-BI_Xp4ur.js"
 ) }, "path": "/cas/" }, { "page": true, "$component": { "src": "src/routes/connections/index.tsx?pick=default&pick=$css", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-DdxNxgBB.js"
+  "./_build/assets/index-e1WkGE4Q.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-DdxNxgBB.js"
+  "./_build/assets/index-e1WkGE4Q.js"
 ) }, "path": "/connections/" }, { "page": true, "$component": { "src": "src/routes/dashboards/[id].tsx?pick=default&pick=$css", "build": () => import(
   /* @vite-ignore */
   "./_build/assets/_id_-BkJYJeP0.js"
@@ -1259,148 +1259,154 @@ const fileRoutes = [{ "page": true, "$component": { "src": "src/routes/TrustedCA
   "./_build/assets/index-C7ztWUp0.js"
 ) }, "path": "/workflows/" }, { "page": false, "$GET": { "src": "src/routes/api/auth/[...solidauth].ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/_...solidauth_-BCuQeedD.js"
+  "./_build/assets/_...solidauth_-KNnM9XxM.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/_...solidauth_-BCuQeedD.js"
+  "./_build/assets/_...solidauth_-KNnM9XxM.js"
 ) }, "$HEAD": { "src": "src/routes/api/auth/[...solidauth].ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/_...solidauth_-BCuQeedD.js"
+  "./_build/assets/_...solidauth_-KNnM9XxM.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/_...solidauth_-BCuQeedD.js"
+  "./_build/assets/_...solidauth_-KNnM9XxM.js"
 ) }, "$POST": { "src": "src/routes/api/auth/[...solidauth].ts?pick=POST", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/_...solidauth_-CcNQu43f.js"
+  "./_build/assets/_...solidauth_-C-4nU_N1.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/_...solidauth_-CcNQu43f.js"
+  "./_build/assets/_...solidauth_-C-4nU_N1.js"
 ) }, "path": "/api/auth/*solidauth" }, { "page": false, "$DELETE": { "src": "src/routes/api/cas/[id].ts?pick=DELETE", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-DxVmOMmN.js"
+  "./_build/assets/_id_-Dv3DR-Bg.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-DxVmOMmN.js"
+  "./_build/assets/_id_-Dv3DR-Bg.js"
 ) }, "$GET": { "src": "src/routes/api/cas/[id].ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-C5v5Nhoy.js"
+  "./_build/assets/_id_-DmBiWPDK.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-C5v5Nhoy.js"
+  "./_build/assets/_id_-DmBiWPDK.js"
 ) }, "$HEAD": { "src": "src/routes/api/cas/[id].ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-C5v5Nhoy.js"
+  "./_build/assets/_id_-DmBiWPDK.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-C5v5Nhoy.js"
+  "./_build/assets/_id_-DmBiWPDK.js"
 ) }, "$PUT": { "src": "src/routes/api/cas/[id].ts?pick=PUT", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-CYpXdTLX.js"
+  "./_build/assets/_id_-WGFU9Gdb.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-CYpXdTLX.js"
+  "./_build/assets/_id_-WGFU9Gdb.js"
 ) }, "path": "/api/cas/:id" }, { "page": false, "$GET": { "src": "src/routes/api/cas/index.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-DQoR5ZZj.js"
+  "./_build/assets/index-Br0wWsf9.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-DQoR5ZZj.js"
+  "./_build/assets/index-Br0wWsf9.js"
 ) }, "$HEAD": { "src": "src/routes/api/cas/index.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-DQoR5ZZj.js"
+  "./_build/assets/index-Br0wWsf9.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-DQoR5ZZj.js"
+  "./_build/assets/index-Br0wWsf9.js"
 ) }, "$POST": { "src": "src/routes/api/cas/index.ts?pick=POST", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-B7UD7HEj.js"
+  "./_build/assets/index-B517U2Wf.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-B7UD7HEj.js"
+  "./_build/assets/index-B517U2Wf.js"
 ) }, "path": "/api/cas/" }, { "page": false, "$DELETE": { "src": "src/routes/api/connections/[id].ts?pick=DELETE", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-atc7ngAr.js"
+  "./_build/assets/_id_-fG_mYy1s.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-atc7ngAr.js"
+  "./_build/assets/_id_-fG_mYy1s.js"
 ) }, "$GET": { "src": "src/routes/api/connections/[id].ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-C9FQFMcC.js"
+  "./_build/assets/_id_-Dlnz5zxe.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-C9FQFMcC.js"
+  "./_build/assets/_id_-Dlnz5zxe.js"
 ) }, "$HEAD": { "src": "src/routes/api/connections/[id].ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-C9FQFMcC.js"
+  "./_build/assets/_id_-Dlnz5zxe.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-C9FQFMcC.js"
+  "./_build/assets/_id_-Dlnz5zxe.js"
 ) }, "$PUT": { "src": "src/routes/api/connections/[id].ts?pick=PUT", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-CEDADMID.js"
+  "./_build/assets/_id_-CPBN_4js.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-CEDADMID.js"
+  "./_build/assets/_id_-CPBN_4js.js"
 ) }, "path": "/api/connections/:id" }, { "page": false, "$GET": { "src": "src/routes/api/connections/index.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-BnxoCgIY.js"
+  "./_build/assets/index-DT9_44vk.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-BnxoCgIY.js"
+  "./_build/assets/index-DT9_44vk.js"
 ) }, "$HEAD": { "src": "src/routes/api/connections/index.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-BnxoCgIY.js"
+  "./_build/assets/index-DT9_44vk.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-BnxoCgIY.js"
+  "./_build/assets/index-DT9_44vk.js"
 ) }, "$POST": { "src": "src/routes/api/connections/index.ts?pick=POST", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-BhWO3G93.js"
+  "./_build/assets/index-5TMUg33K.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-BhWO3G93.js"
+  "./_build/assets/index-5TMUg33K.js"
 ) }, "path": "/api/connections/" }, { "page": false, "$POST": { "src": "src/routes/api/connections/test-token.ts?pick=POST", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/test-token-FSxWnVgd.js"
+  "./_build/assets/test-token-Dm9X8S-k.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/test-token-FSxWnVgd.js"
-) }, "path": "/api/connections/test-token" }, { "page": false, "$GET": { "src": "src/routes/api/dashboards/index.ts?pick=GET", "build": () => import(
+  "./_build/assets/test-token-Dm9X8S-k.js"
+) }, "path": "/api/connections/test-token" }, { "page": false, "$POST": { "src": "src/routes/api/connections/test.ts?pick=POST", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-BGUr0_Gl.js"
+  "./_build/assets/test-BzwQMxEy.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-BGUr0_Gl.js"
+  "./_build/assets/test-BzwQMxEy.js"
+) }, "path": "/api/connections/test" }, { "page": false, "$GET": { "src": "src/routes/api/dashboards/index.ts?pick=GET", "build": () => import(
+  /* @vite-ignore */
+  "./_build/assets/index-AxGW3yDG.js"
+), "import": () => import(
+  /* @vite-ignore */
+  "./_build/assets/index-AxGW3yDG.js"
 ) }, "$HEAD": { "src": "src/routes/api/dashboards/index.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-BGUr0_Gl.js"
+  "./_build/assets/index-AxGW3yDG.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-BGUr0_Gl.js"
+  "./_build/assets/index-AxGW3yDG.js"
 ) }, "$POST": { "src": "src/routes/api/dashboards/index.ts?pick=POST", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-By5jysY9.js"
+  "./_build/assets/index-017fmGhB.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-By5jysY9.js"
+  "./_build/assets/index-017fmGhB.js"
 ) }, "path": "/api/dashboards/" }, { "page": false, "$GET": { "src": "src/routes/api/database/index.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-By6lqwYW.js"
+  "./_build/assets/index-BxVpfagu.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-By6lqwYW.js"
+  "./_build/assets/index-BxVpfagu.js"
 ) }, "$HEAD": { "src": "src/routes/api/database/index.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-By6lqwYW.js"
+  "./_build/assets/index-BxVpfagu.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-By6lqwYW.js"
+  "./_build/assets/index-BxVpfagu.js"
 ) }, "$POST": { "src": "src/routes/api/database/index.ts?pick=POST", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-DX-hqvlL.js"
+  "./_build/assets/index-BimlKHBm.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-DX-hqvlL.js"
+  "./_build/assets/index-BimlKHBm.js"
 ) }, "path": "/api/database/" }, { "page": false, "$POST": { "src": "src/routes/api/grpc/stream.ts?pick=POST", "build": () => import(
   /* @vite-ignore */
   "./_build/assets/stream-VS5PhZ3j.js"
@@ -1409,46 +1415,46 @@ const fileRoutes = [{ "page": true, "$component": { "src": "src/routes/TrustedCA
   "./_build/assets/stream-VS5PhZ3j.js"
 ) }, "path": "/api/grpc/stream" }, { "page": false, "$DELETE": { "src": "src/routes/api/protos/[id].ts?pick=DELETE", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-f_35Lyaw.js"
+  "./_build/assets/_id_-BxnukBYw.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-f_35Lyaw.js"
+  "./_build/assets/_id_-BxnukBYw.js"
 ) }, "$GET": { "src": "src/routes/api/protos/[id].ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-BxgiBCSf.js"
+  "./_build/assets/_id_-s6fu2IFn.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-BxgiBCSf.js"
+  "./_build/assets/_id_-s6fu2IFn.js"
 ) }, "$HEAD": { "src": "src/routes/api/protos/[id].ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-BxgiBCSf.js"
+  "./_build/assets/_id_-s6fu2IFn.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-BxgiBCSf.js"
+  "./_build/assets/_id_-s6fu2IFn.js"
 ) }, "$PUT": { "src": "src/routes/api/protos/[id].ts?pick=PUT", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-CvrsUZYJ.js"
+  "./_build/assets/_id_-DZGLAqxv.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-CvrsUZYJ.js"
+  "./_build/assets/_id_-DZGLAqxv.js"
 ) }, "path": "/api/protos/:id" }, { "page": false, "$GET": { "src": "src/routes/api/protos/index.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-BNwzRcQ0.js"
+  "./_build/assets/index-BOB5-P8a.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-BNwzRcQ0.js"
+  "./_build/assets/index-BOB5-P8a.js"
 ) }, "$HEAD": { "src": "src/routes/api/protos/index.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-BNwzRcQ0.js"
+  "./_build/assets/index-BOB5-P8a.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-BNwzRcQ0.js"
+  "./_build/assets/index-BOB5-P8a.js"
 ) }, "$POST": { "src": "src/routes/api/protos/index.ts?pick=POST", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-DbSAry3G.js"
+  "./_build/assets/index-BRyDC8wM.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-DbSAry3G.js"
+  "./_build/assets/index-BRyDC8wM.js"
 ) }, "path": "/api/protos/" }, { "page": false, "$POST": { "src": "src/routes/api/requests/stream.ts?pick=POST", "build": () => import(
   /* @vite-ignore */
   "./_build/assets/stream-DGc4apvF.js"
@@ -1457,58 +1463,58 @@ const fileRoutes = [{ "page": true, "$component": { "src": "src/routes/TrustedCA
   "./_build/assets/stream-DGc4apvF.js"
 ) }, "path": "/api/requests/stream" }, { "page": false, "$GET": { "src": "src/routes/api/workflows/index.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-BY9w5voV.js"
+  "./_build/assets/index-U3rJE49c.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-BY9w5voV.js"
+  "./_build/assets/index-U3rJE49c.js"
 ) }, "$HEAD": { "src": "src/routes/api/workflows/index.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-BY9w5voV.js"
+  "./_build/assets/index-U3rJE49c.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-BY9w5voV.js"
+  "./_build/assets/index-U3rJE49c.js"
 ) }, "$POST": { "src": "src/routes/api/workflows/index.ts?pick=POST", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-69RXjp63.js"
+  "./_build/assets/index-Ct1FqIyH.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-69RXjp63.js"
+  "./_build/assets/index-Ct1FqIyH.js"
 ) }, "path": "/api/workflows/" }, { "page": false, "$DELETE": { "src": "src/routes/api/dashboards/[id]/index.ts?pick=DELETE", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-XNqxm0ZY.js"
+  "./_build/assets/index-CYk38RIq.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-XNqxm0ZY.js"
+  "./_build/assets/index-CYk38RIq.js"
 ) }, "$GET": { "src": "src/routes/api/dashboards/[id]/index.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-C-o7Z2xR.js"
+  "./_build/assets/index-cGgXpZ9w.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-C-o7Z2xR.js"
+  "./_build/assets/index-cGgXpZ9w.js"
 ) }, "$HEAD": { "src": "src/routes/api/dashboards/[id]/index.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-C-o7Z2xR.js"
+  "./_build/assets/index-cGgXpZ9w.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-C-o7Z2xR.js"
+  "./_build/assets/index-cGgXpZ9w.js"
 ) }, "$PUT": { "src": "src/routes/api/dashboards/[id]/index.ts?pick=PUT", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-2y9B74Jf.js"
+  "./_build/assets/index-B7gYdSXK.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-2y9B74Jf.js"
+  "./_build/assets/index-B7gYdSXK.js"
 ) }, "path": "/api/dashboards/:id/" }, { "page": false, "$GET": { "src": "src/routes/api/database/[db]/live.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/live-B5yYqfhe.js"
+  "./_build/assets/live-BbjlHsEY.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/live-B5yYqfhe.js"
+  "./_build/assets/live-BbjlHsEY.js"
 ) }, "$HEAD": { "src": "src/routes/api/database/[db]/live.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/live-B5yYqfhe.js"
+  "./_build/assets/live-BbjlHsEY.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/live-B5yYqfhe.js"
+  "./_build/assets/live-BbjlHsEY.js"
 ) }, "$POST": { "src": "src/routes/api/database/[db]/live.ts?pick=POST", "build": () => import(
   /* @vite-ignore */
   "./_build/assets/live-DeiOVy5U.js"
@@ -1517,76 +1523,76 @@ const fileRoutes = [{ "page": true, "$component": { "src": "src/routes/TrustedCA
   "./_build/assets/live-DeiOVy5U.js"
 ) }, "path": "/api/database/:db/live" }, { "page": false, "$POST": { "src": "src/routes/api/database/[db]/query.ts?pick=POST", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/query-BwKAv6Vn.js"
+  "./_build/assets/query-2AZkO1_g.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/query-BwKAv6Vn.js"
+  "./_build/assets/query-2AZkO1_g.js"
 ) }, "path": "/api/database/:db/query" }, { "page": false, "$GET": { "src": "src/routes/api/database/[db]/tables.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/tables-Qa90--tJ.js"
+  "./_build/assets/tables-D5TKdv6Y.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/tables-Qa90--tJ.js"
+  "./_build/assets/tables-D5TKdv6Y.js"
 ) }, "$HEAD": { "src": "src/routes/api/database/[db]/tables.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/tables-Qa90--tJ.js"
+  "./_build/assets/tables-D5TKdv6Y.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/tables-Qa90--tJ.js"
+  "./_build/assets/tables-D5TKdv6Y.js"
 ) }, "path": "/api/database/:db/tables" }, { "page": false, "$DELETE": { "src": "src/routes/api/workflows/[id]/index.ts?pick=DELETE", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-BCv4eFS8.js"
+  "./_build/assets/index-NhXlIGz5.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-BCv4eFS8.js"
+  "./_build/assets/index-NhXlIGz5.js"
 ) }, "$GET": { "src": "src/routes/api/workflows/[id]/index.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-D7-Sbx8e.js"
+  "./_build/assets/index-DI2nEFWP.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-D7-Sbx8e.js"
+  "./_build/assets/index-DI2nEFWP.js"
 ) }, "$HEAD": { "src": "src/routes/api/workflows/[id]/index.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-D7-Sbx8e.js"
+  "./_build/assets/index-DI2nEFWP.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-D7-Sbx8e.js"
+  "./_build/assets/index-DI2nEFWP.js"
 ) }, "$PUT": { "src": "src/routes/api/workflows/[id]/index.ts?pick=PUT", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-tH1obtUA.js"
+  "./_build/assets/index-C9QwMIqv.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-tH1obtUA.js"
+  "./_build/assets/index-C9QwMIqv.js"
 ) }, "path": "/api/workflows/:id/" }, { "page": false, "$GET": { "src": "src/routes/api/workflows/[id]/run.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/run-CA7Q7-pY.js"
+  "./_build/assets/run-MZ-q95A_.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/run-CA7Q7-pY.js"
+  "./_build/assets/run-MZ-q95A_.js"
 ) }, "$HEAD": { "src": "src/routes/api/workflows/[id]/run.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/run-CA7Q7-pY.js"
+  "./_build/assets/run-MZ-q95A_.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/run-CA7Q7-pY.js"
+  "./_build/assets/run-MZ-q95A_.js"
 ) }, "$POST": { "src": "src/routes/api/workflows/[id]/run.ts?pick=POST", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/run-DqwYyCMC.js"
+  "./_build/assets/run-vcIhdssW.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/run-DqwYyCMC.js"
+  "./_build/assets/run-vcIhdssW.js"
 ) }, "path": "/api/workflows/:id/run" }, { "page": false, "$GET": { "src": "src/routes/api/workflows/[id]/stream.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/stream-DXtS334d.js"
+  "./_build/assets/stream-B7yD2UYq.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/stream-DXtS334d.js"
+  "./_build/assets/stream-B7yD2UYq.js"
 ) }, "$HEAD": { "src": "src/routes/api/workflows/[id]/stream.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/stream-DXtS334d.js"
+  "./_build/assets/stream-B7yD2UYq.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/stream-DXtS334d.js"
+  "./_build/assets/stream-B7yD2UYq.js"
 ) }, "$POST": { "src": "src/routes/api/workflows/[id]/stream.ts?pick=POST", "build": () => import(
   /* @vite-ignore */
   "./_build/assets/stream-DeiOVy5U.js"
@@ -1595,52 +1601,52 @@ const fileRoutes = [{ "page": true, "$component": { "src": "src/routes/TrustedCA
   "./_build/assets/stream-DeiOVy5U.js"
 ) }, "path": "/api/workflows/:id/stream" }, { "page": false, "$GET": { "src": "src/routes/api/workflows/runs/[id].ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-Cw4IQZO8.js"
+  "./_build/assets/_id_-7LA1Q3_D.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-Cw4IQZO8.js"
+  "./_build/assets/_id_-7LA1Q3_D.js"
 ) }, "$HEAD": { "src": "src/routes/api/workflows/runs/[id].ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-Cw4IQZO8.js"
+  "./_build/assets/_id_-7LA1Q3_D.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-Cw4IQZO8.js"
+  "./_build/assets/_id_-7LA1Q3_D.js"
 ) }, "path": "/api/workflows/runs/:id" }, { "page": false, "$POST": { "src": "src/routes/api/dashboards/[id]/trigger/[buttonId].ts?pick=POST", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/_buttonId_-CyxtltJz.js"
+  "./_build/assets/_buttonId_-BWA-vMCb.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/_buttonId_-CyxtltJz.js"
+  "./_build/assets/_buttonId_-BWA-vMCb.js"
 ) }, "path": "/api/dashboards/:id/trigger/:buttonId" }, { "page": false, "$GET": { "src": "src/routes/api/database/[db]/[table]/index.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-DJhDEDPP.js"
+  "./_build/assets/index-WjQ2zzl9.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-DJhDEDPP.js"
+  "./_build/assets/index-WjQ2zzl9.js"
 ) }, "$HEAD": { "src": "src/routes/api/database/[db]/[table]/index.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-DJhDEDPP.js"
+  "./_build/assets/index-WjQ2zzl9.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-DJhDEDPP.js"
+  "./_build/assets/index-WjQ2zzl9.js"
 ) }, "$POST": { "src": "src/routes/api/database/[db]/[table]/index.ts?pick=POST", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-BxfrSKFp.js"
+  "./_build/assets/index-DYL1wqaE.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-BxfrSKFp.js"
+  "./_build/assets/index-DYL1wqaE.js"
 ) }, "path": "/api/database/:db/:table/" }, { "page": false, "$GET": { "src": "src/routes/api/workflows/runs/[id]/stream.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/stream-BuH3b130.js"
+  "./_build/assets/stream-C1c89EPZ.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/stream-BuH3b130.js"
+  "./_build/assets/stream-C1c89EPZ.js"
 ) }, "$HEAD": { "src": "src/routes/api/workflows/runs/[id]/stream.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/stream-BuH3b130.js"
+  "./_build/assets/stream-C1c89EPZ.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/stream-BuH3b130.js"
+  "./_build/assets/stream-C1c89EPZ.js"
 ) }, "$POST": { "src": "src/routes/api/workflows/runs/[id]/stream.ts?pick=POST", "build": () => import(
   /* @vite-ignore */
   "./_build/assets/stream-_RymVZKa.js"
@@ -1943,7 +1949,7 @@ async function handleServerFunction(h3Event) {
   const serverReference = request.headers.get("X-Server-Id");
   const instance = request.headers.get("X-Server-Instance");
   const singleFlight = request.headers.has("X-Single-Flight");
-  const url = new URL(request.url.startsWith("/") ? `http://localhost${request.url}` : request.url);
+  const url = new URL(request.url);
   let functionId;
   if (serverReference) {
     [functionId] = serverReference.split("#");
@@ -2031,7 +2037,7 @@ async function handleServerFunction(h3Event) {
   }
 }
 function handleNoJS(result, request, parsed, thrown) {
-  const url = new URL(request.url.startsWith("/") ? `http://localhost${request.url}` : request.url);
+  const url = new URL(request.url);
   const isError = result instanceof Error;
   let statusCode = 302;
   let headers;
@@ -2140,7 +2146,7 @@ function createBaseHandler(createPageEvent2, fn, options = {}) {
     middleware: middleware.length ? middleware.map(decorateMiddleware) : void 0,
     handler: decorateHandler(async (e) => {
       const event = getRequestEvent();
-      const url = new URL(event.request.url.startsWith("/") ? `http://localhost${event.request.url}` : event.request.url);
+      const url = new URL(event.request.url);
       const pathname = stripBaseUrl(url.pathname);
       if (pathname.startsWith(SERVER_FN_BASE)) {
         const serverFnResponse = await handleServerFunction(e);
@@ -2234,7 +2240,7 @@ async function createPageEvent(ctx) {
   const assets = [
     ...mergedCSS,
     ...await manifest2.getAssets("./src/entry-client.tsx"),
-    ...await manifest2.getAssets("/home/c/workspace/solid-project/src/app.tsx")
+    ...await manifest2.getAssets("/home/c/workspace/solid.grpcfront/src/app.tsx")
     // ...(import.meta.env.START_ISLANDS
     //   ? (await serverManifest.inputs[serverManifest.handler]!.assets()).filter(
     //       s => (s as any).attrs.rel !== "modulepreload"

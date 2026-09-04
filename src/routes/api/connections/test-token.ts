@@ -1,82 +1,30 @@
 import { APIEvent } from "@solidjs/start/server";
-import get from "lodash.get";
+import { fetchPreRequestToken } from "~/lib/connections";
 
 export async function POST(event: APIEvent) {
   try {
     const body = await new Response(event.request.body).json();
     const { url, method, body: reqBody, headers: reqHeaders, authScheme, username, password, bearerToken, tokenPath } = body;
 
-    if (!url) {
-      return new Response(JSON.stringify({ success: false, error: "URL is required" }), {
+    const result = await fetchPreRequestToken({
+      tokenUrl: url,
+      tokenMethod: method,
+      tokenAuthScheme: authScheme,
+      tokenUsername: username,
+      tokenPassword: password,
+      tokenBearerToken: bearerToken,
+      tokenBody: reqBody,
+      tokenHeaders: reqHeaders,
+      tokenPath: tokenPath || "access_token",
+    });
+
+    if (!result.success) {
+      return new Response(JSON.stringify({ success: false, error: result.error, response: result.response }), {
         headers: { "Content-Type": "application/json" },
       });
     }
 
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-    };
-
-    if (reqHeaders) {
-      try {
-        const parsed = JSON.parse(reqHeaders);
-        Object.assign(headers, parsed);
-      } catch (e: any) {
-        return new Response(JSON.stringify({ success: false, error: `Failed to parse custom headers: ${e.message}` }), {
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-    }
-
-    if (authScheme === "basic" && (username || password)) {
-      const auth = Buffer.from(`${username || ""}:${password || ""}`).toString("base64");
-      headers["Authorization"] = `Basic ${auth}`;
-    } else if (authScheme === "bearer" && bearerToken) {
-      headers["Authorization"] = `Bearer ${bearerToken}`;
-    }
-
-    let targetUrl = url;
-    if (targetUrl && !targetUrl.startsWith("http://") && !targetUrl.startsWith("https://")) {
-      const separator = targetUrl.startsWith("/") ? "" : "/";
-      const port = process.env.PORT || 3000;
-      targetUrl = `http://127.0.0.1:${port}${separator}${targetUrl}`;
-    }
-
-    const fetchOptions: RequestInit = {
-      method: method || "POST",
-      headers,
-    };
-
-    if (method !== "GET") {
-      fetchOptions.body = reqBody || undefined;
-    }
-
-    const res = await fetch(targetUrl, fetchOptions);
-
-    let resData;
-    const contentType = res.headers.get("content-type");
-    if (contentType && contentType.includes("application/json")) {
-      resData = await res.json();
-    } else {
-      const text = await res.text();
-      try {
-        resData = JSON.parse(text);
-      } catch {
-        resData = text;
-      }
-    }
-
-    if (!res.ok) {
-      return new Response(JSON.stringify({ 
-        success: false, 
-        error: `HTTP ${res.status}: ${typeof resData === "object" ? JSON.stringify(resData) : resData}` 
-      }), {
-        headers: { "Content-Type": "application/json" },
-      });
-    }
-
-    const token = get(resData, tokenPath || "access_token");
-
-    return new Response(JSON.stringify({ success: true, token, response: resData }), {
+    return new Response(JSON.stringify({ success: true, token: result.token, response: result.response, latencyMs: result.latencyMs }), {
       headers: { "Content-Type": "application/json" },
     });
   } catch (err: any) {

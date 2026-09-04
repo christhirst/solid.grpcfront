@@ -277,6 +277,12 @@ class TracedDb {
 let dbPromise: Promise<TracedDb> | null = null;
 const dynamicDbs = new Map<string, Promise<TracedDb>>();
 
+const DEFAULT_SURREALDB_URL = "wss://ux-ti-06g5t3b4ldol77m9fqh7a91jv8.azure-gwc.surreal.cloud/rpc";
+const DEFAULT_SURREALDB_USER = "solid";
+const DEFAULT_SURREALDB_PASS = "sol1d";
+const DEFAULT_SURREALDB_NS = "solidflow";
+const DEFAULT_SURREALDB_DB = "main";
+
 export async function getDb(): Promise<TracedDb> {
     if (dbPromise) {
         return dbPromise;
@@ -289,12 +295,12 @@ export async function getDb(): Promise<TracedDb> {
             attributes: { "db.system": "surrealdb" },
         },
         async (connectSpan) => {
-            // Define connection credentials. We fallback to local defaults for dev.
-            const url = process.env.SURREALDB_URL || "";
-            const user = process.env.SURREALDB_USER || "admin";
-            const pass = process.env.SURREALDB_PASS || "";
-            const namespace = process.env.SURREALDB_NS || "solidflow";
-            const database = process.env.SURREALDB_DB || "main";
+            // Define connection credentials with sensible fallbacks
+            const url = process.env.SURREALDB_URL || DEFAULT_SURREALDB_URL;
+            const user = process.env.SURREALDB_USER || DEFAULT_SURREALDB_USER;
+            const pass = process.env.SURREALDB_PASS || DEFAULT_SURREALDB_PASS;
+            const namespace = process.env.SURREALDB_NS || DEFAULT_SURREALDB_NS;
+            const database = process.env.SURREALDB_DB || DEFAULT_SURREALDB_DB;
 
             connectSpan.setAttribute("db.url", url);
             connectSpan.setAttribute("db.namespace", namespace);
@@ -307,21 +313,53 @@ export async function getDb(): Promise<TracedDb> {
 
                 // Open a connection and authenticate
                 console.log(`[DB] [INIT] Authenticating as user: ${user}`);
-                await db.connect(url, {
-                    authentication: {
-                        username: user,
-                        password: pass,
-                    },
-                });
+                try {
+                    await db.connect(url, {
+                        authentication: {
+                            namespace,
+                            database,
+                            username: user,
+                            password: pass,
+                        },
+                    });
+                } catch {
+                    // Fallback to root-level authentication if DB-scoped auth fails
+                    await db.connect(url, {
+                        authentication: {
+                            username: user,
+                            password: pass,
+                        },
+                    });
+                }
 
-                // Ensure namespace and database exist, then use them
-                console.log(`[DB] [INIT] Ensuring namespace exists: ${namespace}`);
-                await db.query(`DEFINE NAMESPACE IF NOT EXISTS ${namespace}`);
+                // Ensure namespace and database exist (ignore IAM errors for DB-scoped users)
+                try {
+                    console.log(`[DB] [INIT] Ensuring namespace exists: ${namespace}`);
+                    await db.query(`DEFINE NAMESPACE IF NOT EXISTS ${namespace}`);
+                } catch (e: any) {
+                    // DB-level users do not have permissions to DEFINE NAMESPACE
+                }
                 await db.use({ namespace });
                 
-                console.log(`[DB] [INIT] Ensuring database exists: ${database}`);
-                await db.query(`DEFINE DATABASE IF NOT EXISTS ${database}`);
+                try {
+                    console.log(`[DB] [INIT] Ensuring database exists: ${database}`);
+                    await db.query(`DEFINE DATABASE IF NOT EXISTS ${database}`);
+                } catch (e: any) {
+                    // DB-level users do not have permissions to DEFINE DATABASE
+                }
                 await db.use({ namespace, database });
+
+                // Ensure standard tables exist
+                try {
+                    await db.query(`
+                        DEFINE TABLE IF NOT EXISTS workflow TYPE NORMAL SCHEMALESS PERMISSIONS FULL;
+                        DEFINE TABLE IF NOT EXISTS connection TYPE NORMAL SCHEMALESS PERMISSIONS FULL;
+                        DEFINE TABLE IF NOT EXISTS workflow_run TYPE NORMAL SCHEMALESS PERMISSIONS FULL;
+                        DEFINE TABLE IF NOT EXISTS dashboard TYPE NORMAL SCHEMALESS PERMISSIONS FULL;
+                    `);
+                } catch (e: any) {
+                    // Ignore if unable to define tables
+                }
 
                 console.log(
                     `[DB] [INIT] Successfully connected to ${namespace}/${database}`,
@@ -364,10 +402,10 @@ export async function getDynamicDb(dbName: string): Promise<TracedDb> {
             },
         },
         async (connectSpan) => {
-            const url = process.env.SURREALDB_URL || "";
-            const user = process.env.SURREALDB_USER || "admin";
-            const pass = process.env.SURREALDB_PASS || "";
-            const namespace = process.env.SURREALDB_NS || "solidflow";
+            const url = process.env.SURREALDB_URL || DEFAULT_SURREALDB_URL;
+            const user = process.env.SURREALDB_USER || DEFAULT_SURREALDB_USER;
+            const pass = process.env.SURREALDB_PASS || DEFAULT_SURREALDB_PASS;
+            const namespace = process.env.SURREALDB_NS || DEFAULT_SURREALDB_NS;
 
             connectSpan.setAttribute("db.url", url);
             connectSpan.setAttribute("db.namespace", namespace);
@@ -377,9 +415,15 @@ export async function getDynamicDb(dbName: string): Promise<TracedDb> {
             );
             try {
                 const s = new Surreal();
-                await s.connect(url, {
-                    authentication: { username: user, password: pass },
-                });
+                try {
+                    await s.connect(url, {
+                        authentication: { namespace, database: dbName, username: user, password: pass },
+                    });
+                } catch {
+                    await s.connect(url, {
+                        authentication: { username: user, password: pass },
+                    });
+                }
                 await s.use({ namespace, database: dbName });
                 console.log(`[DB] [DYNAMIC] Successfully connected to '${dbName}'`);
                 return new TracedDb(s, dbName);
@@ -410,10 +454,10 @@ export interface CustomDbOpts {
 }
 
 export async function getCustomDb(opts: CustomDbOpts): Promise<TracedDb> {
-    const url = opts.url || process.env.SURREALDB_URL || "";
-    const user = opts.user || process.env.SURREALDB_USER || "admin";
-    const pass = opts.pass || process.env.SURREALDB_PASS || "";
-    const namespace = opts.namespace || process.env.SURREALDB_NS || "solidflow";
+    const url = opts.url || process.env.SURREALDB_URL || DEFAULT_SURREALDB_URL;
+    const user = opts.user || process.env.SURREALDB_USER || DEFAULT_SURREALDB_USER;
+    const pass = opts.pass || process.env.SURREALDB_PASS || DEFAULT_SURREALDB_PASS;
+    const namespace = opts.namespace || process.env.SURREALDB_NS || DEFAULT_SURREALDB_NS;
     const database = opts.database || "main";
 
     const cacheKey = `${url}|${user}|${pass}|${namespace}|${database}`;
