@@ -1,4 +1,4 @@
-import { SolidAuth, getSession } from "@auth/solid-start";
+import { SolidAuth } from "@auth/solid-start";
 import { l as logger } from "./logger-BDLv3oYI.js";
 import { c as createDynamicRequest } from "./authUrl-D6qtsd_i.js";
 const oidcIssuer = process.env.OIDC_ISSUER || "https://auth.401c6411-20e6-4053-8c2b-062d3c6ffcc0.k8s.civo.com/api/realms/master";
@@ -17,7 +17,7 @@ const config = {
     issuer: oidcIssuer,
     clientId,
     clientSecret,
-    checks: ["pkce", "state"],
+    checks: ["pkce"],
     client: {
       token_endpoint_auth_method: "client_secret_post"
     },
@@ -72,34 +72,24 @@ const config = {
   trustHost: true,
   secret: authSecret
 };
-const authOpts = config;
 const {
-  GET: authGET,
-  POST: authPOST
+  GET: authGET
 } = SolidAuth(config);
-async function getAuthUser(request) {
-  try {
-    const {
-      request: dynamicReq
-    } = createDynamicRequest(request);
-    const session = await getSession(dynamicReq, authOpts);
-    if (!session?.user) return null;
-    const user = session.user;
-    return {
-      sub: user.sub || user.id || "anonymous",
-      name: user.name || void 0,
-      email: user.email || void 0,
-      image: user.image || void 0
-    };
-  } catch {
-    return null;
-  }
-}
-async function getOwnerFromRequest(request) {
-  const user = await getAuthUser(request);
-  return user?.sub || "anonymous";
-}
-export {
-  getOwnerFromRequest as g
+const GET = async (event) => {
+  const {
+    request: dynamicReq,
+    dynamicUrl
+  } = createDynamicRequest(event.request);
+  debugLog(`[auth][api-debug] GET original URL: ${event.request?.url} -> dynamic URL: ${dynamicUrl}`);
+  const dynamicEvent = {
+    ...event,
+    request: dynamicReq
+  };
+  const res = await authGET(dynamicEvent);
+  debugLog(`[auth][api-debug] GET response status: ${res?.status}`);
+  return res;
 };
-//# sourceMappingURL=auth-B3zGjE9E.js.map
+export {
+  GET
+};
+//# sourceMappingURL=_...solidauth_-BdX805ST.js.map

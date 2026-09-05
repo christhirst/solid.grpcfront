@@ -21,7 +21,7 @@ const config: SolidAuthConfig = {
       issuer: oidcIssuer,
       clientId: clientId,
       clientSecret: clientSecret,
-      checks: ["pkce", "state"],
+      checks: ["pkce"],
       client: {
         token_endpoint_auth_method: "client_secret_post",
       },

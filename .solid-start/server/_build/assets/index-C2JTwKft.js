@@ -1,7 +1,7 @@
-import { g as getDb, s as scheduleWorkflow } from "./db-CWsCtsJQ.js";
+import { g as getDb } from "./db-CWsCtsJQ.js";
 import { v4 } from "uuid";
 import { RecordId } from "surrealdb";
-import { g as getOwnerFromRequest } from "./auth-B3zGjE9E.js";
+import { g as getOwnerFromRequest } from "./auth-ZuQbpxqj.js";
 import "@sentry/node";
 import "node-cron";
 import "./logger-BDLv3oYI.js";
@@ -25,10 +25,10 @@ async function POST(event) {
     const db = await getDb();
     const body = await new Response(event.request.body).json();
     const owner = await getOwnerFromRequest(event.request);
-    const rawId = body.id || `workflow:${v4()}`;
+    const rawId = body.id || `dashboard:${v4()}`;
     const dbId = rawId.includes(":") ? rawId.split(":")[1] : rawId;
     const now = (/* @__PURE__ */ new Date()).toISOString();
-    const workflow = {
+    const dashboard = {
       ...body,
       id: rawId,
       owner,
@@ -39,8 +39,8 @@ async function POST(event) {
     const {
       id: _,
       ...dataWithoutId
-    } = workflow;
-    const recordId = new RecordId("workflow", dbId);
+    } = dashboard;
+    const recordId = new RecordId("dashboard", dbId);
     const result = await db.query("CREATE $id CONTENT $data", {
       id: recordId,
       data: dataWithoutId
@@ -48,8 +48,7 @@ async function POST(event) {
     const records = Array.isArray(result) ? result[0] || result : result;
     const record = Array.isArray(records) ? records[0] : records;
     if (record) {
-      record.id = `workflow:${dbId}`;
-      scheduleWorkflow(record);
+      record.id = `dashboard:${dbId}`;
     }
     return new Response(JSON.stringify({
       success: true,
@@ -74,4 +73,4 @@ async function POST(event) {
 export {
   POST
 };
-//# sourceMappingURL=index-BNsgw5PG.js.map
+//# sourceMappingURL=index-C2JTwKft.js.map

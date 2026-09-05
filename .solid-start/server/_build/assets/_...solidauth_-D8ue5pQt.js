@@ -17,7 +17,7 @@ const config = {
     issuer: oidcIssuer,
     clientId,
     clientSecret,
-    checks: ["pkce", "state"],
+    checks: ["pkce"],
     client: {
       token_endpoint_auth_method: "client_secret_post"
     },
@@ -73,23 +73,23 @@ const config = {
   secret: authSecret
 };
 const {
-  GET: authGET
+  POST: authPOST
 } = SolidAuth(config);
-const GET = async (event) => {
+const POST = async (event) => {
   const {
     request: dynamicReq,
     dynamicUrl
   } = createDynamicRequest(event.request);
-  debugLog(`[auth][api-debug] GET original URL: ${event.request?.url} -> dynamic URL: ${dynamicUrl}`);
+  debugLog(`[auth][api-debug] POST original URL: ${event.request?.url} -> dynamic URL: ${dynamicUrl}`);
   const dynamicEvent = {
     ...event,
     request: dynamicReq
   };
-  const res = await authGET(dynamicEvent);
-  debugLog(`[auth][api-debug] GET response status: ${res?.status}`);
+  const res = await authPOST(dynamicEvent);
+  debugLog(`[auth][api-debug] POST response status: ${res?.status}`);
   return res;
 };
 export {
-  GET
+  POST
 };
-//# sourceMappingURL=_...solidauth_-DoJBb4uR.js.map
+//# sourceMappingURL=_...solidauth_-D8ue5pQt.js.map

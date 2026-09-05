@@ -1,7 +1,8 @@
 import { g as getDb } from "./db-CWsCtsJQ.js";
 import { v4 } from "uuid";
 import { RecordId } from "surrealdb";
-import { g as getOwnerFromRequest } from "./auth-B3zGjE9E.js";
+import { g as getOwnerFromRequest } from "./auth-ZuQbpxqj.js";
+import { n as normalizeConnection } from "./connections-BimqTFQY.js";
 import "@sentry/node";
 import "node-cron";
 import "./logger-BDLv3oYI.js";
@@ -17,7 +18,6 @@ import "./httpExecutor-C7gv4kID.js";
 import "./protoParser-C1XlV9an.js";
 import "protobufjs";
 import "events";
-import "./connections-BimqTFQY.js";
 import "@auth/solid-start";
 import "./authUrl-D6qtsd_i.js";
 async function POST(event) {
@@ -25,31 +25,35 @@ async function POST(event) {
     const db = await getDb();
     const body = await new Response(event.request.body).json();
     const owner = await getOwnerFromRequest(event.request);
-    const rawId = body.id || `proto_file:${v4()}`;
+    const rawId = body.id || `connection:${v4()}`;
     const dbId = rawId.includes(":") ? rawId.split(":")[1] : rawId;
     const now = (/* @__PURE__ */ new Date()).toISOString();
-    const protoDef = {
+    const normalized = normalizeConnection({
       ...body,
       id: rawId,
       owner,
       visibility: body.visibility || "public",
       created_at: body.created_at || now,
       updated_at: now
-    };
+    });
     const {
       id: _,
       ...dataWithoutId
-    } = protoDef;
-    const recordId = new RecordId("proto_file", dbId);
+    } = normalized;
+    const recordId = new RecordId("connection", dbId);
     const result = await db.query("CREATE $id CONTENT $data", {
       id: recordId,
       data: dataWithoutId
     });
-    const record = Array.isArray(result) ? result[0] : result;
-    if (record) record.id = `proto_file:${dbId}`;
+    const records = Array.isArray(result) ? result[0] || result : result;
+    const record = Array.isArray(records) ? records[0] : records;
+    const output = normalizeConnection(record ? {
+      ...record,
+      id: `connection:${dbId}`
+    } : normalized);
     return new Response(JSON.stringify({
       success: true,
-      data: record
+      data: output
     }), {
       headers: {
         "Content-Type": "application/json"
@@ -70,4 +74,4 @@ async function POST(event) {
 export {
   POST
 };
-//# sourceMappingURL=index-BjDDP7Bv.js.map
+//# sourceMappingURL=index-CY0_Nk3j.js.map

@@ -1,7 +1,7 @@
 import { g as getDb } from "./db-CWsCtsJQ.js";
 import { v4 } from "uuid";
 import { RecordId } from "surrealdb";
-import { g as getOwnerFromRequest } from "./auth-B3zGjE9E.js";
+import { g as getOwnerFromRequest } from "./auth-ZuQbpxqj.js";
 import "@sentry/node";
 import "node-cron";
 import "./logger-BDLv3oYI.js";
@@ -25,10 +25,10 @@ async function POST(event) {
     const db = await getDb();
     const body = await new Response(event.request.body).json();
     const owner = await getOwnerFromRequest(event.request);
-    const rawId = body.id || `dashboard:${v4()}`;
+    const rawId = body.id || `proto_file:${v4()}`;
     const dbId = rawId.includes(":") ? rawId.split(":")[1] : rawId;
     const now = (/* @__PURE__ */ new Date()).toISOString();
-    const dashboard = {
+    const protoDef = {
       ...body,
       id: rawId,
       owner,
@@ -39,17 +39,14 @@ async function POST(event) {
     const {
       id: _,
       ...dataWithoutId
-    } = dashboard;
-    const recordId = new RecordId("dashboard", dbId);
+    } = protoDef;
+    const recordId = new RecordId("proto_file", dbId);
     const result = await db.query("CREATE $id CONTENT $data", {
       id: recordId,
       data: dataWithoutId
     });
-    const records = Array.isArray(result) ? result[0] || result : result;
-    const record = Array.isArray(records) ? records[0] : records;
-    if (record) {
-      record.id = `dashboard:${dbId}`;
-    }
+    const record = Array.isArray(result) ? result[0] : result;
+    if (record) record.id = `proto_file:${dbId}`;
     return new Response(JSON.stringify({
       success: true,
       data: record
@@ -73,4 +70,4 @@ async function POST(event) {
 export {
   POST
 };
-//# sourceMappingURL=index-BiJWg2IQ.js.map
+//# sourceMappingURL=index-CI8PdSJi.js.map

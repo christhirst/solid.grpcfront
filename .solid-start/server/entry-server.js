@@ -1259,22 +1259,22 @@ const fileRoutes = [{ "page": true, "$component": { "src": "src/routes/TrustedCA
   "./_build/assets/index-C7ztWUp0.js"
 ) }, "path": "/workflows/" }, { "page": false, "$GET": { "src": "src/routes/api/auth/[...solidauth].ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/_...solidauth_-DoJBb4uR.js"
+  "./_build/assets/_...solidauth_-BdX805ST.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/_...solidauth_-DoJBb4uR.js"
+  "./_build/assets/_...solidauth_-BdX805ST.js"
 ) }, "$HEAD": { "src": "src/routes/api/auth/[...solidauth].ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/_...solidauth_-DoJBb4uR.js"
+  "./_build/assets/_...solidauth_-BdX805ST.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/_...solidauth_-DoJBb4uR.js"
+  "./_build/assets/_...solidauth_-BdX805ST.js"
 ) }, "$POST": { "src": "src/routes/api/auth/[...solidauth].ts?pick=POST", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/_...solidauth_-pQL_S710.js"
+  "./_build/assets/_...solidauth_-D8ue5pQt.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/_...solidauth_-pQL_S710.js"
+  "./_build/assets/_...solidauth_-D8ue5pQt.js"
 ) }, "path": "/api/auth/*solidauth" }, { "page": false, "$DELETE": { "src": "src/routes/api/cas/[id].ts?pick=DELETE", "build": () => import(
   /* @vite-ignore */
   "./_build/assets/_id_-Dv3DR-Bg.js"
@@ -1313,10 +1313,10 @@ const fileRoutes = [{ "page": true, "$component": { "src": "src/routes/TrustedCA
   "./_build/assets/index-Br0wWsf9.js"
 ) }, "$POST": { "src": "src/routes/api/cas/index.ts?pick=POST", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-WuZ12ojG.js"
+  "./_build/assets/index-Dv0y09Q9.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-WuZ12ojG.js"
+  "./_build/assets/index-Dv0y09Q9.js"
 ) }, "path": "/api/cas/" }, { "page": false, "$DELETE": { "src": "src/routes/api/connections/[id].ts?pick=DELETE", "build": () => import(
   /* @vite-ignore */
   "./_build/assets/_id_-fG_mYy1s.js"
@@ -1355,10 +1355,10 @@ const fileRoutes = [{ "page": true, "$component": { "src": "src/routes/TrustedCA
   "./_build/assets/index-DT9_44vk.js"
 ) }, "$POST": { "src": "src/routes/api/connections/index.ts?pick=POST", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-D84AgMr_.js"
+  "./_build/assets/index-CY0_Nk3j.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-D84AgMr_.js"
+  "./_build/assets/index-CY0_Nk3j.js"
 ) }, "path": "/api/connections/" }, { "page": false, "$POST": { "src": "src/routes/api/connections/test-token.ts?pick=POST", "build": () => import(
   /* @vite-ignore */
   "./_build/assets/test-token-Dm9X8S-k.js"
@@ -1385,10 +1385,10 @@ const fileRoutes = [{ "page": true, "$component": { "src": "src/routes/TrustedCA
   "./_build/assets/index-AxGW3yDG.js"
 ) }, "$POST": { "src": "src/routes/api/dashboards/index.ts?pick=POST", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-BiJWg2IQ.js"
+  "./_build/assets/index-C2JTwKft.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-BiJWg2IQ.js"
+  "./_build/assets/index-C2JTwKft.js"
 ) }, "path": "/api/dashboards/" }, { "page": false, "$GET": { "src": "src/routes/api/database/index.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
   "./_build/assets/index-BxVpfagu.js"
@@ -1451,10 +1451,10 @@ const fileRoutes = [{ "page": true, "$component": { "src": "src/routes/TrustedCA
   "./_build/assets/index-BOB5-P8a.js"
 ) }, "$POST": { "src": "src/routes/api/protos/index.ts?pick=POST", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-BjDDP7Bv.js"
+  "./_build/assets/index-CI8PdSJi.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-BjDDP7Bv.js"
+  "./_build/assets/index-CI8PdSJi.js"
 ) }, "path": "/api/protos/" }, { "page": false, "$POST": { "src": "src/routes/api/requests/stream.ts?pick=POST", "build": () => import(
   /* @vite-ignore */
   "./_build/assets/stream-DGc4apvF.js"
@@ -1475,10 +1475,10 @@ const fileRoutes = [{ "page": true, "$component": { "src": "src/routes/TrustedCA
   "./_build/assets/index-U3rJE49c.js"
 ) }, "$POST": { "src": "src/routes/api/workflows/index.ts?pick=POST", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-BNsgw5PG.js"
+  "./_build/assets/index-Bfwv_bou.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-BNsgw5PG.js"
+  "./_build/assets/index-Bfwv_bou.js"
 ) }, "path": "/api/workflows/" }, { "page": false, "$DELETE": { "src": "src/routes/api/dashboards/[id]/index.ts?pick=DELETE", "build": () => import(
   /* @vite-ignore */
   "./_build/assets/index-CYk38RIq.js"

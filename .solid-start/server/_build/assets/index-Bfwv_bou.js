@@ -1,7 +1,7 @@
-import { g as getDb } from "./db-CWsCtsJQ.js";
+import { g as getDb, s as scheduleWorkflow } from "./db-CWsCtsJQ.js";
 import { v4 } from "uuid";
 import { RecordId } from "surrealdb";
-import { g as getOwnerFromRequest } from "./auth-B3zGjE9E.js";
+import { g as getOwnerFromRequest } from "./auth-ZuQbpxqj.js";
 import "@sentry/node";
 import "node-cron";
 import "./logger-BDLv3oYI.js";
@@ -25,10 +25,10 @@ async function POST(event) {
     const db = await getDb();
     const body = await new Response(event.request.body).json();
     const owner = await getOwnerFromRequest(event.request);
-    const rawId = body.id || `ca_cert:${v4()}`;
+    const rawId = body.id || `workflow:${v4()}`;
     const dbId = rawId.includes(":") ? rawId.split(":")[1] : rawId;
     const now = (/* @__PURE__ */ new Date()).toISOString();
-    const certDef = {
+    const workflow = {
       ...body,
       id: rawId,
       owner,
@@ -39,14 +39,18 @@ async function POST(event) {
     const {
       id: _,
       ...dataWithoutId
-    } = certDef;
-    const recordId = new RecordId("ca_cert", dbId);
+    } = workflow;
+    const recordId = new RecordId("workflow", dbId);
     const result = await db.query("CREATE $id CONTENT $data", {
       id: recordId,
       data: dataWithoutId
     });
-    const record = Array.isArray(result) ? result[0] : result;
-    if (record) record.id = `ca_cert:${dbId}`;
+    const records = Array.isArray(result) ? result[0] || result : result;
+    const record = Array.isArray(records) ? records[0] : records;
+    if (record) {
+      record.id = `workflow:${dbId}`;
+      scheduleWorkflow(record);
+    }
     return new Response(JSON.stringify({
       success: true,
       data: record
@@ -70,4 +74,4 @@ async function POST(event) {
 export {
   POST
 };
-//# sourceMappingURL=index-WuZ12ojG.js.map
+//# sourceMappingURL=index-Bfwv_bou.js.map

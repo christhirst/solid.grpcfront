@@ -1,6 +1,6 @@
 {
-  "_auth-B3zGjE9E.js": {
-    "file": "_build/assets/auth-B3zGjE9E.js",
+  "_auth-ZuQbpxqj.js": {
+    "file": "_build/assets/auth-ZuQbpxqj.js",
     "name": "auth",
     "imports": [
       "_logger-BDLv3oYI.js",
@@ -282,7 +282,7 @@
     ]
   },
   "src/routes/api/auth/[...solidauth].ts?pick=GET": {
-    "file": "_build/assets/_...solidauth_-DoJBb4uR.js",
+    "file": "_build/assets/_...solidauth_-BdX805ST.js",
     "name": "_...solidauth_",
     "src": "src/routes/api/auth/[...solidauth].ts?pick=GET",
     "isDynamicEntry": true,
@@ -292,7 +292,7 @@
     ]
   },
   "src/routes/api/auth/[...solidauth].ts?pick=POST": {
-    "file": "_build/assets/_...solidauth_-pQL_S710.js",
+    "file": "_build/assets/_...solidauth_-D8ue5pQt.js",
     "name": "_...solidauth_",
     "src": "src/routes/api/auth/[...solidauth].ts?pick=POST",
     "isDynamicEntry": true,
@@ -358,13 +358,13 @@
     ]
   },
   "src/routes/api/cas/index.ts?pick=POST": {
-    "file": "_build/assets/index-WuZ12ojG.js",
+    "file": "_build/assets/index-Dv0y09Q9.js",
     "name": "index",
     "src": "src/routes/api/cas/index.ts?pick=POST",
     "isDynamicEntry": true,
     "imports": [
       "_db-CWsCtsJQ.js",
-      "_auth-B3zGjE9E.js",
+      "_auth-ZuQbpxqj.js",
       "_logger-BDLv3oYI.js",
       "_grpcExecutor-DlteWgV8.js",
       "_httpExecutor-C7gv4kID.js",
@@ -430,13 +430,13 @@
     ]
   },
   "src/routes/api/connections/index.ts?pick=POST": {
-    "file": "_build/assets/index-D84AgMr_.js",
+    "file": "_build/assets/index-CY0_Nk3j.js",
     "name": "index",
     "src": "src/routes/api/connections/index.ts?pick=POST",
     "isDynamicEntry": true,
     "imports": [
       "_db-CWsCtsJQ.js",
-      "_auth-B3zGjE9E.js",
+      "_auth-ZuQbpxqj.js",
       "_connections-BimqTFQY.js",
       "_logger-BDLv3oYI.js",
       "_grpcExecutor-DlteWgV8.js",
@@ -539,13 +539,13 @@
     ]
   },
   "src/routes/api/dashboards/index.ts?pick=POST": {
-    "file": "_build/assets/index-BiJWg2IQ.js",
+    "file": "_build/assets/index-C2JTwKft.js",
     "name": "index",
     "src": "src/routes/api/dashboards/index.ts?pick=POST",
     "isDynamicEntry": true,
     "imports": [
       "_db-CWsCtsJQ.js",
-      "_auth-B3zGjE9E.js",
+      "_auth-ZuQbpxqj.js",
       "_logger-BDLv3oYI.js",
       "_grpcExecutor-DlteWgV8.js",
       "_httpExecutor-C7gv4kID.js",
@@ -747,13 +747,13 @@
     ]
   },
   "src/routes/api/protos/index.ts?pick=POST": {
-    "file": "_build/assets/index-BjDDP7Bv.js",
+    "file": "_build/assets/index-CI8PdSJi.js",
     "name": "index",
     "src": "src/routes/api/protos/index.ts?pick=POST",
     "isDynamicEntry": true,
     "imports": [
       "_db-CWsCtsJQ.js",
-      "_auth-B3zGjE9E.js",
+      "_auth-ZuQbpxqj.js",
       "_logger-BDLv3oYI.js",
       "_grpcExecutor-DlteWgV8.js",
       "_httpExecutor-C7gv4kID.js",
@@ -876,13 +876,13 @@
     ]
   },
   "src/routes/api/workflows/index.ts?pick=POST": {
-    "file": "_build/assets/index-BNsgw5PG.js",
+    "file": "_build/assets/index-Bfwv_bou.js",
     "name": "index",
     "src": "src/routes/api/workflows/index.ts?pick=POST",
     "isDynamicEntry": true,
     "imports": [
       "_db-CWsCtsJQ.js",
-      "_auth-B3zGjE9E.js",
+      "_auth-ZuQbpxqj.js",
       "_logger-BDLv3oYI.js",
       "_grpcExecutor-DlteWgV8.js",
       "_httpExecutor-C7gv4kID.js",
