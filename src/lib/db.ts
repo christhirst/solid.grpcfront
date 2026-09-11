@@ -301,6 +301,48 @@ async function connectWithTimeout(
     }
 }
 
+/**
+ * Creates and connects a Surreal client with timeout and sensible auth fallback.
+ * Critical: When connection fails, a fresh Surreal instance MUST be created because
+ * reusing an errored/closed Surreal client in the v2 SDK throws ConnectionUnavailableError.
+ */
+async function createConnectedClient(
+    url: string,
+    user: string,
+    pass: string,
+    namespace?: string,
+    database?: string,
+    connectTimeoutMs = 8000,
+): Promise<Surreal> {
+    // Root user credentials in SurrealDB must use root-level auth (without namespace/database).
+    // Scoped users authenticate with namespace and database.
+    const authAttempts = user === "root" || !namespace || !database
+        ? [
+            { username: user, password: pass },
+            ...(namespace && database ? [{ namespace, database, username: user, password: pass }] : []),
+          ]
+        : [
+            { namespace, database, username: user, password: pass },
+            { username: user, password: pass },
+          ];
+
+    let lastError: any;
+    for (const auth of authAttempts) {
+        const client = new Surreal();
+        try {
+            await connectWithTimeout(client, url, { authentication: auth }, connectTimeoutMs);
+            return client;
+        } catch (err: any) {
+            lastError = err;
+            try {
+                await client.close();
+            } catch {}
+            console.warn(`[DB] Auth attempt failed (${Object.keys(auth).join(", ")}): ${err?.message || err}`);
+        }
+    }
+    throw lastError;
+}
+
 // Cache the connection promise so concurrent requests await the same initial connection.
 // We avoid globalThis as it can cause Nitro worker hangs when dealing with WebSockets/WASM.
 let dbPromise: Promise<TracedDb> | null = null;
@@ -339,28 +381,8 @@ export async function getDb(): Promise<TracedDb> {
             console.log(`[DB] [INIT] Connecting to SurrealDB at ${url}...`);
 
             try {
-                const db = new Surreal();
-
-                // Open a connection and authenticate
                 console.log(`[DB] [INIT] Authenticating as user: ${user}`);
-                try {
-                    await connectWithTimeout(db, url, {
-                        authentication: {
-                            namespace,
-                            database,
-                            username: user,
-                            password: pass,
-                        },
-                    }, connectTimeoutMs);
-                } catch (firstAuthErr) {
-                    // Fallback to root-level authentication if DB-scoped auth fails
-                    await connectWithTimeout(db, url, {
-                        authentication: {
-                            username: user,
-                            password: pass,
-                        },
-                    }, connectTimeoutMs);
-                }
+                const db = await createConnectedClient(url, user, pass, namespace, database, connectTimeoutMs);
 
                 // Ensure namespace and database exist (ignore IAM errors for DB-scoped users)
                 try {
@@ -445,16 +467,7 @@ export async function getDynamicDb(dbName: string): Promise<TracedDb> {
                 `[DB] [DYNAMIC] Connecting to dynamic database '${dbName}' at ${url}...`,
             );
             try {
-                const s = new Surreal();
-                try {
-                    await connectWithTimeout(s, url, {
-                        authentication: { namespace, database: dbName, username: user, password: pass },
-                    }, connectTimeoutMs);
-                } catch {
-                    await connectWithTimeout(s, url, {
-                        authentication: { username: user, password: pass },
-                    }, connectTimeoutMs);
-                }
+                const s = await createConnectedClient(url, user, pass, namespace, dbName, connectTimeoutMs);
                 await s.use({ namespace, database: dbName });
                 console.log(`[DB] [DYNAMIC] Successfully connected to '${dbName}'`);
                 return new TracedDb(s, dbName);
@@ -516,10 +529,7 @@ export async function getCustomDb(opts: CustomDbOpts): Promise<TracedDb> {
                 `[DB] [CUSTOM] Connecting to custom database '${database}' at ${url}...`,
             );
             try {
-                const s = new Surreal();
-                await connectWithTimeout(s, url, {
-                    authentication: { username: user, password: pass },
-                }, connectTimeoutMs);
+                const s = await createConnectedClient(url, user, pass, namespace, database, connectTimeoutMs);
                 
                 try {
                     await s.query(`DEFINE NAMESPACE IF NOT EXISTS ${namespace}`);
