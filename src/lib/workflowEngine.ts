@@ -697,6 +697,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
         let targetDbUser = interpolateTemplate(step.databaseUser || "", context) || undefined;
         let targetDbPass = interpolateTemplate(step.databasePass || "", context) || undefined;
         let targetDbNs = interpolateTemplate(step.databaseNs || "", context) || undefined;
+        let targetDbTimeout: number | undefined = undefined;
 
         if (step.connectionId && (!targetDbUrl || !targetDbName)) {
           try {
@@ -710,6 +711,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
               if (conn.password && !targetDbPass) targetDbPass = conn.password;
               if (conn.namespace && !targetDbNs) targetDbNs = conn.namespace;
               if (conn.database && !targetDbName) targetDbName = conn.database;
+              if (conn.timeoutMs) targetDbTimeout = conn.timeoutMs;
             }
           } catch (e) {
             console.error("[WORKFLOW] Could not resolve SurrealDB connection for live step:", e);
@@ -727,6 +729,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
             pass: targetDbPass,
             namespace: targetDbNs,
             database: targetDbName,
+            timeoutMs: targetDbTimeout,
           });
 
           const liveUuid = await ddb.live(targetTable, (action: string, result: any) => {
@@ -961,6 +964,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
           let targetDbUser = interpolateTemplate(step.databaseUser || "", context) || undefined;
           let targetDbPass = interpolateTemplate(step.databasePass || "", context) || undefined;
           let targetDbNs = interpolateTemplate(step.databaseNs || "", context) || undefined;
+          let targetDbTimeout: number | undefined = undefined;
 
           if (step.connectionId && (!targetDbUrl || !targetDbName)) {
             try {
@@ -974,6 +978,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
                 if (conn.password && !targetDbPass) targetDbPass = conn.password;
                 if (conn.namespace && !targetDbNs) targetDbNs = conn.namespace;
                 if (conn.database && !targetDbName) targetDbName = conn.database;
+                if (conn.timeoutMs) targetDbTimeout = conn.timeoutMs;
               }
             } catch (e) {
               console.error("[WORKFLOW] Could not resolve SurrealDB connection for database step:", e);
@@ -988,6 +993,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
             pass: targetDbPass,
             namespace: targetDbNs,
             database: targetDbName,
+            timeoutMs: targetDbTimeout,
           });
           
           const surrealResult = await ddb.query(queryPayload);

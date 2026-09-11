@@ -76,6 +76,19 @@ async function runTests() {
   });
   console.log("gRPC unreachable connection handled cleanly:", !grpcRes.success && grpcRes.error ? "PASS" : "FAIL");
 
+  console.log("\n=== 4. Testing testSurrealDbConnection (timeout handling) ===");
+  const surrealStart = Date.now();
+  const surrealRes = await testSurrealDbConnection({
+    url: "ws://127.0.0.1:59999/rpc", // non-existent SurrealDB port
+    timeoutMs: 2000,
+  });
+  const surrealElapsed = Date.now() - surrealStart;
+  const timedOutCleanly = !surrealRes.success && surrealRes.error && surrealRes.error.includes("timed out") && surrealElapsed >= 1800 && surrealElapsed < 4000;
+  console.log(
+    `SurrealDB timeout test (elapsed: ${surrealElapsed}ms, error: ${surrealRes.error}):`,
+    timedOutCleanly ? "PASS" : "FAIL"
+  );
+
   console.log("\n=== All Unit/Integration Connection Tests Completed ===");
 }
 

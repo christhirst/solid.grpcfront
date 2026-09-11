@@ -89,6 +89,7 @@ export default function Connections() {
   const [dbPassword, setDbPassword] = createSignal("");
   const [dbNamespace, setDbNamespace] = createSignal("solidflow");
   const [dbDatabase, setDbDatabase] = createSignal("main");
+  const [dbTimeoutMs, setDbTimeoutMs] = createSignal<number>(5000);
 
   // Testing & Saving States
   const [testResult, setTestResult] = createSignal<any>(null);
@@ -166,6 +167,7 @@ export default function Connections() {
     setDbPassword("");
     setDbNamespace("solidflow");
     setDbDatabase("main");
+    setDbTimeoutMs(5000);
     setTestResult(null);
   };
 
@@ -188,6 +190,7 @@ export default function Connections() {
       setDbUrl("ws://127.0.0.1:8000/rpc");
       setDbNamespace("solidflow");
       setDbDatabase("main");
+      setDbTimeoutMs(5000);
     }
   };
 
@@ -242,6 +245,7 @@ export default function Connections() {
     setDbPassword(conn.password || "");
     setDbNamespace(conn.namespace || "solidflow");
     setDbDatabase(conn.database || "main");
+    setDbTimeoutMs(conn.timeoutMs || 5000);
 
     setTestResult(null);
   };
@@ -317,6 +321,7 @@ export default function Connections() {
         password: dbPassword() || undefined,
         namespace: dbNamespace().trim() || undefined,
         database: dbDatabase().trim() || undefined,
+        timeoutMs: dbTimeoutMs() ? Number(dbTimeoutMs()) : 5000,
       };
     }
   };
@@ -327,10 +332,12 @@ export default function Connections() {
 
     try {
       const payload = getPayload();
+      const clientTimeoutMs = ((payload as any).timeoutMs || 5000) + 3000;
       const res = await fetch("/api/connections/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(clientTimeoutMs),
       });
       const json = await res.json();
       setTestResult(json);
@@ -349,10 +356,12 @@ export default function Connections() {
     setInlineTestingId(id);
 
     try {
+      const clientTimeoutMs = (conn.timeoutMs || 5000) + 3000;
       const res = await fetch("/api/connections/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ connectionId: id }),
+        signal: AbortSignal.timeout(clientTimeoutMs),
       });
       const json = await res.json();
       setCardTestResults((prev) => ({ ...prev, [id]: json }));
@@ -670,6 +679,11 @@ export default function Connections() {
                               <span class="text-[9px] font-bold px-1.5 py-0.5 bg-emerald-500/10 text-emerald-400 rounded border border-emerald-500/20 font-mono">
                                 NS: {conn.namespace || "solidflow"} / DB: {conn.database || "main"}
                               </span>
+                              <Show when={conn.timeoutMs}>
+                                <span class="text-[9px] font-bold px-1.5 py-0.5 bg-[#1e1e2e] text-[#8b8b9e] rounded border border-[#2a2a3a] font-mono">
+                                  {conn.timeoutMs}ms
+                                </span>
+                              </Show>
                             </div>
                           </Show>
                         </div>
@@ -940,7 +954,7 @@ export default function Connections() {
                     />
                   </div>
 
-                  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div>
                       <label class="mb-1 block text-xs font-medium text-[#8b8b9e]">Namespace (NS)</label>
                       <input
@@ -959,6 +973,18 @@ export default function Connections() {
                         value={dbDatabase()}
                         onInput={(e) => setDbDatabase(e.currentTarget.value)}
                         placeholder="main"
+                      />
+                    </div>
+                    <div>
+                      <label class="mb-1 block text-xs font-medium text-[#8b8b9e]">Timeout (ms)</label>
+                      <input
+                        type="number"
+                        class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-blue-500 focus:outline-none font-mono"
+                        value={dbTimeoutMs()}
+                        onInput={(e) => setDbTimeoutMs(Number(e.currentTarget.value) || 5000)}
+                        placeholder="5000"
+                        min="500"
+                        step="500"
                       />
                     </div>
                   </div>

@@ -272,6 +272,35 @@ class TracedDb {
 // Connection management (unchanged caching logic, now with tracing)
 // ---------------------------------------------------------------------------
 
+/**
+ * Helper to connect a Surreal instance with a timeout, ensuring socket cleanup on timeout
+ */
+async function connectWithTimeout(
+    s: Surreal,
+    url: string,
+    opts?: any,
+    timeoutMs = 8000,
+): Promise<void> {
+    let timer: any;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+            try {
+                s.close();
+            } catch {}
+            reject(new Error(`SurrealDB connection to ${url} timed out after ${timeoutMs}ms.`));
+        }, timeoutMs);
+    });
+
+    try {
+        await Promise.race([
+            s.connect(url, opts),
+            timeoutPromise,
+        ]);
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
 // Cache the connection promise so concurrent requests await the same initial connection.
 // We avoid globalThis as it can cause Nitro worker hangs when dealing with WebSockets/WASM.
 let dbPromise: Promise<TracedDb> | null = null;
@@ -301,6 +330,7 @@ export async function getDb(): Promise<TracedDb> {
             const pass = process.env.SURREALDB_PASS || DEFAULT_SURREALDB_PASS;
             const namespace = process.env.SURREALDB_NS || DEFAULT_SURREALDB_NS;
             const database = process.env.SURREALDB_DB || DEFAULT_SURREALDB_DB;
+            const connectTimeoutMs = Number(process.env.SURREALDB_CONNECT_TIMEOUT_MS || 8000);
 
             connectSpan.setAttribute("db.url", url);
             connectSpan.setAttribute("db.namespace", namespace);
@@ -314,22 +344,22 @@ export async function getDb(): Promise<TracedDb> {
                 // Open a connection and authenticate
                 console.log(`[DB] [INIT] Authenticating as user: ${user}`);
                 try {
-                    await db.connect(url, {
+                    await connectWithTimeout(db, url, {
                         authentication: {
                             namespace,
                             database,
                             username: user,
                             password: pass,
                         },
-                    });
-                } catch {
+                    }, connectTimeoutMs);
+                } catch (firstAuthErr) {
                     // Fallback to root-level authentication if DB-scoped auth fails
-                    await db.connect(url, {
+                    await connectWithTimeout(db, url, {
                         authentication: {
                             username: user,
                             password: pass,
                         },
-                    });
+                    }, connectTimeoutMs);
                 }
 
                 // Ensure namespace and database exist (ignore IAM errors for DB-scoped users)
@@ -406,6 +436,7 @@ export async function getDynamicDb(dbName: string): Promise<TracedDb> {
             const user = process.env.SURREALDB_USER || DEFAULT_SURREALDB_USER;
             const pass = process.env.SURREALDB_PASS || DEFAULT_SURREALDB_PASS;
             const namespace = process.env.SURREALDB_NS || DEFAULT_SURREALDB_NS;
+            const connectTimeoutMs = Number(process.env.SURREALDB_CONNECT_TIMEOUT_MS || 8000);
 
             connectSpan.setAttribute("db.url", url);
             connectSpan.setAttribute("db.namespace", namespace);
@@ -416,13 +447,13 @@ export async function getDynamicDb(dbName: string): Promise<TracedDb> {
             try {
                 const s = new Surreal();
                 try {
-                    await s.connect(url, {
+                    await connectWithTimeout(s, url, {
                         authentication: { namespace, database: dbName, username: user, password: pass },
-                    });
+                    }, connectTimeoutMs);
                 } catch {
-                    await s.connect(url, {
+                    await connectWithTimeout(s, url, {
                         authentication: { username: user, password: pass },
-                    });
+                    }, connectTimeoutMs);
                 }
                 await s.use({ namespace, database: dbName });
                 console.log(`[DB] [DYNAMIC] Successfully connected to '${dbName}'`);
@@ -451,6 +482,7 @@ export interface CustomDbOpts {
     pass?: string;
     namespace?: string;
     database?: string;
+    timeoutMs?: number;
 }
 
 export async function getCustomDb(opts: CustomDbOpts): Promise<TracedDb> {
@@ -459,6 +491,7 @@ export async function getCustomDb(opts: CustomDbOpts): Promise<TracedDb> {
     const pass = opts.pass || process.env.SURREALDB_PASS || DEFAULT_SURREALDB_PASS;
     const namespace = opts.namespace || process.env.SURREALDB_NS || DEFAULT_SURREALDB_NS;
     const database = opts.database || "main";
+    const connectTimeoutMs = opts.timeoutMs || Number(process.env.SURREALDB_CONNECT_TIMEOUT_MS || 8000);
 
     const cacheKey = `${url}|${user}|${pass}|${namespace}|${database}`;
 
@@ -484,9 +517,9 @@ export async function getCustomDb(opts: CustomDbOpts): Promise<TracedDb> {
             );
             try {
                 const s = new Surreal();
-                await s.connect(url, {
+                await connectWithTimeout(s, url, {
                     authentication: { username: user, password: pass },
-                });
+                }, connectTimeoutMs);
                 
                 try {
                     await s.query(`DEFINE NAMESPACE IF NOT EXISTS ${namespace}`);

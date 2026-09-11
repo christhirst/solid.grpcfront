@@ -66,6 +66,7 @@ export interface SurrealDbConnection extends ConnectionBase {
   password?: string;
   namespace?: string;
   database?: string;
+  timeoutMs?: number;
 }
 
 export type Connection = HttpConnection | GrpcConnection | SurrealDbConnection;
@@ -125,6 +126,7 @@ export function normalizeConnection(raw: any): Connection {
     tokenHeaderName: raw.tokenHeaderName || "Authorization",
     tokenHeaderPrefix: raw.tokenHeaderPrefix !== undefined ? raw.tokenHeaderPrefix : "Bearer ",
     tokenMetadataKey: raw.tokenMetadataKey || "authorization",
+    timeoutMs: raw.timeoutMs !== undefined ? Number(raw.timeoutMs) : undefined,
   };
 }
 
@@ -519,32 +521,51 @@ export async function testGrpcConnection(config: any): Promise<any> {
  */
 export async function testSurrealDbConnection(config: any): Promise<any> {
   const { url, username, password, namespace, database } = config;
+  const timeoutMs = Number(config.timeoutMs || config.timeout || 5000);
 
   if (!url) {
     return { success: false, type: "surrealdb", error: "SurrealDB endpoint URL is required." };
   }
 
   const startTime = Date.now();
+  const s = new Surreal();
+  let timer: any;
+
+  const timeoutPromise = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      try {
+        s.close();
+      } catch {}
+      reject(new Error(`Connection to SurrealDB at ${url} timed out after ${timeoutMs}ms.`));
+    }, timeoutMs);
+  });
+
   try {
-    const s = new Surreal();
-    
-    // Connect and authenticate
-    if (username || password) {
-      await s.connect(url, {
-        authentication: { username: username || "root", password: password || "" },
-      });
-    } else {
-      await s.connect(url);
-    }
+    const result = await Promise.race([
+      (async () => {
+        // Connect and authenticate
+        if (username || password) {
+          await s.connect(url, {
+            authentication: { username: username || "root", password: password || "" },
+          });
+        } else {
+          await s.connect(url);
+        }
 
-    if (namespace) {
-      await s.use({ namespace, database: database || undefined });
-    }
+        if (namespace) {
+          await s.use({ namespace, database: database || undefined });
+        }
 
-    // Run test query
-    const result = await s.query("INFO FOR DB;");
+        // Run test query
+        const res = await s.query("INFO FOR DB;");
+        await s.close();
+        return res;
+      })(),
+      timeoutPromise,
+    ]);
+
+    clearTimeout(timer);
     const latencyMs = Date.now() - startTime;
-    await s.close();
 
     return {
       success: true,
@@ -557,6 +578,10 @@ export async function testSurrealDbConnection(config: any): Promise<any> {
       message: `Successfully connected to SurrealDB at ${url} (NS: ${namespace || "default"}, DB: ${database || "default"}).`,
     };
   } catch (err: any) {
+    clearTimeout(timer);
+    try {
+      s.close();
+    } catch {}
     return {
       success: false,
       type: "surrealdb",
