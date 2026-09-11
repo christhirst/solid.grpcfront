@@ -1187,16 +1187,16 @@ const fileRoutes = [{ "page": true, "$component": { "src": "src/routes/TrustedCA
   "./_build/assets/grpc-WMfO0-_6.js"
 ) }, "path": "/api/grpc" }, { "page": false, "$GET": { "src": "src/routes/api/health.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/health-Bxm0dgjH.js"
+  "./_build/assets/health-kbALbXCp.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/health-Bxm0dgjH.js"
+  "./_build/assets/health-kbALbXCp.js"
 ) }, "$HEAD": { "src": "src/routes/api/health.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/health-Bxm0dgjH.js"
+  "./_build/assets/health-kbALbXCp.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/health-Bxm0dgjH.js"
+  "./_build/assets/health-kbALbXCp.js"
 ) }, "path": "/api/health" }, { "page": true, "$component": { "src": "src/routes/cas/index.tsx?pick=default&pick=$css", "build": () => import(
   /* @vite-ignore */
   "./_build/assets/index-BI_Xp4ur.js"
@@ -1277,136 +1277,136 @@ const fileRoutes = [{ "page": true, "$component": { "src": "src/routes/TrustedCA
   "./_build/assets/_...solidauth_-D8ue5pQt.js"
 ) }, "path": "/api/auth/*solidauth" }, { "page": false, "$DELETE": { "src": "src/routes/api/cas/[id].ts?pick=DELETE", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-Cancvd4M.js"
+  "./_build/assets/_id_-DSTVGNcL.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-Cancvd4M.js"
+  "./_build/assets/_id_-DSTVGNcL.js"
 ) }, "$GET": { "src": "src/routes/api/cas/[id].ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-E7HpaJhi.js"
+  "./_build/assets/_id_-CEjTVdh5.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-E7HpaJhi.js"
+  "./_build/assets/_id_-CEjTVdh5.js"
 ) }, "$HEAD": { "src": "src/routes/api/cas/[id].ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-E7HpaJhi.js"
+  "./_build/assets/_id_-CEjTVdh5.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-E7HpaJhi.js"
+  "./_build/assets/_id_-CEjTVdh5.js"
 ) }, "$PUT": { "src": "src/routes/api/cas/[id].ts?pick=PUT", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-CbAUMoZ-.js"
+  "./_build/assets/_id_-Db0BjDKu.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-CbAUMoZ-.js"
+  "./_build/assets/_id_-Db0BjDKu.js"
 ) }, "path": "/api/cas/:id" }, { "page": false, "$GET": { "src": "src/routes/api/cas/index.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-BJmsTek-.js"
+  "./_build/assets/index-D60hXFh4.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-BJmsTek-.js"
+  "./_build/assets/index-D60hXFh4.js"
 ) }, "$HEAD": { "src": "src/routes/api/cas/index.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-BJmsTek-.js"
+  "./_build/assets/index-D60hXFh4.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-BJmsTek-.js"
+  "./_build/assets/index-D60hXFh4.js"
 ) }, "$POST": { "src": "src/routes/api/cas/index.ts?pick=POST", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-BCV_mCkR.js"
+  "./_build/assets/index-vIj2O_Po.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-BCV_mCkR.js"
+  "./_build/assets/index-vIj2O_Po.js"
 ) }, "path": "/api/cas/" }, { "page": false, "$DELETE": { "src": "src/routes/api/connections/[id].ts?pick=DELETE", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-NwmtVasV.js"
+  "./_build/assets/_id_-DRmjGHP3.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-NwmtVasV.js"
+  "./_build/assets/_id_-DRmjGHP3.js"
 ) }, "$GET": { "src": "src/routes/api/connections/[id].ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-BhT-gPF2.js"
+  "./_build/assets/_id_-R_ewJga9.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-BhT-gPF2.js"
+  "./_build/assets/_id_-R_ewJga9.js"
 ) }, "$HEAD": { "src": "src/routes/api/connections/[id].ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-BhT-gPF2.js"
+  "./_build/assets/_id_-R_ewJga9.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-BhT-gPF2.js"
+  "./_build/assets/_id_-R_ewJga9.js"
 ) }, "$PUT": { "src": "src/routes/api/connections/[id].ts?pick=PUT", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-Db7wXei0.js"
+  "./_build/assets/_id_-DoTUjg2F.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-Db7wXei0.js"
+  "./_build/assets/_id_-DoTUjg2F.js"
 ) }, "path": "/api/connections/:id" }, { "page": false, "$GET": { "src": "src/routes/api/connections/index.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-CTy261n8.js"
+  "./_build/assets/index-C2IjEivr.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-CTy261n8.js"
+  "./_build/assets/index-C2IjEivr.js"
 ) }, "$HEAD": { "src": "src/routes/api/connections/index.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-CTy261n8.js"
+  "./_build/assets/index-C2IjEivr.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-CTy261n8.js"
+  "./_build/assets/index-C2IjEivr.js"
 ) }, "$POST": { "src": "src/routes/api/connections/index.ts?pick=POST", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-C5vgUIs-.js"
+  "./_build/assets/index-DcfY5clp.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-C5vgUIs-.js"
+  "./_build/assets/index-DcfY5clp.js"
 ) }, "path": "/api/connections/" }, { "page": false, "$POST": { "src": "src/routes/api/connections/test-token.ts?pick=POST", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/test-token-zLK4UwhG.js"
+  "./_build/assets/test-token-DVb9kpLm.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/test-token-zLK4UwhG.js"
+  "./_build/assets/test-token-DVb9kpLm.js"
 ) }, "path": "/api/connections/test-token" }, { "page": false, "$POST": { "src": "src/routes/api/connections/test.ts?pick=POST", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/test-Ch2pV-dr.js"
+  "./_build/assets/test-DwtJq-pr.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/test-Ch2pV-dr.js"
+  "./_build/assets/test-DwtJq-pr.js"
 ) }, "path": "/api/connections/test" }, { "page": false, "$GET": { "src": "src/routes/api/dashboards/index.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-4yOFAxep.js"
+  "./_build/assets/index-V72EFPwd.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-4yOFAxep.js"
+  "./_build/assets/index-V72EFPwd.js"
 ) }, "$HEAD": { "src": "src/routes/api/dashboards/index.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-4yOFAxep.js"
+  "./_build/assets/index-V72EFPwd.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-4yOFAxep.js"
+  "./_build/assets/index-V72EFPwd.js"
 ) }, "$POST": { "src": "src/routes/api/dashboards/index.ts?pick=POST", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-Cj6mGHTi.js"
+  "./_build/assets/index-DqiKsU_R.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-Cj6mGHTi.js"
+  "./_build/assets/index-DqiKsU_R.js"
 ) }, "path": "/api/dashboards/" }, { "page": false, "$GET": { "src": "src/routes/api/database/index.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-BJydCMfW.js"
+  "./_build/assets/index-chDJt-fI.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-BJydCMfW.js"
+  "./_build/assets/index-chDJt-fI.js"
 ) }, "$HEAD": { "src": "src/routes/api/database/index.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-BJydCMfW.js"
+  "./_build/assets/index-chDJt-fI.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-BJydCMfW.js"
+  "./_build/assets/index-chDJt-fI.js"
 ) }, "$POST": { "src": "src/routes/api/database/index.ts?pick=POST", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-CAGock0J.js"
+  "./_build/assets/index-CjPoQ0Fp.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-CAGock0J.js"
+  "./_build/assets/index-CjPoQ0Fp.js"
 ) }, "path": "/api/database/" }, { "page": false, "$POST": { "src": "src/routes/api/grpc/stream.ts?pick=POST", "build": () => import(
   /* @vite-ignore */
   "./_build/assets/stream-VS5PhZ3j.js"
@@ -1415,46 +1415,46 @@ const fileRoutes = [{ "page": true, "$component": { "src": "src/routes/TrustedCA
   "./_build/assets/stream-VS5PhZ3j.js"
 ) }, "path": "/api/grpc/stream" }, { "page": false, "$DELETE": { "src": "src/routes/api/protos/[id].ts?pick=DELETE", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-DmMq2FR6.js"
+  "./_build/assets/_id_-DyWfsRLR.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-DmMq2FR6.js"
+  "./_build/assets/_id_-DyWfsRLR.js"
 ) }, "$GET": { "src": "src/routes/api/protos/[id].ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-C-KSo-Zx.js"
+  "./_build/assets/_id_-wD9CldqN.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-C-KSo-Zx.js"
+  "./_build/assets/_id_-wD9CldqN.js"
 ) }, "$HEAD": { "src": "src/routes/api/protos/[id].ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-C-KSo-Zx.js"
+  "./_build/assets/_id_-wD9CldqN.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-C-KSo-Zx.js"
+  "./_build/assets/_id_-wD9CldqN.js"
 ) }, "$PUT": { "src": "src/routes/api/protos/[id].ts?pick=PUT", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-Demkg23Y.js"
+  "./_build/assets/_id_-CCwRYaYZ.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-Demkg23Y.js"
+  "./_build/assets/_id_-CCwRYaYZ.js"
 ) }, "path": "/api/protos/:id" }, { "page": false, "$GET": { "src": "src/routes/api/protos/index.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-B2zJVPoJ.js"
+  "./_build/assets/index-DKOkJGe3.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-B2zJVPoJ.js"
+  "./_build/assets/index-DKOkJGe3.js"
 ) }, "$HEAD": { "src": "src/routes/api/protos/index.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-B2zJVPoJ.js"
+  "./_build/assets/index-DKOkJGe3.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-B2zJVPoJ.js"
+  "./_build/assets/index-DKOkJGe3.js"
 ) }, "$POST": { "src": "src/routes/api/protos/index.ts?pick=POST", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-BvP93MiI.js"
+  "./_build/assets/index-D9EQhZTe.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-BvP93MiI.js"
+  "./_build/assets/index-D9EQhZTe.js"
 ) }, "path": "/api/protos/" }, { "page": false, "$POST": { "src": "src/routes/api/requests/stream.ts?pick=POST", "build": () => import(
   /* @vite-ignore */
   "./_build/assets/stream-DGc4apvF.js"
@@ -1463,58 +1463,58 @@ const fileRoutes = [{ "page": true, "$component": { "src": "src/routes/TrustedCA
   "./_build/assets/stream-DGc4apvF.js"
 ) }, "path": "/api/requests/stream" }, { "page": false, "$GET": { "src": "src/routes/api/workflows/index.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-Dh1B5mpO.js"
+  "./_build/assets/index-B1WOcnBL.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-Dh1B5mpO.js"
+  "./_build/assets/index-B1WOcnBL.js"
 ) }, "$HEAD": { "src": "src/routes/api/workflows/index.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-Dh1B5mpO.js"
+  "./_build/assets/index-B1WOcnBL.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-Dh1B5mpO.js"
+  "./_build/assets/index-B1WOcnBL.js"
 ) }, "$POST": { "src": "src/routes/api/workflows/index.ts?pick=POST", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-vjTVbS6W.js"
+  "./_build/assets/index-9ysHzxS5.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-vjTVbS6W.js"
+  "./_build/assets/index-9ysHzxS5.js"
 ) }, "path": "/api/workflows/" }, { "page": false, "$DELETE": { "src": "src/routes/api/dashboards/[id]/index.ts?pick=DELETE", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-DjBfPkBo.js"
+  "./_build/assets/index-CnYROwL3.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-DjBfPkBo.js"
+  "./_build/assets/index-CnYROwL3.js"
 ) }, "$GET": { "src": "src/routes/api/dashboards/[id]/index.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-Cb-DyxhK.js"
+  "./_build/assets/index-CzS4VxPU.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-Cb-DyxhK.js"
+  "./_build/assets/index-CzS4VxPU.js"
 ) }, "$HEAD": { "src": "src/routes/api/dashboards/[id]/index.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-Cb-DyxhK.js"
+  "./_build/assets/index-CzS4VxPU.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-Cb-DyxhK.js"
+  "./_build/assets/index-CzS4VxPU.js"
 ) }, "$PUT": { "src": "src/routes/api/dashboards/[id]/index.ts?pick=PUT", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-C8MJdv9G.js"
+  "./_build/assets/index-DS8EFZC4.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-C8MJdv9G.js"
+  "./_build/assets/index-DS8EFZC4.js"
 ) }, "path": "/api/dashboards/:id/" }, { "page": false, "$GET": { "src": "src/routes/api/database/[db]/live.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/live-Dq8LNjex.js"
+  "./_build/assets/live-BDQoi5zH.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/live-Dq8LNjex.js"
+  "./_build/assets/live-BDQoi5zH.js"
 ) }, "$HEAD": { "src": "src/routes/api/database/[db]/live.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/live-Dq8LNjex.js"
+  "./_build/assets/live-BDQoi5zH.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/live-Dq8LNjex.js"
+  "./_build/assets/live-BDQoi5zH.js"
 ) }, "$POST": { "src": "src/routes/api/database/[db]/live.ts?pick=POST", "build": () => import(
   /* @vite-ignore */
   "./_build/assets/live-DeiOVy5U.js"
@@ -1523,76 +1523,76 @@ const fileRoutes = [{ "page": true, "$component": { "src": "src/routes/TrustedCA
   "./_build/assets/live-DeiOVy5U.js"
 ) }, "path": "/api/database/:db/live" }, { "page": false, "$POST": { "src": "src/routes/api/database/[db]/query.ts?pick=POST", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/query-Bb0LKNPU.js"
+  "./_build/assets/query-DqgrifdD.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/query-Bb0LKNPU.js"
+  "./_build/assets/query-DqgrifdD.js"
 ) }, "path": "/api/database/:db/query" }, { "page": false, "$GET": { "src": "src/routes/api/database/[db]/tables.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/tables-D1WcycTp.js"
+  "./_build/assets/tables-BgItfAJx.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/tables-D1WcycTp.js"
+  "./_build/assets/tables-BgItfAJx.js"
 ) }, "$HEAD": { "src": "src/routes/api/database/[db]/tables.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/tables-D1WcycTp.js"
+  "./_build/assets/tables-BgItfAJx.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/tables-D1WcycTp.js"
+  "./_build/assets/tables-BgItfAJx.js"
 ) }, "path": "/api/database/:db/tables" }, { "page": false, "$DELETE": { "src": "src/routes/api/workflows/[id]/index.ts?pick=DELETE", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-DdcqVVTJ.js"
+  "./_build/assets/index-B7LPGCag.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-DdcqVVTJ.js"
+  "./_build/assets/index-B7LPGCag.js"
 ) }, "$GET": { "src": "src/routes/api/workflows/[id]/index.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-B1iBnhpQ.js"
+  "./_build/assets/index-BXE71fZE.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-B1iBnhpQ.js"
+  "./_build/assets/index-BXE71fZE.js"
 ) }, "$HEAD": { "src": "src/routes/api/workflows/[id]/index.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-B1iBnhpQ.js"
+  "./_build/assets/index-BXE71fZE.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-B1iBnhpQ.js"
+  "./_build/assets/index-BXE71fZE.js"
 ) }, "$PUT": { "src": "src/routes/api/workflows/[id]/index.ts?pick=PUT", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-EwhzSwrN.js"
+  "./_build/assets/index-CLSWttKy.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-EwhzSwrN.js"
+  "./_build/assets/index-CLSWttKy.js"
 ) }, "path": "/api/workflows/:id/" }, { "page": false, "$GET": { "src": "src/routes/api/workflows/[id]/run.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/run-B67Zw218.js"
+  "./_build/assets/run-DCbOsLP0.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/run-B67Zw218.js"
+  "./_build/assets/run-DCbOsLP0.js"
 ) }, "$HEAD": { "src": "src/routes/api/workflows/[id]/run.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/run-B67Zw218.js"
+  "./_build/assets/run-DCbOsLP0.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/run-B67Zw218.js"
+  "./_build/assets/run-DCbOsLP0.js"
 ) }, "$POST": { "src": "src/routes/api/workflows/[id]/run.ts?pick=POST", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/run-D2u29GAC.js"
+  "./_build/assets/run-Gx5OzbAW.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/run-D2u29GAC.js"
+  "./_build/assets/run-Gx5OzbAW.js"
 ) }, "path": "/api/workflows/:id/run" }, { "page": false, "$GET": { "src": "src/routes/api/workflows/[id]/stream.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/stream--i3lWIQN.js"
+  "./_build/assets/stream-CJ2tkk3s.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/stream--i3lWIQN.js"
+  "./_build/assets/stream-CJ2tkk3s.js"
 ) }, "$HEAD": { "src": "src/routes/api/workflows/[id]/stream.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/stream--i3lWIQN.js"
+  "./_build/assets/stream-CJ2tkk3s.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/stream--i3lWIQN.js"
+  "./_build/assets/stream-CJ2tkk3s.js"
 ) }, "$POST": { "src": "src/routes/api/workflows/[id]/stream.ts?pick=POST", "build": () => import(
   /* @vite-ignore */
   "./_build/assets/stream-DeiOVy5U.js"
@@ -1601,52 +1601,52 @@ const fileRoutes = [{ "page": true, "$component": { "src": "src/routes/TrustedCA
   "./_build/assets/stream-DeiOVy5U.js"
 ) }, "path": "/api/workflows/:id/stream" }, { "page": false, "$GET": { "src": "src/routes/api/workflows/runs/[id].ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-DghWf5N9.js"
+  "./_build/assets/_id_-DvqTqzzs.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-DghWf5N9.js"
+  "./_build/assets/_id_-DvqTqzzs.js"
 ) }, "$HEAD": { "src": "src/routes/api/workflows/runs/[id].ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-DghWf5N9.js"
+  "./_build/assets/_id_-DvqTqzzs.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-DghWf5N9.js"
+  "./_build/assets/_id_-DvqTqzzs.js"
 ) }, "path": "/api/workflows/runs/:id" }, { "page": false, "$POST": { "src": "src/routes/api/dashboards/[id]/trigger/[buttonId].ts?pick=POST", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/_buttonId_-o4vKMUPY.js"
+  "./_build/assets/_buttonId_-ibkTSJxJ.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/_buttonId_-o4vKMUPY.js"
+  "./_build/assets/_buttonId_-ibkTSJxJ.js"
 ) }, "path": "/api/dashboards/:id/trigger/:buttonId" }, { "page": false, "$GET": { "src": "src/routes/api/database/[db]/[table]/index.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-YWaiR8mz.js"
+  "./_build/assets/index-B-0_FlkN.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-YWaiR8mz.js"
+  "./_build/assets/index-B-0_FlkN.js"
 ) }, "$HEAD": { "src": "src/routes/api/database/[db]/[table]/index.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-YWaiR8mz.js"
+  "./_build/assets/index-B-0_FlkN.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-YWaiR8mz.js"
+  "./_build/assets/index-B-0_FlkN.js"
 ) }, "$POST": { "src": "src/routes/api/database/[db]/[table]/index.ts?pick=POST", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-CzdSvvmS.js"
+  "./_build/assets/index-CQh6x0LI.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-CzdSvvmS.js"
+  "./_build/assets/index-CQh6x0LI.js"
 ) }, "path": "/api/database/:db/:table/" }, { "page": false, "$GET": { "src": "src/routes/api/workflows/runs/[id]/stream.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/stream-DmrI276C.js"
+  "./_build/assets/stream-C9K550qk.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/stream-DmrI276C.js"
+  "./_build/assets/stream-C9K550qk.js"
 ) }, "$HEAD": { "src": "src/routes/api/workflows/runs/[id]/stream.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/stream-DmrI276C.js"
+  "./_build/assets/stream-C9K550qk.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/stream-DmrI276C.js"
+  "./_build/assets/stream-C9K550qk.js"
 ) }, "$POST": { "src": "src/routes/api/workflows/runs/[id]/stream.ts?pick=POST", "build": () => import(
   /* @vite-ignore */
   "./_build/assets/stream-_RymVZKa.js"
