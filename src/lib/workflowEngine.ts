@@ -540,13 +540,38 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
 
         const chunks: any[] = [];
         let streamError: string | undefined = undefined;
+        let stepProtoContent = protoContent;
+
+        // Resolve gRPC connection details from saved connection
+        if (step.connectionId) {
+          try {
+            const connDbId = step.connectionId.includes(":") ? step.connectionId.split(":")[1] : step.connectionId;
+            const connRecord = await db.select(new RecordId("connection", connDbId));
+            const rawConn = Array.isArray(connRecord) ? connRecord[0] : connRecord;
+            if (rawConn) {
+              const conn = normalizeConnection(rawConn) as any;
+              if (conn.serverAddress && !step.serverAddress) step.serverAddress = conn.serverAddress;
+              if (conn.caId && !step.caId) step.caId = conn.caId;
+              if (!stepProtoContent && conn.protoId) {
+                try {
+                  const protoDbId = conn.protoId.includes(":") ? conn.protoId.split(":")[1] : conn.protoId;
+                  const protoRecord = await db.select(new RecordId("proto_file", protoDbId));
+                  const rawProto = Array.isArray(protoRecord) ? protoRecord[0] : protoRecord;
+                  if (rawProto?.content) stepProtoContent = rawProto.content;
+                } catch {}
+              }
+            }
+          } catch (e) {
+            console.error("[WORKFLOW] Could not resolve gRPC connection for stream step:", e);
+          }
+        }
 
         const stepCaId = step.caId ?? defaultCaId;
         const stepCaCert = await resolveCaCert(stepCaId);
         await new Promise<void>((resolve) => {
           executeGrpcStreamCall(
             {
-              protoContent,
+              protoContent: stepProtoContent,
               serverAddress: step.serverAddress || serverAddress,
               useTls: stepCaId !== "",
               caCert: stepCaCert,
@@ -627,6 +652,27 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
 
         const chunks: any[] = [];
         let streamError: string | undefined = undefined;
+
+        // Resolve HTTP connection details from saved connection
+        if (step.connectionId) {
+          try {
+            const connDbId = step.connectionId.includes(":") ? step.connectionId.split(":")[1] : step.connectionId;
+            const connRecord = await db.select(new RecordId("connection", connDbId));
+            const rawConn = Array.isArray(connRecord) ? connRecord[0] : connRecord;
+            if (rawConn) {
+              const conn = normalizeConnection(rawConn) as any;
+              if (conn.url && evaluatedUrl && !evaluatedUrl.startsWith("http://") && !evaluatedUrl.startsWith("https://")) {
+                evaluatedUrl = conn.url.replace(/\/+$/, "") + "/" + evaluatedUrl.replace(/^\/+/, "");
+              } else if (conn.url && !evaluatedUrl) {
+                evaluatedUrl = conn.url;
+              }
+              if (conn.caId && !step.caId) step.caId = conn.caId;
+            }
+          } catch (e) {
+            console.error("[WORKFLOW] Could not resolve HTTP connection for stream step:", e);
+          }
+        }
+
         const stepCaId = step.caId ?? defaultCaId;
         const stepCaCert = await resolveCaCert(stepCaId);
 
@@ -699,7 +745,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
         let targetDbNs = interpolateTemplate(step.databaseNs || "", context) || undefined;
         let targetDbTimeout: number | undefined = undefined;
 
-        if (step.connectionId && (!targetDbUrl || !targetDbName)) {
+        if (step.connectionId) {
           try {
             const connDbId = step.connectionId.includes(":") ? step.connectionId.split(":")[1] : step.connectionId;
             const connRecord = await db.select(new RecordId("connection", connDbId));
@@ -966,7 +1012,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
           let targetDbNs = interpolateTemplate(step.databaseNs || "", context) || undefined;
           let targetDbTimeout: number | undefined = undefined;
 
-          if (step.connectionId && (!targetDbUrl || !targetDbName)) {
+          if (step.connectionId) {
             try {
               const connDbId = step.connectionId.includes(":") ? step.connectionId.split(":")[1] : step.connectionId;
               const connRecord = await db.select(new RecordId("connection", connDbId));
@@ -1082,6 +1128,36 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
         }
 
         let metadata: Record<string, string> = {};
+
+        // Resolve HTTP connection details from saved connection
+        if (step.connectionId) {
+          try {
+            const connDbId = step.connectionId.includes(":") ? step.connectionId.split(":")[1] : step.connectionId;
+            const connRecord = await db.select(new RecordId("connection", connDbId));
+            const rawConn = Array.isArray(connRecord) ? connRecord[0] : connRecord;
+            if (rawConn) {
+              const conn = normalizeConnection(rawConn) as any;
+              // Use connection URL as base if step URL is relative or empty
+              if (conn.url && evaluatedUrl && !evaluatedUrl.startsWith("http://") && !evaluatedUrl.startsWith("https://")) {
+                evaluatedUrl = conn.url.replace(/\/+$/, "") + "/" + evaluatedUrl.replace(/^\/+/, "");
+              } else if (conn.url && !evaluatedUrl) {
+                evaluatedUrl = conn.url;
+              }
+              if (conn.caId && !step.caId) step.caId = conn.caId;
+              if (conn.headers) {
+                try {
+                  const connHeaders = JSON.parse(conn.headers);
+                  for (const [k, v] of Object.entries(connHeaders)) {
+                    metadata[k] = String(v);
+                  }
+                } catch {}
+              }
+            }
+          } catch (e) {
+            console.error("[WORKFLOW] Could not resolve HTTP connection:", e);
+          }
+        }
+
         if (stepAuthHeader) {
           metadata["Authorization"] = stepAuthHeader;
         }
@@ -1195,7 +1271,40 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
 
       // Evaluate headers if present
       let metadata: Record<string, string> = {};
+      let stepProtoContent = protoContent;
       
+      // Resolve gRPC connection details from saved connection
+      if (step.connectionId) {
+        try {
+          const connDbId = step.connectionId.includes(":") ? step.connectionId.split(":")[1] : step.connectionId;
+          const connRecord = await db.select(new RecordId("connection", connDbId));
+          const rawConn = Array.isArray(connRecord) ? connRecord[0] : connRecord;
+          if (rawConn) {
+            const conn = normalizeConnection(rawConn) as any;
+            if (conn.serverAddress && !step.serverAddress) step.serverAddress = conn.serverAddress;
+            if (conn.caId && !step.caId) step.caId = conn.caId;
+            if (!stepProtoContent && conn.protoId) {
+              try {
+                const protoDbId = conn.protoId.includes(":") ? conn.protoId.split(":")[1] : conn.protoId;
+                const protoRecord = await db.select(new RecordId("proto_file", protoDbId));
+                const rawProto = Array.isArray(protoRecord) ? protoRecord[0] : protoRecord;
+                if (rawProto?.content) stepProtoContent = rawProto.content;
+              } catch {}
+            }
+            if (conn.metadata) {
+              try {
+                const connMeta = JSON.parse(conn.metadata);
+                for (const [k, v] of Object.entries(connMeta)) {
+                  metadata[k] = String(v);
+                }
+              } catch {}
+            }
+          }
+        } catch (e) {
+          console.error("[WORKFLOW] Could not resolve gRPC connection:", e);
+        }
+      }
+
       if (stepAuthHeader) {
         metadata["Authorization"] = stepAuthHeader;
       }
@@ -1215,7 +1324,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
       // Execute gRPC call
       const stepCaId = step.caId ?? defaultCaId;
       const execResult = await executeGrpcCall({
-        protoContent,
+        protoContent: stepProtoContent,
         serverAddress: step.serverAddress || serverAddress,
         useTls: stepCaId !== "",
         caCert: await resolveCaCert(stepCaId),

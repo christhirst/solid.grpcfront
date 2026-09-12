@@ -5,7 +5,10 @@
     "dev": "vite dev",
     "build": "bun scripts/patch-server.js && vite build && bun scripts/patch-server.js",
     "start": "vite start",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "varlock:load": "varlock load",
+    "varlock:scan": "varlock scan",
+    "varlock:encrypt": "varlock encrypt"
   },
   "packageManager": "bun@1.4.0",
   "dependencies": {
@@ -21,6 +24,8 @@
     "@solidjs/start": "2.0.0-alpha.2",
     "@solidjs/vite-plugin-nitro-2": "^0.2.0",
     "@tanstack/solid-table": "^8.21.3",
+    "@varlock/hashicorp-vault-plugin": "^2.1.1",
+    "@varlock/vite-integration": "^1.5.1",
     "chart.js": "^4.5.1",
     "chartjs-chart-geo": "^4.3.6",
     "elkjs": "^0.12.0",
@@ -43,6 +48,7 @@
     "srvx": "^0.11.15",
     "surrealdb": "^2.0.3",
     "uuid": "^13.0.2",
+    "varlock": "^1.18.0",
     "vite": "^7.3.3",
     "web-worker": "^1.5.0"
   },

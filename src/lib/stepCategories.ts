@@ -61,4 +61,5 @@ export interface WorkflowStep {
   authUsername?: string;
   authPassword?: string;
   connectionId?: string;
+  connectionMode?: "saved" | "custom";
 }

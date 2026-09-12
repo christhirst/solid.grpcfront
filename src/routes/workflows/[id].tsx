@@ -923,6 +923,20 @@ export default function WorkflowBuilder() {
        newStep.infographicSyntax = `infographic list-row-simple-horizontal-arrow\ndata\n  title Workflow Diagram\n  lists\n    - label Step 1\n      desc Start\n    - label Step 2\n      desc Process\n    - label Step 3\n      desc Result`;
     }
 
+    if (type === "database") {
+       const conn = (connections() || []).find((c: any) => c.type === "surrealdb");
+       newStep.connectionMode = conn ? "saved" : "custom";
+       if (conn) newStep.connectionId = conn.id;
+    } else if (type === "grpc") {
+       const conn = (connections() || []).find((c: any) => c.type === "grpc");
+       newStep.connectionMode = conn ? "saved" : "custom";
+       if (conn) newStep.connectionId = conn.id;
+    } else if (type === "rest") {
+       const conn = (connections() || []).find((c: any) => c.type === "http");
+       newStep.connectionMode = conn ? "saved" : "custom";
+       if (conn) newStep.connectionId = conn.id;
+    }
+
     setSteps(produce((s: any[]) => s.push(newStep)));
     setShowAddStepMenu(false);
   };
@@ -1514,212 +1528,534 @@ export default function WorkflowBuilder() {
                   </div>
 
                   <Show when={!step.type || step.type === "grpc"}>
-                    {/* gRPC Specific Configs */}
-                    <div class="grid grid-cols-2 gap-4 mb-4">
-                      <div>
-                        <label class="mb-1 block text-xs text-[#8b8b9e]">Service</label>
-                        <select
-                          class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-blue-500 focus:outline-none"
-                          value={step.serviceName || ""}
-                          onChange={(e) => {
-                            const val = e.currentTarget.value;
-                            if (val.startsWith("PROTO:")) {
-                              const pId = val.substring(6);
-                              const p = savedProtos()?.find((x: any) => x.id === pId);
-                              if (p) {
-                                setProtoContent(p.content);
-                                updateStep(index(), "serviceName", "");
-                                updateStep(index(), "methodName", "");
-                              }
-                            } else {
-                              updateStep(index(), "serviceName", val);
-                              updateStep(index(), "methodName", ""); // reset method
-                            }
-                          }}
-                        >
-                          <option value="" disabled={!step.serviceName}>Select a service...</option>
-                          <Show when={savedProtos() && savedProtos().length > 0}>
-                            <optgroup label="Load a Saved Proto">
-                              <For each={savedProtos()}>
-                                {(p: any) => <option value={`PROTO:${p.id}`}>Load: {p.name}</option>}
-                              </For>
-                            </optgroup>
+                    {(() => {
+                      const isCustom = () => {
+                        if (step.connectionMode === "custom") return true;
+                        if (step.connectionMode === "saved") return false;
+                        if (step.connectionId) return false;
+                        if (step.serverAddress) return true;
+                        return !(connections() || []).some((c: any) => c.type === "grpc");
+                      };
+
+                      return (
+                        <div class="mb-4 space-y-4">
+                          {/* Connection Mode Toggle */}
+                          <div class="flex flex-wrap items-center justify-between gap-2 p-2 rounded-xl bg-[#141420] border border-[#2a2a3a]">
+                            <div class="flex items-center gap-2">
+                              <span class="text-xs font-semibold text-[#8b8b9e]">Connection Mode:</span>
+                              <span class="text-[10px] text-[#5b5b6e]">
+                                {isCustom() ? "Directly configuring host & credentials for this step" : "Using preconfigured profile from /connections"}
+                              </span>
+                            </div>
+                            <div class="inline-flex rounded-lg border border-[#2a2a3a] bg-[#0a0a0f] p-0.5">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  updateStep(index(), "connectionMode", "saved");
+                                  if (!step.connectionId) {
+                                    const first = (connections() || []).find((c: any) => c.type === "grpc");
+                                    if (first) updateStep(index(), "connectionId", first.id);
+                                  }
+                                }}
+                                class={`px-3 py-1 text-xs rounded-md font-medium transition-all ${!isCustom() ? "bg-blue-600 text-white shadow-sm" : "text-[#8b8b9e] hover:text-white"}`}
+                              >
+                                📦 Saved Connection
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  updateStep(index(), "connectionMode", "custom");
+                                  updateStep(index(), "connectionId", undefined);
+                                }}
+                                class={`px-3 py-1 text-xs rounded-md font-medium transition-all ${isCustom() ? "bg-blue-600 text-white shadow-sm" : "text-[#8b8b9e] hover:text-white"}`}
+                              >
+                                ⚙️ Custom Configuration
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Saved Connection View */}
+                          <Show when={!isCustom()}>
+                            <div class="space-y-3">
+                              <div>
+                                <label class="mb-1 block text-xs font-semibold text-[#8b8b9e] uppercase tracking-wider">Select Saved gRPC Connection</label>
+                                <Show
+                                  when={(connections() || []).filter((c: any) => c.type === "grpc").length > 0}
+                                  fallback={
+                                    <div class="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-xs text-amber-300 flex items-center justify-between">
+                                      <span>No saved gRPC connections found in <code>/connections</code>.</span>
+                                      <a href="/connections" target="_blank" class="px-3 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 rounded-lg font-medium transition-colors">
+                                        + Create Connection ↗
+                                      </a>
+                                    </div>
+                                  }
+                                >
+                                  <select
+                                    class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-blue-500 focus:outline-none"
+                                    value={step.connectionId || ""}
+                                    onChange={(e) => updateStep(index(), "connectionId", e.currentTarget.value)}
+                                  >
+                                    <option value="" disabled={Boolean(step.connectionId)}>Choose a saved connection...</option>
+                                    <For each={(connections() || []).filter((c: any) => c.type === "grpc")}>
+                                      {(conn: any) => (
+                                        <option value={conn.id}>⚡ {conn.name}{conn.serverAddress ? ` (${conn.serverAddress})` : ""}</option>
+                                      )}
+                                    </For>
+                                  </select>
+                                </Show>
+                              </div>
+
+                              <Show when={step.connectionId}>
+                                {(() => {
+                                  const conn = () => (connections() || []).find((c: any) => c.id === step.connectionId);
+                                  return (
+                                    <Show when={conn()}>
+                                      <div class="p-3 rounded-xl bg-gradient-to-r from-blue-500/10 to-indigo-500/5 border border-blue-500/30 text-xs flex items-center justify-between">
+                                        <div class="flex items-center gap-3">
+                                          <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-500/20 text-blue-400 text-sm">⚡</span>
+                                          <div>
+                                            <div class="font-semibold text-white">{(conn() as any).name}</div>
+                                            <div class="text-[11px] font-mono text-[#8b8b9e]">
+                                              {(conn() as any).serverAddress}
+                                              <Show when={(conn() as any).caId}>
+                                                <span class="ml-2 text-emerald-400 font-semibold bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">TLS</span>
+                                              </Show>
+                                            </div>
+                                          </div>
+                                        </div>
+                                        <a href="/connections" target="_blank" class="text-[11px] text-blue-400 hover:text-blue-300 font-medium underline">
+                                          Manage ↗
+                                        </a>
+                                      </div>
+                                    </Show>
+                                  );
+                                })()}
+                              </Show>
+
+                              {/* Collapsible Overrides */}
+                              <details class="group rounded-xl border border-[#2a2a3a]/60 bg-[#12121c] p-3 text-xs">
+                                <summary class="cursor-pointer font-medium text-[#8b8b9e] hover:text-white flex items-center justify-between list-none select-none">
+                                  <span class="flex items-center gap-1.5">
+                                    <span class="text-[10px] group-open:rotate-90 transition-transform">▶</span>
+                                    <span>Advanced Connection Overrides (Optional)</span>
+                                  </span>
+                                  <span class="text-[10px] text-[#5b5b6e]">Leave blank to use connection defaults</span>
+                                </summary>
+                                <div class="mt-3 pt-3 border-t border-[#2a2a3a] space-y-3">
+                                  <div class="grid grid-cols-2 gap-3">
+                                    <div>
+                                      <label class="mb-1 block text-[11px] text-[#8b8b9e]">Override Server Address</label>
+                                      <input
+                                        type="text"
+                                        class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2 text-xs text-white font-mono focus:border-blue-500 focus:outline-none"
+                                        placeholder="Inherited from connection"
+                                        value={step.serverAddress || ""}
+                                        onInput={(e) => updateStep(index(), "serverAddress", e.currentTarget.value)}
+                                      />
+                                    </div>
+                                    <div>
+                                      <label class="mb-1 block text-[11px] text-[#8b8b9e]">Override TLS Trust</label>
+                                      <select
+                                        class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2 text-xs text-white focus:border-emerald-500 focus:outline-none"
+                                        value={step.caId ?? ""}
+                                        onChange={(e) => updateStep(index(), "caId", e.currentTarget.value)}
+                                      >
+                                        <option value="">Inherit from Connection</option>
+                                        <option value={ACCEPT_ALL_CA}>Accept All</option>
+                                        <For each={savedCas()}>{(ca) => <option value={ca.id}>{ca.name}</option>}</For>
+                                      </select>
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <label class="mb-1 block text-[11px] text-[#8b8b9e]">Headers (Metadata) Overrides Template</label>
+                                    <textarea
+                                      class="h-16 w-full resize-y font-mono text-xs rounded-lg border border-[#2a2a3a] bg-[#151520] p-2 text-emerald-300 focus:border-emerald-500 focus:outline-none"
+                                      placeholder='{ "custom-header": "value" }'
+                                      value={step.headersTemplate || "{}"}
+                                      onInput={(e) => updateStep(index(), "headersTemplate", e.currentTarget.value)}
+                                    />
+                                  </div>
+                                </div>
+                              </details>
+                            </div>
                           </Show>
-                          <Show when={parsedProto()?.services && parsedProto()!.services.length > 0}>
-                            <optgroup label="Available Services in Proto">
-                              <For each={parsedProto()?.services || []}>
-                                {(svc) => <option value={svc.fullName} selected={step.serviceName === svc.fullName}>{svc.fullName}</option>}
-                              </For>
-                            </optgroup>
+
+                          {/* Custom Manual Configuration View */}
+                          <Show when={isCustom()}>
+                            <div class="space-y-4">
+                              <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                  <label class="mb-1 block text-xs font-semibold text-[#8b8b9e]">Server Address</label>
+                                  <input
+                                    type="text"
+                                    class={`w-full rounded-lg border p-2.5 text-sm transition-all focus:outline-none placeholder:text-[#3a3a4e] ${step.serverAddress ? 'border-blue-500/40 bg-[#1e1e2e] text-blue-100' : 'border-[#2a2a3a] bg-[#1a1a26] text-[#8b8b9e] focus:border-blue-500/30'}`}
+                                    placeholder={`Fallback: ${serverAddress() || "None"}`}
+                                    value={step.serverAddress || ""}
+                                    onInput={(e) => updateStep(index(), "serverAddress", e.currentTarget.value)}
+                                  />
+                                </div>
+                                <div>
+                                  <label class="mb-1 block text-xs font-semibold text-[#8b8b9e]">TLS Trust</label>
+                                  <select
+                                    class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2 text-xs text-white focus:border-emerald-500 focus:outline-none"
+                                    value={step.caId ?? caId()}
+                                    onChange={(e) => updateStep(index(), "caId", e.currentTarget.value)}
+                                  >
+                                    <option value="">None</option>
+                                    <option value={ACCEPT_ALL_CA}>Accept All</option>
+                                    <For each={savedCas()}>{(ca) => <option value={ca.id}>{ca.name}</option>}</For>
+                                  </select>
+                                </div>
+                              </div>
+
+                              <StepAuthSettings 
+                                step={step} 
+                                index={index()} 
+                                updateStep={updateStep} 
+                                connections={connections() || []} 
+                              />
+
+                              <div>
+                                <div class="flex items-center justify-between mb-1">
+                                  <label class="text-xs text-[#8b8b9e]">Headers (Metadata) Template</label>
+                                  <span class="text-[10px] text-blue-400 font-mono">{"{ \"key\": \"value\" }"}</span>
+                                </div>
+                                <textarea
+                                  class="h-16 w-full resize-y font-mono text-sm rounded-lg border border-[#2a2a3a] bg-[#151520] p-2.5 text-emerald-300 focus:border-emerald-500 focus:outline-none"
+                                  placeholder='{ "key": "value" }'
+                                  value={step.headersTemplate || "{}"}
+                                  onInput={(e) => updateStep(index(), "headersTemplate", e.currentTarget.value)}
+                                />
+                              </div>
+                            </div>
                           </Show>
-                        </select>
-                      </div>
-                      <div>
-                        <label class="mb-1 block text-xs text-[#8b8b9e]">Method</label>
-                        <select
-                          class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-blue-500 focus:outline-none disabled:opacity-50"
-                          disabled={!step.serviceName}
-                          value={step.methodName || ""}
-                          onChange={(e) => updateStep(index(), "methodName", e.currentTarget.value)}
-                        >
-                          <option value="" disabled>Select a method...</option>
-                          <For each={parsedProto()?.services.find((s) => s.fullName === step.serviceName)?.methods || []}>
-                            {(m) => <option value={m.name} selected={step.methodName === m.name}>{m.name} ({m.requestType} → {m.responseType})</option>}
-                          </For>
-                        </select>
-                      </div>
-                    </div>
 
-                    <div class="mt-5 pt-5 border-t border-[#2a2a3a]/50">
-                      <label class="mb-2 block text-xs font-semibold text-[#8b8b9e] flex items-center justify-between">
-                        <span class="flex items-center gap-1.5">
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect></svg>
-                          Server Overide
-                        </span>
-                        <Show when={step.serverAddress}>
-                          <span class="text-[10px] bg-blue-500/10 text-blue-400 px-1.5 py-0.5 rounded border border-blue-500/20">Active</span>
-                        </Show>
-                      </label>
-                      <div class="relative group">
-                        <input
-                          type="text"
-                          class={`w-full rounded-lg border p-2.5 text-sm transition-all focus:outline-none placeholder:text-[#3a3a4e] ${step.serverAddress ? 'border-blue-500/40 bg-[#1e1e2e] text-blue-100' : 'border-[#2a2a3a] bg-[#1a1a26] text-[#8b8b9e] focus:border-blue-500/30'}`}
-                          placeholder={`Fallback: ${serverAddress() || "None"}`}
-                          value={step.serverAddress || ""}
-                          onInput={(e) => updateStep(index(), "serverAddress", e.currentTarget.value)}
-                        />
-                        <Show when={!step.serverAddress}>
-                          <div class="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] font-bold text-[#3a3a4e] uppercase pointer-events-none group-hover:text-[#4a4a5e] transition-colors">Default</div>
-                        </Show>
-                      </div>
-                    </div>
+                          {/* Service & Method Pickers (Common) */}
+                          <div class="grid grid-cols-2 gap-4">
+                            <div>
+                              <label class="mb-1 block text-xs font-semibold text-[#8b8b9e]">Service</label>
+                              <select
+                                class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-blue-500 focus:outline-none"
+                                value={step.serviceName || ""}
+                                onChange={(e) => {
+                                  const val = e.currentTarget.value;
+                                  if (val.startsWith("PROTO:")) {
+                                    const pId = val.substring(6);
+                                    const p = savedProtos()?.find((x: any) => x.id === pId);
+                                    if (p) {
+                                      setProtoContent(p.content);
+                                      updateStep(index(), "serviceName", "");
+                                      updateStep(index(), "methodName", "");
+                                    }
+                                  } else {
+                                    updateStep(index(), "serviceName", val);
+                                    updateStep(index(), "methodName", "");
+                                  }
+                                }}
+                              >
+                                <option value="" disabled={!step.serviceName}>Select a service...</option>
+                                <Show when={savedProtos() && savedProtos().length > 0}>
+                                  <optgroup label="Load a Saved Proto">
+                                    <For each={savedProtos()}>
+                                      {(p: any) => <option value={`PROTO:${p.id}`}>Load: {p.name}</option>}
+                                    </For>
+                                  </optgroup>
+                                </Show>
+                                <Show when={parsedProto()?.services && parsedProto()!.services.length > 0}>
+                                  <optgroup label="Available Services in Proto">
+                                    <For each={parsedProto()?.services || []}>
+                                      {(svc) => <option value={svc.fullName} selected={step.serviceName === svc.fullName}>{svc.fullName}</option>}
+                                    </For>
+                                  </optgroup>
+                                </Show>
+                              </select>
+                            </div>
+                            <div>
+                              <label class="mb-1 block text-xs font-semibold text-[#8b8b9e]">Method</label>
+                              <select
+                                class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-blue-500 focus:outline-none disabled:opacity-50"
+                                disabled={!step.serviceName}
+                                value={step.methodName || ""}
+                                onChange={(e) => updateStep(index(), "methodName", e.currentTarget.value)}
+                              >
+                                <option value="" disabled>Select a method...</option>
+                                <For each={parsedProto()?.services.find((s) => s.fullName === step.serviceName)?.methods || []}>
+                                  {(m) => <option value={m.name} selected={step.methodName === m.name}>{m.name} ({m.requestType} → {m.responseType})</option>}
+                                </For>
+                              </select>
+                            </div>
+                          </div>
 
-                    <div class="mt-4 px-1">
-                      <label class="mb-1 block text-xs font-semibold text-[#8b8b9e] flex items-center gap-1.5">
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
-                        TLS trust
-                      </label>
-                      <select
-                        class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2 text-xs text-white focus:border-emerald-500 focus:outline-none"
-                        value={step.caId ?? caId()}
-                        onChange={(e) => updateStep(index(), "caId", e.currentTarget.value)}
-                      >
-                        <option value="">None</option>
-                        <option value={ACCEPT_ALL_CA}>Accept All</option>
-                        <For each={savedCas()}>{(ca) => <option value={ca.id}>{ca.name}</option>}</For>
-                      </select>
-                    </div>
-
-                    <div>
-                      <div class="flex items-center justify-between mt-4 mb-1">
-                        <label class="text-xs text-[#8b8b9e]">Request Payload Template</label>
-                        <span class="text-[10px] text-blue-400 font-mono">{"{{ steps.<id>.response }}"}</span>
-                      </div>
-                      <textarea
-                        class="h-32 w-full resize-y font-mono text-sm rounded-lg border border-[#2a2a3a] bg-[#151520] p-3 text-emerald-300 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
-                        value={step.requestBodyTemplate}
-                        onInput={(e) => updateStep(index(), "requestBodyTemplate", e.currentTarget.value)}
-                      />
-                    </div>
-
-                    <StepAuthSettings 
-                      step={step} 
-                      index={index()} 
-                      updateStep={updateStep} 
-                      connections={connections() || []} 
-                    />
-
-                    <div class="mt-4">
-                      <div class="flex items-center justify-between mb-1">
-                        <label class="text-xs text-[#8b8b9e]">Headers (Metadata) Template</label>
-                        <span class="text-[10px] text-blue-400 font-mono">{"{ \"Authorization\": \"Bearer {{ ... }}\" }"}</span>
-                      </div>
-                      <textarea
-                        class="h-20 w-full resize-y font-mono text-sm rounded-lg border border-[#2a2a3a] bg-[#151520] p-3 text-emerald-300 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
-                        placeholder='{ "key": "value" }'
-                        value={step.headersTemplate || "{}"}
-                        onInput={(e) => updateStep(index(), "headersTemplate", e.currentTarget.value)}
-                      />
-                    </div>
+                          {/* Request Payload Template (Common) */}
+                          <div>
+                            <div class="flex items-center justify-between mb-1">
+                              <label class="text-xs font-semibold text-[#8b8b9e]">Request Payload Template</label>
+                              <span class="text-[10px] text-blue-400 font-mono">{"{{ steps.<id>.response }}"}</span>
+                            </div>
+                            <textarea
+                              class="h-32 w-full resize-y font-mono text-sm rounded-lg border border-[#2a2a3a] bg-[#151520] p-3 text-emerald-300 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
+                              value={step.requestBodyTemplate}
+                              onInput={(e) => updateStep(index(), "requestBodyTemplate", e.currentTarget.value)}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </Show>
 
                   {/* REST Request Config */}
                   <Show when={step.type === "rest"}>
-                    <div class="mb-4 space-y-4">
-                      <div>
-                        <label class="mb-1 block text-xs text-[#8b8b9e]">URL Template</label>
-                        <input
-                          type="text"
-                          class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2.5 text-sm text-white font-mono focus:border-blue-500 focus:outline-none"
-                          placeholder="e.g. https://api.stripe.com/v1/customers/{{ form.customerId }}"
-                          value={step.restUrl || ""}
-                          onInput={(e) => updateStep(index(), "restUrl", e.currentTarget.value)}
-                        />
-                      </div>
-                      <div class="grid grid-cols-2 gap-4">
-                        <div>
-                          <label class="mb-1 block text-xs text-[#8b8b9e]">HTTP Method</label>
-                          <select
-                            class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-blue-500 focus:outline-none"
-                            value={step.restMethod || "GET"}
-                            onChange={(e) => updateStep(index(), "restMethod", e.currentTarget.value)}
-                          >
-                            <option value="GET">GET</option>
-                            <option value="POST">POST</option>
-                            <option value="PUT">PUT</option>
-                            <option value="DELETE">DELETE</option>
-                            <option value="PATCH">PATCH</option>
-                          </select>
-                        </div>
-                      </div>
+                    {(() => {
+                      const isCustom = () => {
+                        if (step.connectionMode === "custom") return true;
+                        if (step.connectionMode === "saved") return false;
+                        if (step.connectionId) return false;
+                        if (step.restUrl && (step.restUrl.startsWith("http://") || step.restUrl.startsWith("https://"))) return true;
+                        return !(connections() || []).some((c: any) => c.type === "http");
+                      };
 
-                      <div>
-                        <label class="mb-1 block text-xs text-[#8b8b9e]">TLS trust</label>
-                        <select
-                          class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2.5 text-sm text-white focus:border-emerald-500 focus:outline-none"
-                          value={step.caId ?? caId()}
-                          onChange={(e) => updateStep(index(), "caId", e.currentTarget.value)}
-                        >
-                          <option value="">None</option>
-                          <option value={ACCEPT_ALL_CA}>Accept All</option>
-                          <For each={savedCas()}>{(ca) => <option value={ca.id}>{ca.name}</option>}</For>
-                        </select>
-                      </div>
-                      
-                      <StepAuthSettings 
-                        step={step} 
-                        index={index()} 
-                        updateStep={updateStep} 
-                        connections={connections() || []} 
-                      />
-                      
-                      <Show when={step.restMethod !== "GET" && step.restMethod !== "DELETE"}>
-                        <div>
-                          <div class="flex items-center justify-between mb-1">
-                            <label class="text-xs text-[#8b8b9e]">Request Body Template (JSON)</label>
-                            <span class="text-[10px] text-blue-400 font-mono">Supports {"{{ variables }}"}</span>
+                      return (
+                        <div class="mb-4 space-y-4">
+                          {/* Connection Mode Toggle */}
+                          <div class="flex flex-wrap items-center justify-between gap-2 p-2 rounded-xl bg-[#141420] border border-[#2a2a3a]">
+                            <div class="flex items-center gap-2">
+                              <span class="text-xs font-semibold text-[#8b8b9e]">Connection Mode:</span>
+                              <span class="text-[10px] text-[#5b5b6e]">
+                                {isCustom() ? "Directly configuring host & credentials for this step" : "Using preconfigured profile from /connections"}
+                              </span>
+                            </div>
+                            <div class="inline-flex rounded-lg border border-[#2a2a3a] bg-[#0a0a0f] p-0.5">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  updateStep(index(), "connectionMode", "saved");
+                                  if (!step.connectionId) {
+                                    const first = (connections() || []).find((c: any) => c.type === "http");
+                                    if (first) updateStep(index(), "connectionId", first.id);
+                                  }
+                                }}
+                                class={`px-3 py-1 text-xs rounded-md font-medium transition-all ${!isCustom() ? "bg-blue-600 text-white shadow-sm" : "text-[#8b8b9e] hover:text-white"}`}
+                              >
+                                📦 Saved Connection
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  updateStep(index(), "connectionMode", "custom");
+                                  updateStep(index(), "connectionId", undefined);
+                                }}
+                                class={`px-3 py-1 text-xs rounded-md font-medium transition-all ${isCustom() ? "bg-blue-600 text-white shadow-sm" : "text-[#8b8b9e] hover:text-white"}`}
+                              >
+                                ⚙️ Custom Configuration
+                              </button>
+                            </div>
                           </div>
-                          <textarea
-                            class="h-32 w-full resize-y font-mono text-sm rounded-lg border border-[#2a2a3a] bg-[#151520] p-3 text-emerald-300 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
-                            value={step.requestBodyTemplate || ""}
-                            onInput={(e) => updateStep(index(), "requestBodyTemplate", e.currentTarget.value)}
-                          />
-                        </div>
-                      </Show>
 
-                      <div>
-                        <div class="flex items-center justify-between mt-4 mb-1">
-                          <label class="text-xs text-[#8b8b9e]">Headers Template (JSON)</label>
-                          <span class="text-[10px] text-blue-400 font-mono">{"{ \"Authorization\": \"Bearer {{ token }}\" }"}</span>
+                          {/* Saved Connection View */}
+                          <Show when={!isCustom()}>
+                            <div class="space-y-3">
+                              <div>
+                                <label class="mb-1 block text-xs font-semibold text-[#8b8b9e] uppercase tracking-wider">Select Saved HTTP Connection</label>
+                                <Show
+                                  when={(connections() || []).filter((c: any) => c.type === "http").length > 0}
+                                  fallback={
+                                    <div class="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-xs text-amber-300 flex items-center justify-between">
+                                      <span>No saved HTTP connections found in <code>/connections</code>.</span>
+                                      <a href="/connections" target="_blank" class="px-3 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 rounded-lg font-medium transition-colors">
+                                        + Create Connection ↗
+                                      </a>
+                                    </div>
+                                  }
+                                >
+                                  <select
+                                    class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-blue-500 focus:outline-none"
+                                    value={step.connectionId || ""}
+                                    onChange={(e) => updateStep(index(), "connectionId", e.currentTarget.value)}
+                                  >
+                                    <option value="" disabled={Boolean(step.connectionId)}>Choose a saved connection...</option>
+                                    <For each={(connections() || []).filter((c: any) => c.type === "http")}>
+                                      {(conn: any) => (
+                                        <option value={conn.id}>🌐 {conn.name}{conn.url ? ` (${conn.url})` : ""}</option>
+                                      )}
+                                    </For>
+                                  </select>
+                                </Show>
+                              </div>
+
+                              <Show when={step.connectionId}>
+                                {(() => {
+                                  const conn = () => (connections() || []).find((c: any) => c.id === step.connectionId);
+                                  return (
+                                    <Show when={conn()}>
+                                      <div class="p-3 rounded-xl bg-gradient-to-r from-blue-500/10 to-cyan-500/5 border border-blue-500/30 text-xs flex items-center justify-between">
+                                        <div class="flex items-center gap-3">
+                                          <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-500/20 text-blue-400 text-sm">🌐</span>
+                                          <div>
+                                            <div class="font-semibold text-white">{(conn() as any).name}</div>
+                                            <div class="text-[11px] font-mono text-[#8b8b9e]">
+                                              {(conn() as any).url}
+                                              <Show when={(conn() as any).authType && (conn() as any).authType !== "none"}>
+                                                <span class="ml-2 text-amber-400 font-semibold bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20">{(conn() as any).authType}</span>
+                                              </Show>
+                                            </div>
+                                          </div>
+                                        </div>
+                                        <a href="/connections" target="_blank" class="text-[11px] text-blue-400 hover:text-blue-300 font-medium underline">
+                                          Manage ↗
+                                        </a>
+                                      </div>
+                                    </Show>
+                                  );
+                                })()}
+                              </Show>
+
+                              <div>
+                                <label class="mb-1 block text-xs font-semibold text-[#8b8b9e]">
+                                  Endpoint Path / Relative URL <span class="text-[10px] text-[#5b5b6e]">(appended to base connection URL)</span>
+                                </label>
+                                <input
+                                  type="text"
+                                  class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2.5 text-sm text-white font-mono focus:border-blue-500 focus:outline-none"
+                                  placeholder="e.g. /v1/users or /api/data/{{ form.id }}"
+                                  value={step.restUrl || ""}
+                                  onInput={(e) => updateStep(index(), "restUrl", e.currentTarget.value)}
+                                />
+                              </div>
+
+                              <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                  <label class="mb-1 block text-xs font-semibold text-[#8b8b9e]">HTTP Method</label>
+                                  <select
+                                    class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-blue-500 focus:outline-none"
+                                    value={step.restMethod || "GET"}
+                                    onChange={(e) => updateStep(index(), "restMethod", e.currentTarget.value)}
+                                  >
+                                    <option value="GET">GET</option>
+                                    <option value="POST">POST</option>
+                                    <option value="PUT">PUT</option>
+                                    <option value="DELETE">DELETE</option>
+                                    <option value="PATCH">PATCH</option>
+                                  </select>
+                                </div>
+                              </div>
+
+                              {/* Collapsible Overrides */}
+                              <details class="group rounded-xl border border-[#2a2a3a]/60 bg-[#12121c] p-3 text-xs">
+                                <summary class="cursor-pointer font-medium text-[#8b8b9e] hover:text-white flex items-center justify-between list-none select-none">
+                                  <span class="flex items-center gap-1.5">
+                                    <span class="text-[10px] group-open:rotate-90 transition-transform">▶</span>
+                                    <span>Advanced Connection Overrides (Optional)</span>
+                                  </span>
+                                  <span class="text-[10px] text-[#5b5b6e]">Headers and TLS overrides</span>
+                                </summary>
+                                <div class="mt-3 pt-3 border-t border-[#2a2a3a] space-y-3">
+                                  <div>
+                                    <label class="mb-1 block text-[11px] text-[#8b8b9e]">Override TLS Trust</label>
+                                    <select
+                                      class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2 text-xs text-white focus:border-emerald-500 focus:outline-none"
+                                      value={step.caId ?? ""}
+                                      onChange={(e) => updateStep(index(), "caId", e.currentTarget.value)}
+                                    >
+                                      <option value="">Inherit from Connection</option>
+                                      <option value={ACCEPT_ALL_CA}>Accept All</option>
+                                      <For each={savedCas()}>{(ca) => <option value={ca.id}>{ca.name}</option>}</For>
+                                    </select>
+                                  </div>
+                                  <div>
+                                    <label class="mb-1 block text-[11px] text-[#8b8b9e]">Additional Headers Template (JSON)</label>
+                                    <textarea
+                                      class="h-16 w-full resize-y font-mono text-xs rounded-lg border border-[#2a2a3a] bg-[#151520] p-2 text-emerald-300 focus:border-emerald-500 focus:outline-none"
+                                      placeholder='{ "X-Custom-Header": "value" }'
+                                      value={step.headersTemplate || "{}"}
+                                      onInput={(e) => updateStep(index(), "headersTemplate", e.currentTarget.value)}
+                                    />
+                                  </div>
+                                </div>
+                              </details>
+                            </div>
+                          </Show>
+
+                          {/* Custom Manual Configuration View */}
+                          <Show when={isCustom()}>
+                            <div class="space-y-4">
+                              <div>
+                                <label class="mb-1 block text-xs font-semibold text-[#8b8b9e]">Full URL Template</label>
+                                <input
+                                  type="text"
+                                  class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2.5 text-sm text-white font-mono focus:border-blue-500 focus:outline-none"
+                                  placeholder="e.g. https://api.stripe.com/v1/customers/{{ form.customerId }}"
+                                  value={step.restUrl || ""}
+                                  onInput={(e) => updateStep(index(), "restUrl", e.currentTarget.value)}
+                                />
+                              </div>
+                              <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                  <label class="mb-1 block text-xs font-semibold text-[#8b8b9e]">HTTP Method</label>
+                                  <select
+                                    class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-blue-500 focus:outline-none"
+                                    value={step.restMethod || "GET"}
+                                    onChange={(e) => updateStep(index(), "restMethod", e.currentTarget.value)}
+                                  >
+                                    <option value="GET">GET</option>
+                                    <option value="POST">POST</option>
+                                    <option value="PUT">PUT</option>
+                                    <option value="DELETE">DELETE</option>
+                                    <option value="PATCH">PATCH</option>
+                                  </select>
+                                </div>
+                                <div>
+                                  <label class="mb-1 block text-xs font-semibold text-[#8b8b9e]">TLS Trust</label>
+                                  <select
+                                    class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2.5 text-sm text-white focus:border-emerald-500 focus:outline-none"
+                                    value={step.caId ?? caId()}
+                                    onChange={(e) => updateStep(index(), "caId", e.currentTarget.value)}
+                                  >
+                                    <option value="">None</option>
+                                    <option value={ACCEPT_ALL_CA}>Accept All</option>
+                                    <For each={savedCas()}>{(ca) => <option value={ca.id}>{ca.name}</option>}</For>
+                                  </select>
+                                </div>
+                              </div>
+
+                              <StepAuthSettings 
+                                step={step} 
+                                index={index()} 
+                                updateStep={updateStep} 
+                                connections={connections() || []} 
+                              />
+
+                              <div>
+                                <div class="flex items-center justify-between mb-1">
+                                  <label class="text-xs font-semibold text-[#8b8b9e]">Headers Template (JSON)</label>
+                                  <span class="text-[10px] text-blue-400 font-mono">{"{ \"Authorization\": \"Bearer {{ token }}\" }"}</span>
+                                </div>
+                                <textarea
+                                  class="h-20 w-full resize-y font-mono text-sm rounded-lg border border-[#2a2a3a] bg-[#151520] p-2.5 text-emerald-300 focus:border-emerald-500 focus:outline-none"
+                                  placeholder='{ "Content-Type": "application/json" }'
+                                  value={step.headersTemplate || "{}"}
+                                  onInput={(e) => updateStep(index(), "headersTemplate", e.currentTarget.value)}
+                                />
+                              </div>
+                            </div>
+                          </Show>
+
+                          {/* Request Body Template (Common to both if method has body) */}
+                          <Show when={step.restMethod !== "GET" && step.restMethod !== "DELETE"}>
+                            <div>
+                              <div class="flex items-center justify-between mb-1">
+                                <label class="text-xs font-semibold text-[#8b8b9e]">Request Body Template (JSON)</label>
+                                <span class="text-[10px] text-blue-400 font-mono">Supports {"{{ variables }}"}</span>
+                              </div>
+                              <textarea
+                                class="h-32 w-full resize-y font-mono text-sm rounded-lg border border-[#2a2a3a] bg-[#151520] p-3 text-emerald-300 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
+                                value={step.requestBodyTemplate || ""}
+                                onInput={(e) => updateStep(index(), "requestBodyTemplate", e.currentTarget.value)}
+                              />
+                            </div>
+                          </Show>
                         </div>
-                        <textarea
-                          class="h-20 w-full resize-y font-mono text-sm rounded-lg border border-[#2a2a3a] bg-[#151520] p-3 text-emerald-300 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
-                          placeholder='{ "Content-Type": "application/json" }'
-                          value={step.headersTemplate || "{}"}
-                          onInput={(e) => updateStep(index(), "headersTemplate", e.currentTarget.value)}
-                        />
-                      </div>
-                    </div>
+                      );
+                    })()}
                   </Show>
 
                   {/* Database Query Config */}
@@ -1794,82 +2130,262 @@ export default function WorkflowBuilder() {
                   </Show>
 
                   <Show when={step.type === "database"}>
-                    <div class="mb-4 space-y-4">
-                      <div class="grid grid-cols-2 gap-4">
-                        <div>
-                          <label class="mb-1 block text-xs text-[#8b8b9e]">Connection URL <span class="text-[10px] text-[#5b5b6e]">(supports {'{{ variables }}'})</span></label>
-                          <input
-                            type="text"
-                            class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2.5 text-sm text-white font-mono focus:border-red-500 focus:outline-none placeholder:text-[#5b5b6e]"
-                            placeholder="e.g. ws://127.0.0.1:8000/rpc (or leave blank)"
-                            value={step.databaseUrl || ""}
-                            onInput={(e) => updateStep(index(), "databaseUrl", e.currentTarget.value)}
-                          />
-                        </div>
-                        
-                        <div>
-                          <label class="mb-1 block text-xs text-[#8b8b9e]">Namespace <span class="text-[10px] text-[#5b5b6e]">(supports {'{{ variables }}'})</span></label>
-                          <input
-                            type="text"
-                            class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2.5 text-sm text-white font-mono focus:border-red-500 focus:outline-none placeholder:text-[#5b5b6e]"
-                            placeholder="e.g. solidflow (or leave blank)"
-                            value={step.databaseNs || ""}
-                            onInput={(e) => updateStep(index(), "databaseNs", e.currentTarget.value)}
-                          />
-                        </div>
-                      </div>
+                    {(() => {
+                      const isCustom = () => {
+                        if (step.connectionMode === "custom") return true;
+                        if (step.connectionMode === "saved") return false;
+                        if (step.connectionId) return false;
+                        if (step.databaseUrl || step.databaseName || step.databaseUser) return true;
+                        return !(connections() || []).some((c: any) => c.type === "surrealdb");
+                      };
 
-                      <div class="grid grid-cols-3 gap-4">
-                        <div>
-                          <label class="mb-1 block text-xs text-[#8b8b9e]">Database Name <span class="text-[10px] text-[#5b5b6e]">(supports {'{{ variables }}'})</span></label>
-                          <input
-                            type="text"
-                            class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2.5 text-sm text-white font-mono focus:border-red-500 focus:outline-none placeholder:text-[#5b5b6e]"
-                            placeholder="e.g. main (or leave blank)"
-                            value={step.databaseName || ""}
-                            onInput={(e) => updateStep(index(), "databaseName", e.currentTarget.value)}
-                          />
-                        </div>
+                      return (
+                        <div class="mb-4 space-y-4">
+                          {/* Connection Mode Toggle */}
+                          <div class="flex flex-wrap items-center justify-between gap-2 p-2 rounded-xl bg-[#141420] border border-[#2a2a3a]">
+                            <div class="flex items-center gap-2">
+                              <span class="text-xs font-semibold text-[#8b8b9e]">Connection Mode:</span>
+                              <span class="text-[10px] text-[#5b5b6e]">
+                                {isCustom() ? "Directly configuring host & credentials for this step" : "Using preconfigured profile from /connections"}
+                              </span>
+                            </div>
+                            <div class="inline-flex rounded-lg border border-[#2a2a3a] bg-[#0a0a0f] p-0.5">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  updateStep(index(), "connectionMode", "saved");
+                                  if (!step.connectionId) {
+                                    const first = (connections() || []).find((c: any) => c.type === "surrealdb");
+                                    if (first) updateStep(index(), "connectionId", first.id);
+                                  }
+                                }}
+                                class={`px-3 py-1 text-xs rounded-md font-medium transition-all ${!isCustom() ? "bg-red-600 text-white shadow-sm" : "text-[#8b8b9e] hover:text-white"}`}
+                              >
+                                📦 Saved Connection
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  updateStep(index(), "connectionMode", "custom");
+                                  updateStep(index(), "connectionId", undefined);
+                                }}
+                                class={`px-3 py-1 text-xs rounded-md font-medium transition-all ${isCustom() ? "bg-red-600 text-white shadow-sm" : "text-[#8b8b9e] hover:text-white"}`}
+                              >
+                                ⚙️ Custom Configuration
+                              </button>
+                            </div>
+                          </div>
 
-                        <div>
-                          <label class="mb-1 block text-xs text-[#8b8b9e]">Username <span class="text-[10px] text-[#5b5b6e]">(supports {'{{ variables }}'})</span></label>
-                          <input
-                            type="text"
-                            class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2.5 text-sm text-white font-mono focus:border-red-500 focus:outline-none placeholder:text-[#5b5b6e]"
-                            placeholder="e.g. admin"
-                            value={step.databaseUser || ""}
-                            onInput={(e) => updateStep(index(), "databaseUser", e.currentTarget.value)}
-                          />
-                        </div>
+                          {/* Saved Connection View */}
+                          <Show when={!isCustom()}>
+                            <div class="space-y-3">
+                              <div>
+                                <label class="mb-1 block text-xs font-semibold text-[#8b8b9e] uppercase tracking-wider">Select Saved SurrealDB Connection</label>
+                                <Show
+                                  when={(connections() || []).filter((c: any) => c.type === "surrealdb").length > 0}
+                                  fallback={
+                                    <div class="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-xs text-amber-300 flex items-center justify-between">
+                                      <span>No saved SurrealDB connections found in <code>/connections</code>.</span>
+                                      <a href="/connections" target="_blank" class="px-3 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 rounded-lg font-medium transition-colors">
+                                        + Create Connection ↗
+                                      </a>
+                                    </div>
+                                  }
+                                >
+                                  <select
+                                    class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-red-500 focus:outline-none"
+                                    value={step.connectionId || ""}
+                                    onChange={(e) => updateStep(index(), "connectionId", e.currentTarget.value)}
+                                  >
+                                    <option value="" disabled={Boolean(step.connectionId)}>Choose a saved connection...</option>
+                                    <For each={(connections() || []).filter((c: any) => c.type === "surrealdb")}>
+                                      {(conn: any) => (
+                                        <option value={conn.id}>🛢️ {conn.name}{conn.url ? ` (${conn.url})` : ""}</option>
+                                      )}
+                                    </For>
+                                  </select>
+                                </Show>
+                              </div>
 
-                        <div>
-                          <label class="mb-1 block text-xs text-[#8b8b9e]">Password <span class="text-[10px] text-[#5b5b6e]">(supports {'{{ variables }}'})</span></label>
-                          <input
-                            type="text"
-                            class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2.5 text-sm text-white font-mono focus:border-red-500 focus:outline-none placeholder:text-[#5b5b6e]"
-                            placeholder="e.g. admin"
-                            value={step.databasePass || ""}
-                            onInput={(e) => updateStep(index(), "databasePass", e.currentTarget.value)}
-                          />
+                              <Show when={step.connectionId}>
+                                {(() => {
+                                  const conn = () => (connections() || []).find((c: any) => c.id === step.connectionId);
+                                  return (
+                                    <Show when={conn()}>
+                                      <div class="p-3 rounded-xl bg-gradient-to-r from-emerald-500/10 to-teal-500/5 border border-emerald-500/30 text-xs flex items-center justify-between">
+                                        <div class="flex items-center gap-3">
+                                          <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500/20 text-emerald-400 text-sm">🛢️</span>
+                                          <div>
+                                            <div class="font-semibold text-white">{(conn() as any).name}</div>
+                                            <div class="text-[11px] font-mono text-[#8b8b9e]">
+                                              {(conn() as any).url}
+                                              <Show when={(conn() as any).namespace || (conn() as any).database}>
+                                                <span class="ml-2 text-emerald-400 font-semibold">ns: {(conn() as any).namespace} / db: {(conn() as any).database}</span>
+                                              </Show>
+                                            </div>
+                                          </div>
+                                        </div>
+                                        <a href="/connections" target="_blank" class="text-[11px] text-emerald-400 hover:text-emerald-300 font-medium underline">
+                                          Manage ↗
+                                        </a>
+                                      </div>
+                                    </Show>
+                                  );
+                                })()}
+                              </Show>
+
+                              {/* Collapsible Advanced Overrides */}
+                              <details class="group rounded-xl border border-[#2a2a3a]/60 bg-[#12121c] p-3 text-xs">
+                                <summary class="cursor-pointer font-medium text-[#8b8b9e] hover:text-white flex items-center justify-between list-none select-none">
+                                  <span class="flex items-center gap-1.5">
+                                    <span class="text-[10px] group-open:rotate-90 transition-transform">▶</span>
+                                    <span>Advanced Connection Overrides (Optional)</span>
+                                  </span>
+                                  <span class="text-[10px] text-[#5b5b6e]">Leave blank to use connection defaults</span>
+                                </summary>
+                                <div class="mt-3 pt-3 border-t border-[#2a2a3a] space-y-3">
+                                  <div class="grid grid-cols-2 gap-3">
+                                    <div>
+                                      <label class="mb-1 block text-[11px] text-[#8b8b9e]">Override URL</label>
+                                      <input
+                                        type="text"
+                                        class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2 text-xs text-white font-mono focus:border-red-500 focus:outline-none"
+                                        placeholder="Inherited from connection"
+                                        value={step.databaseUrl || ""}
+                                        onInput={(e) => updateStep(index(), "databaseUrl", e.currentTarget.value)}
+                                      />
+                                    </div>
+                                    <div>
+                                      <label class="mb-1 block text-[11px] text-[#8b8b9e]">Override Namespace</label>
+                                      <input
+                                        type="text"
+                                        class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2 text-xs text-white font-mono focus:border-red-500 focus:outline-none"
+                                        placeholder="Inherited from connection"
+                                        value={step.databaseNs || ""}
+                                        onInput={(e) => updateStep(index(), "databaseNs", e.currentTarget.value)}
+                                      />
+                                    </div>
+                                  </div>
+                                  <div class="grid grid-cols-3 gap-3">
+                                    <div>
+                                      <label class="mb-1 block text-[11px] text-[#8b8b9e]">Override Database</label>
+                                      <input
+                                        type="text"
+                                        class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2 text-xs text-white font-mono focus:border-red-500 focus:outline-none"
+                                        placeholder="Inherited"
+                                        value={step.databaseName || ""}
+                                        onInput={(e) => updateStep(index(), "databaseName", e.currentTarget.value)}
+                                      />
+                                    </div>
+                                    <div>
+                                      <label class="mb-1 block text-[11px] text-[#8b8b9e]">Override Username</label>
+                                      <input
+                                        type="text"
+                                        class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2 text-xs text-white font-mono focus:border-red-500 focus:outline-none"
+                                        placeholder="Inherited"
+                                        value={step.databaseUser || ""}
+                                        onInput={(e) => updateStep(index(), "databaseUser", e.currentTarget.value)}
+                                      />
+                                    </div>
+                                    <div>
+                                      <label class="mb-1 block text-[11px] text-[#8b8b9e]">Override Password</label>
+                                      <input
+                                        type="password"
+                                        class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2 text-xs text-white font-mono focus:border-red-500 focus:outline-none"
+                                        placeholder="Inherited"
+                                        value={step.databasePass || ""}
+                                        onInput={(e) => updateStep(index(), "databasePass", e.currentTarget.value)}
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+                              </details>
+                            </div>
+                          </Show>
+
+                          {/* Custom Manual Configuration View */}
+                          <Show when={isCustom()}>
+                            <div class="space-y-4">
+                              <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                  <label class="mb-1 block text-xs text-[#8b8b9e]">Connection URL <span class="text-[10px] text-[#5b5b6e]">(supports {'{{ variables }}'})</span></label>
+                                  <input
+                                    type="text"
+                                    class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2.5 text-sm text-white font-mono focus:border-red-500 focus:outline-none placeholder:text-[#5b5b6e]"
+                                    placeholder="e.g. ws://127.0.0.1:8000/rpc"
+                                    value={step.databaseUrl || ""}
+                                    onInput={(e) => updateStep(index(), "databaseUrl", e.currentTarget.value)}
+                                  />
+                                </div>
+                                
+                                <div>
+                                  <label class="mb-1 block text-xs text-[#8b8b9e]">Namespace <span class="text-[10px] text-[#5b5b6e]">(supports {'{{ variables }}'})</span></label>
+                                  <input
+                                    type="text"
+                                    class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2.5 text-sm text-white font-mono focus:border-red-500 focus:outline-none placeholder:text-[#5b5b6e]"
+                                    placeholder="e.g. solidflow"
+                                    value={step.databaseNs || ""}
+                                    onInput={(e) => updateStep(index(), "databaseNs", e.currentTarget.value)}
+                                  />
+                                </div>
+                              </div>
+
+                              <div class="grid grid-cols-3 gap-4">
+                                <div>
+                                  <label class="mb-1 block text-xs text-[#8b8b9e]">Database Name <span class="text-[10px] text-[#5b5b6e]">(supports {'{{ variables }}'})</span></label>
+                                  <input
+                                    type="text"
+                                    class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2.5 text-sm text-white font-mono focus:border-red-500 focus:outline-none placeholder:text-[#5b5b6e]"
+                                    placeholder="e.g. main"
+                                    value={step.databaseName || ""}
+                                    onInput={(e) => updateStep(index(), "databaseName", e.currentTarget.value)}
+                                  />
+                                </div>
+
+                                <div>
+                                  <label class="mb-1 block text-xs text-[#8b8b9e]">Username <span class="text-[10px] text-[#5b5b6e]">(supports {'{{ variables }}'})</span></label>
+                                  <input
+                                    type="text"
+                                    class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2.5 text-sm text-white font-mono focus:border-red-500 focus:outline-none placeholder:text-[#5b5b6e]"
+                                    placeholder="e.g. admin"
+                                    value={step.databaseUser || ""}
+                                    onInput={(e) => updateStep(index(), "databaseUser", e.currentTarget.value)}
+                                  />
+                                </div>
+
+                                <div>
+                                  <label class="mb-1 block text-xs text-[#8b8b9e]">Password <span class="text-[10px] text-[#5b5b6e]">(supports {'{{ variables }}'})</span></label>
+                                  <input
+                                    type="password"
+                                    class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2.5 text-sm text-white font-mono focus:border-red-500 focus:outline-none placeholder:text-[#5b5b6e]"
+                                    placeholder="e.g. admin"
+                                    value={step.databasePass || ""}
+                                    onInput={(e) => updateStep(index(), "databasePass", e.currentTarget.value)}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          </Show>
+                          
+                          {/* SurrealQL Query (Common to both modes) */}
+                          <div>
+                            <div class="flex items-center justify-between mb-1">
+                              <label class="block text-xs font-semibold text-[#8b8b9e] uppercase tracking-wider">SurrealQL Query</label>
+                              <span class="text-[10px] text-blue-400 font-mono">Supports {"{{ variables }}"}</span>
+                            </div>
+                            <div class="relative group">
+                              <div class="absolute -inset-0.5 rounded-lg bg-gradient-to-r from-red-600 to-orange-500 opacity-20 blur transition group-hover:opacity-40"></div>
+                              <textarea
+                                class="relative w-full h-32 rounded-lg border border-[#2a2a3a] bg-[#0a0a0f] p-3 text-sm font-mono text-red-300 focus:border-red-500 outline-none custom-scrollbar"
+                                placeholder="SELECT * FROM users WHERE age > {{ steps.auth.response.min_age }};"
+                                value={step.requestBodyTemplate || ""}
+                                onInput={(e) => updateStep(index(), "requestBodyTemplate", e.currentTarget.value)}
+                              />
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                      
-                      <div>
-                        <div class="flex items-center justify-between mb-1">
-                          <label class="block text-xs text-[#8b8b9e]">SurrealQL Query</label>
-                          <span class="text-[10px] text-blue-400 font-mono">Supports {"{{ variables }}"}</span>
-                        </div>
-                        <div class="relative group">
-                          <div class="absolute -inset-0.5 rounded-lg bg-gradient-to-r from-red-600 to-orange-500 opacity-20 blur transition group-hover:opacity-40"></div>
-                          <textarea
-                            class="relative w-full h-32 rounded-lg border border-[#2a2a3a] bg-[#0a0a0f] p-3 text-sm font-mono text-red-300 focus:border-red-500 outline-none custom-scrollbar"
-                            placeholder="SELECT * FROM users WHERE age > {{ steps.auth.response.min_age }};"
-                            value={step.requestBodyTemplate || ""}
-                            onInput={(e) => updateStep(index(), "requestBodyTemplate", e.currentTarget.value)}
-                          />
-                        </div>
-                      </div>
-                    </div>
+                      );
+                    })()}
                   </Show>
                   
                   {/* Visualization Data Mapping */}
