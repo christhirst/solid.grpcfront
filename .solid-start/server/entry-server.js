@@ -1,13 +1,14 @@
 import { ssrElement, escape, mergeProps, ssr, getRequestEvent, useAssets as useAssets$1, isServer, createComponent as createComponent$1, delegateEvents, ssrHydrationKey, ssrAttribute, NoHydration, Hydration, HydrationScript, renderToString, renderToStream } from "solid-js/web";
-import { sharedConfig, onCleanup, lazy as lazy$1, getOwner, runWithOwner, createMemo, useContext, createContext, createSignal, createRenderEffect, on, startTransition, resetErrorBoundaries, batch, untrack, createComponent, children, Show, createRoot, onMount, Suspense, catchError, ErrorBoundary as ErrorBoundary$1 } from "solid-js";
+import { sharedConfig, onCleanup, lazy as lazy$1, getOwner, runWithOwner, createMemo, useContext, createContext, createSignal, createRenderEffect, on, startTransition, resetErrorBoundaries, batch, untrack, createComponent, children, Show, createRoot, splitProps, onMount, Suspense, catchError, ErrorBoundary as ErrorBoundary$1 } from "solid-js";
 import { join } from "pathe";
 import { createRouter as createRouter$1 } from "radix3";
 import { fromJSON, crossSerializeStream, getCrossReferenceHeader } from "seroval";
 import { CustomEventPlugin, DOMExceptionPlugin, EventPlugin, FormDataPlugin, HeadersPlugin, ReadableStreamPlugin, RequestPlugin, ResponsePlugin, URLSearchParamsPlugin, URLPlugin } from "seroval-plugins/web";
+import { signOut, signIn } from "@auth/solid-start/client";
 import { getRequestIP, parseCookies, defineHandler, H3, redirect, getCookie, setCookie } from "h3";
 import { provideRequestEvent } from "solid-js/web/storage";
 import { parseSetCookie } from "cookie-es";
-const clientViteManifest = { "__commonjs-dynamic-modules-TDtrdbi3.js": { "file": "_build/assets/_commonjs-dynamic-modules-TDtrdbi3.js", "name": "_commonjs-dynamic-modules" }, "_components-By0kS7RB.js": { "file": "_build/assets/components-By0kS7RB.js", "name": "components", "imports": ["_web-DI5d8uNH.js", "_routing-EUJS6lQu.js"] }, "_index-CVSJVsYU.js": { "file": "_build/assets/index-CVSJVsYU.js", "name": "index", "imports": ["_web-DI5d8uNH.js", "_store-DxL_Dylp.js"] }, "_index-DmRk3BFN.js": { "file": "_build/assets/index-DmRk3BFN.js", "name": "index", "imports": ["_index-CVSJVsYU.js"] }, "_index-DqwbMBXv.js": { "file": "_build/assets/index-DqwbMBXv.js", "name": "index", "imports": ["_web-DI5d8uNH.js", "_store-DxL_Dylp.js"] }, "_newsRulesEvaluator-DelrBLQn.js": { "file": "_build/assets/newsRulesEvaluator-DelrBLQn.js", "name": "newsRulesEvaluator", "imports": ["_index-CVSJVsYU.js"] }, "_preload-helper-BXl3LOEh.js": { "file": "_build/assets/preload-helper-BXl3LOEh.js", "name": "preload-helper" }, "_protoParser-Cz1vMVD5.js": { "file": "_build/assets/protoParser-Cz1vMVD5.js", "name": "protoParser", "imports": ["_index-CVSJVsYU.js", "__commonjs-dynamic-modules-TDtrdbi3.js"] }, "_routing-EUJS6lQu.js": { "file": "_build/assets/routing-EUJS6lQu.js", "name": "routing", "imports": ["_web-DI5d8uNH.js"] }, "_store-DxL_Dylp.js": { "file": "_build/assets/store-DxL_Dylp.js", "name": "store", "imports": ["_web-DI5d8uNH.js"] }, "_web-DI5d8uNH.js": { "file": "_build/assets/web-DI5d8uNH.js", "name": "web" }, "_workflowVariableChecker-zZqqjosf.js": { "file": "_build/assets/workflowVariableChecker-zZqqjosf.js", "name": "workflowVariableChecker" }, "node_modules/@antv/infographic/esm/index.js": { "file": "_build/assets/index-CEKwu_bE.js", "name": "index", "src": "node_modules/@antv/infographic/esm/index.js", "isDynamicEntry": true, "imports": ["_index-DmRk3BFN.js", "_index-CVSJVsYU.js", "__commonjs-dynamic-modules-TDtrdbi3.js", "_web-DI5d8uNH.js", "_store-DxL_Dylp.js"] }, "src/entry-client.tsx": { "file": "_build/assets/entry-client-BwAQ1Jlh.js", "name": "entry-client", "src": "src/entry-client.tsx", "isEntry": true, "imports": ["_preload-helper-BXl3LOEh.js", "_web-DI5d8uNH.js", "_routing-EUJS6lQu.js"], "dynamicImports": ["src/routes/TrustedCA.tsx?pick=default&pick=$css", "src/routes/TrustedCA.tsx?pick=default&pick=$css", "src/routes/[...404].tsx?pick=default&pick=$css", "src/routes/[...404].tsx?pick=default&pick=$css", "src/routes/about.tsx?pick=default&pick=$css", "src/routes/about.tsx?pick=default&pick=$css", "src/routes/index.tsx?pick=default&pick=$css", "src/routes/index.tsx?pick=default&pick=$css", "src/routes/requests.tsx?pick=default&pick=$css", "src/routes/requests.tsx?pick=default&pick=$css", "src/routes/cas/index.tsx?pick=default&pick=$css", "src/routes/cas/index.tsx?pick=default&pick=$css", "src/routes/connections/index.tsx?pick=default&pick=$css", "src/routes/connections/index.tsx?pick=default&pick=$css", "src/routes/dashboards/[id].tsx?pick=default&pick=$css", "src/routes/dashboards/[id].tsx?pick=default&pick=$css", "src/routes/dashboards/index.tsx?pick=default&pick=$css", "src/routes/dashboards/index.tsx?pick=default&pick=$css", "src/routes/database/[db].tsx?pick=default&pick=$css", "src/routes/database/[db].tsx?pick=default&pick=$css", "src/routes/database/index.tsx?pick=default&pick=$css", "src/routes/database/index.tsx?pick=default&pick=$css", "src/routes/p/[id].tsx?pick=default&pick=$css", "src/routes/p/[id].tsx?pick=default&pick=$css", "src/routes/protos/index.tsx?pick=default&pick=$css", "src/routes/protos/index.tsx?pick=default&pick=$css", "src/routes/workflows/[id].tsx?pick=default&pick=$css", "src/routes/workflows/[id].tsx?pick=default&pick=$css", "src/routes/workflows/index.tsx?pick=default&pick=$css", "src/routes/workflows/index.tsx?pick=default&pick=$css"], "css": ["_build/assets/entry-client-BNF6ih_m.css"] }, "src/routes/TrustedCA.tsx?pick=default&pick=$css": { "file": "_build/assets/TrustedCA-14QL52dX.js", "name": "TrustedCA", "src": "src/routes/TrustedCA.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-DI5d8uNH.js"] }, "src/routes/[...404].tsx?pick=default&pick=$css": { "file": "_build/assets/_...404_-DKTvdAJR.js", "name": "_...404_", "src": "src/routes/[...404].tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-DI5d8uNH.js", "_components-By0kS7RB.js", "_routing-EUJS6lQu.js"] }, "src/routes/about.tsx?pick=default&pick=$css": { "file": "_build/assets/about-CyCZU_QX.js", "name": "about", "src": "src/routes/about.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-DI5d8uNH.js", "_components-By0kS7RB.js", "_routing-EUJS6lQu.js"] }, "src/routes/cas/index.tsx?pick=default&pick=$css": { "file": "_build/assets/index-14QL52dX.js", "name": "index", "src": "src/routes/cas/index.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-DI5d8uNH.js"] }, "src/routes/connections/index.tsx?pick=default&pick=$css": { "file": "_build/assets/index-G2CNMjyw.js", "name": "index", "src": "src/routes/connections/index.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-DI5d8uNH.js"] }, "src/routes/dashboards/[id].tsx?pick=default&pick=$css": { "file": "_build/assets/_id_-BJsJsfYV.js", "name": "_id_", "src": "src/routes/dashboards/[id].tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_preload-helper-BXl3LOEh.js", "_web-DI5d8uNH.js", "_store-DxL_Dylp.js", "_index-CVSJVsYU.js", "_index-DmRk3BFN.js", "_newsRulesEvaluator-DelrBLQn.js", "_workflowVariableChecker-zZqqjosf.js", "_routing-EUJS6lQu.js", "_components-By0kS7RB.js"], "dynamicImports": ["node_modules/@antv/infographic/esm/index.js"] }, "src/routes/dashboards/index.tsx?pick=default&pick=$css": { "file": "_build/assets/index-BiH6CmFR.js", "name": "index", "src": "src/routes/dashboards/index.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-DI5d8uNH.js", "_routing-EUJS6lQu.js"] }, "src/routes/database/[db].tsx?pick=default&pick=$css": { "file": "_build/assets/_db_-DMTlIxVy.js", "name": "_db_", "src": "src/routes/database/[db].tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-DI5d8uNH.js", "_index-DqwbMBXv.js", "_routing-EUJS6lQu.js", "_components-By0kS7RB.js", "_store-DxL_Dylp.js"] }, "src/routes/database/index.tsx?pick=default&pick=$css": { "file": "_build/assets/index-Ch26PiLS.js", "name": "index", "src": "src/routes/database/index.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-DI5d8uNH.js"] }, "src/routes/index.tsx?pick=default&pick=$css": { "file": "_build/assets/index-GOxXb3s5.js", "name": "index", "src": "src/routes/index.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-DI5d8uNH.js"] }, "src/routes/p/[id].tsx?pick=default&pick=$css": { "file": "_build/assets/_id_-DAPJukaX.js", "name": "_id_", "src": "src/routes/p/[id].tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_preload-helper-BXl3LOEh.js", "_web-DI5d8uNH.js", "_index-CVSJVsYU.js", "_index-DmRk3BFN.js", "_newsRulesEvaluator-DelrBLQn.js", "_routing-EUJS6lQu.js", "_store-DxL_Dylp.js"], "dynamicImports": ["node_modules/@antv/infographic/esm/index.js"] }, "src/routes/protos/index.tsx?pick=default&pick=$css": { "file": "_build/assets/index-jV3cxgfW.js", "name": "index", "src": "src/routes/protos/index.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-DI5d8uNH.js"] }, "src/routes/requests.tsx?pick=default&pick=$css": { "file": "_build/assets/requests-D-Ha7GTv.js", "name": "requests", "src": "src/routes/requests.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-DI5d8uNH.js", "_protoParser-Cz1vMVD5.js", "_index-CVSJVsYU.js", "_index-DqwbMBXv.js", "__commonjs-dynamic-modules-TDtrdbi3.js", "_store-DxL_Dylp.js"] }, "src/routes/workflows/[id].tsx?pick=default&pick=$css": { "file": "_build/assets/_id_-BTXGKxua.js", "name": "_id_", "src": "src/routes/workflows/[id].tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-DI5d8uNH.js", "_index-CVSJVsYU.js", "__commonjs-dynamic-modules-TDtrdbi3.js", "_workflowVariableChecker-zZqqjosf.js", "_store-DxL_Dylp.js", "_protoParser-Cz1vMVD5.js", "_index-DmRk3BFN.js", "_routing-EUJS6lQu.js"] }, "src/routes/workflows/index.tsx?pick=default&pick=$css": { "file": "_build/assets/index-eZt3NaCy.js", "name": "index", "src": "src/routes/workflows/index.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-DI5d8uNH.js", "_workflowVariableChecker-zZqqjosf.js"] } };
+const clientViteManifest = { "_DashboardGrid-CebBoObj.js": { "file": "_build/assets/DashboardGrid-CebBoObj.js", "name": "DashboardGrid", "imports": ["_web-B8i7O-0I.js"] }, "__commonjs-dynamic-modules-TDtrdbi3.js": { "file": "_build/assets/_commonjs-dynamic-modules-TDtrdbi3.js", "name": "_commonjs-dynamic-modules" }, "_button-7CgO1i3N.js": { "file": "_build/assets/button-7CgO1i3N.js", "name": "button", "imports": ["_web-B8i7O-0I.js"] }, "_components-DxjSVJPL.js": { "file": "_build/assets/components-DxjSVJPL.js", "name": "components", "imports": ["_web-B8i7O-0I.js", "_routing-DvD8AYJT.js"] }, "_index-CqaWpT-T.js": { "file": "_build/assets/index-CqaWpT-T.js", "name": "index", "imports": ["_index-qa-maEe7.js"] }, "_index-_0MPAAuT.js": { "file": "_build/assets/index-_0MPAAuT.js", "name": "index", "imports": ["_web-B8i7O-0I.js", "_store-CxpQDio0.js"] }, "_index-qa-maEe7.js": { "file": "_build/assets/index-qa-maEe7.js", "name": "index", "imports": ["_web-B8i7O-0I.js", "_store-CxpQDio0.js"] }, "_input-COLCinJZ.js": { "file": "_build/assets/input-COLCinJZ.js", "name": "input", "imports": ["_web-B8i7O-0I.js"] }, "_preload-helper-BXl3LOEh.js": { "file": "_build/assets/preload-helper-BXl3LOEh.js", "name": "preload-helper" }, "_protoParser-CdFE4gEM.js": { "file": "_build/assets/protoParser-CdFE4gEM.js", "name": "protoParser", "imports": ["_index-qa-maEe7.js", "__commonjs-dynamic-modules-TDtrdbi3.js"] }, "_routing-DvD8AYJT.js": { "file": "_build/assets/routing-DvD8AYJT.js", "name": "routing", "imports": ["_web-B8i7O-0I.js"] }, "_store-CxpQDio0.js": { "file": "_build/assets/store-CxpQDio0.js", "name": "store", "imports": ["_web-B8i7O-0I.js"] }, "_web-B8i7O-0I.js": { "file": "_build/assets/web-B8i7O-0I.js", "name": "web" }, "_workflowVariableChecker-xYKc3HmD.js": { "file": "_build/assets/workflowVariableChecker-xYKc3HmD.js", "name": "workflowVariableChecker" }, "node_modules/@antv/infographic/esm/index.js": { "file": "_build/assets/index-D7VittgE.js", "name": "index", "src": "node_modules/@antv/infographic/esm/index.js", "isDynamicEntry": true, "imports": ["_index-CqaWpT-T.js", "_index-qa-maEe7.js", "__commonjs-dynamic-modules-TDtrdbi3.js", "_web-B8i7O-0I.js", "_store-CxpQDio0.js"] }, "src/entry-client.tsx": { "file": "_build/assets/entry-client-EPW36qR_.js", "name": "entry-client", "src": "src/entry-client.tsx", "isEntry": true, "imports": ["_preload-helper-BXl3LOEh.js", "_web-B8i7O-0I.js", "_button-7CgO1i3N.js", "_routing-DvD8AYJT.js"], "dynamicImports": ["src/routes/TrustedCA.tsx?pick=default&pick=$css", "src/routes/TrustedCA.tsx?pick=default&pick=$css", "src/routes/[...404].tsx?pick=default&pick=$css", "src/routes/[...404].tsx?pick=default&pick=$css", "src/routes/about.tsx?pick=default&pick=$css", "src/routes/about.tsx?pick=default&pick=$css", "src/routes/index.tsx?pick=default&pick=$css", "src/routes/index.tsx?pick=default&pick=$css", "src/routes/library.tsx?pick=default&pick=$css", "src/routes/library.tsx?pick=default&pick=$css", "src/routes/requests.tsx?pick=default&pick=$css", "src/routes/requests.tsx?pick=default&pick=$css", "src/routes/cas/index.tsx?pick=default&pick=$css", "src/routes/cas/index.tsx?pick=default&pick=$css", "src/routes/connections/index.tsx?pick=default&pick=$css", "src/routes/connections/index.tsx?pick=default&pick=$css", "src/routes/dashboards/index.tsx?pick=default&pick=$css", "src/routes/dashboards/index.tsx?pick=default&pick=$css", "src/routes/dashboards/library.tsx?pick=default&pick=$css", "src/routes/dashboards/library.tsx?pick=default&pick=$css", "src/routes/database/[db].tsx?pick=default&pick=$css", "src/routes/database/[db].tsx?pick=default&pick=$css", "src/routes/database/index.tsx?pick=default&pick=$css", "src/routes/database/index.tsx?pick=default&pick=$css", "src/routes/p/[id].tsx?pick=default&pick=$css", "src/routes/p/[id].tsx?pick=default&pick=$css", "src/routes/protos/index.tsx?pick=default&pick=$css", "src/routes/protos/index.tsx?pick=default&pick=$css", "src/routes/workflows/[id].tsx?pick=default&pick=$css", "src/routes/workflows/[id].tsx?pick=default&pick=$css", "src/routes/workflows/index.tsx?pick=default&pick=$css", "src/routes/workflows/index.tsx?pick=default&pick=$css"], "css": ["_build/assets/entry-client-CA5NnE2S.css"] }, "src/routes/TrustedCA.tsx?pick=default&pick=$css": { "file": "_build/assets/TrustedCA-DvJ2nKV5.js", "name": "TrustedCA", "src": "src/routes/TrustedCA.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-B8i7O-0I.js"] }, "src/routes/[...404].tsx?pick=default&pick=$css": { "file": "_build/assets/_...404_-B3TMXxy3.js", "name": "_...404_", "src": "src/routes/[...404].tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-B8i7O-0I.js", "_components-DxjSVJPL.js", "_routing-DvD8AYJT.js"] }, "src/routes/about.tsx?pick=default&pick=$css": { "file": "_build/assets/about-DkIYBSvO.js", "name": "about", "src": "src/routes/about.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-B8i7O-0I.js", "_components-DxjSVJPL.js", "_routing-DvD8AYJT.js"] }, "src/routes/cas/index.tsx?pick=default&pick=$css": { "file": "_build/assets/index-DvJ2nKV5.js", "name": "index", "src": "src/routes/cas/index.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-B8i7O-0I.js"] }, "src/routes/connections/index.tsx?pick=default&pick=$css": { "file": "_build/assets/index-C3-b1QyG.js", "name": "index", "src": "src/routes/connections/index.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-B8i7O-0I.js"] }, "src/routes/dashboards/index.tsx?pick=default&pick=$css": { "file": "_build/assets/index-BKrSR7fg.js", "name": "index", "src": "src/routes/dashboards/index.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-B8i7O-0I.js", "_input-COLCinJZ.js", "_button-7CgO1i3N.js", "_routing-DvD8AYJT.js"] }, "src/routes/dashboards/library.tsx?pick=default&pick=$css": { "file": "_build/assets/library-wnPHbemM.js", "name": "library", "src": "src/routes/dashboards/library.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-B8i7O-0I.js", "_DashboardGrid-CebBoObj.js", "_input-COLCinJZ.js", "_button-7CgO1i3N.js", "_routing-DvD8AYJT.js"] }, "src/routes/database/[db].tsx?pick=default&pick=$css": { "file": "_build/assets/_db_-BZaKOi7I.js", "name": "_db_", "src": "src/routes/database/[db].tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-B8i7O-0I.js", "_index-_0MPAAuT.js", "_routing-DvD8AYJT.js", "_components-DxjSVJPL.js", "_store-CxpQDio0.js"] }, "src/routes/database/index.tsx?pick=default&pick=$css": { "file": "_build/assets/index-CXQehkCb.js", "name": "index", "src": "src/routes/database/index.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-B8i7O-0I.js"] }, "src/routes/index.tsx?pick=default&pick=$css": { "file": "_build/assets/index-WBmsmIph.js", "name": "index", "src": "src/routes/index.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-B8i7O-0I.js"] }, "src/routes/library.tsx?pick=default&pick=$css": { "file": "_build/assets/library-D6UF8y9r.js", "name": "library", "src": "src/routes/library.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-B8i7O-0I.js", "_DashboardGrid-CebBoObj.js", "_input-COLCinJZ.js", "_button-7CgO1i3N.js", "_routing-DvD8AYJT.js"] }, "src/routes/p/[id].tsx?pick=default&pick=$css": { "file": "_build/assets/_id_-CtUW3gfl.js", "name": "_id_", "src": "src/routes/p/[id].tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_preload-helper-BXl3LOEh.js", "_web-B8i7O-0I.js", "_index-qa-maEe7.js", "_index-CqaWpT-T.js", "_DashboardGrid-CebBoObj.js", "_routing-DvD8AYJT.js", "_store-CxpQDio0.js"], "dynamicImports": ["node_modules/@antv/infographic/esm/index.js"] }, "src/routes/protos/index.tsx?pick=default&pick=$css": { "file": "_build/assets/index-C6t8tR0v.js", "name": "index", "src": "src/routes/protos/index.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-B8i7O-0I.js"] }, "src/routes/requests.tsx?pick=default&pick=$css": { "file": "_build/assets/requests-Kdq0FXzp.js", "name": "requests", "src": "src/routes/requests.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-B8i7O-0I.js", "_protoParser-CdFE4gEM.js", "_index-qa-maEe7.js", "_index-_0MPAAuT.js", "__commonjs-dynamic-modules-TDtrdbi3.js", "_store-CxpQDio0.js"] }, "src/routes/workflows/[id].tsx?pick=default&pick=$css": { "file": "_build/assets/_id_-lH7BpdHu.js", "name": "_id_", "src": "src/routes/workflows/[id].tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-B8i7O-0I.js", "_index-qa-maEe7.js", "__commonjs-dynamic-modules-TDtrdbi3.js", "_workflowVariableChecker-xYKc3HmD.js", "_store-CxpQDio0.js", "_protoParser-CdFE4gEM.js", "_index-CqaWpT-T.js", "_routing-DvD8AYJT.js"] }, "src/routes/workflows/index.tsx?pick=default&pick=$css": { "file": "_build/assets/index-O7kyLUX9.js", "name": "index", "src": "src/routes/workflows/index.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-B8i7O-0I.js", "_workflowVariableChecker-xYKc3HmD.js"] } };
 function getSsrProdManifest() {
   const viteManifest = clientViteManifest;
   return {
@@ -1145,16 +1146,16 @@ const fileRoutes = [{ "page": true, "$component": { "src": "src/routes/TrustedCA
   "./_build/assets/TrustedCA-DpPvaCb0.js"
 ) }, "path": "/TrustedCA" }, { "page": true, "$component": { "src": "src/routes/[...404].tsx?pick=default&pick=$css", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/_...404_-R2HCm90c.js"
+  "./_build/assets/_...404_-DCmUvTvb.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/_...404_-R2HCm90c.js"
+  "./_build/assets/_...404_-DCmUvTvb.js"
 ) }, "path": "/*404" }, { "page": true, "$component": { "src": "src/routes/about.tsx?pick=default&pick=$css", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/about-k65Gi6lo.js"
+  "./_build/assets/about-lUnMEjed.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/about-k65Gi6lo.js"
+  "./_build/assets/about-lUnMEjed.js"
 ) }, "path": "/about" }, { "page": false, "$GET": { "src": "src/routes/health.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
   "./_build/assets/health-DlRq_6NL.js"
@@ -1173,7 +1174,13 @@ const fileRoutes = [{ "page": true, "$component": { "src": "src/routes/TrustedCA
 ), "import": () => import(
   /* @vite-ignore */
   "./_build/assets/index-4X0MzDNU.js"
-) }, "path": "/" }, { "page": true, "$component": { "src": "src/routes/requests.tsx?pick=default&pick=$css", "build": () => import(
+) }, "path": "/" }, { "page": true, "$component": { "src": "src/routes/library.tsx?pick=default&pick=$css", "build": () => import(
+  /* @vite-ignore */
+  "./_build/assets/library-btmYa8FL.js"
+), "import": () => import(
+  /* @vite-ignore */
+  "./_build/assets/library-btmYa8FL.js"
+) }, "path": "/library" }, { "page": true, "$component": { "src": "src/routes/requests.tsx?pick=default&pick=$css", "build": () => import(
   /* @vite-ignore */
   "./_build/assets/requests-CrDNhDce.js"
 ), "import": () => import(
@@ -1209,24 +1216,24 @@ const fileRoutes = [{ "page": true, "$component": { "src": "src/routes/TrustedCA
 ), "import": () => import(
   /* @vite-ignore */
   "./_build/assets/index-DLBT9IIs.js"
-) }, "path": "/connections/" }, { "page": true, "$component": { "src": "src/routes/dashboards/[id].tsx?pick=default&pick=$css", "build": () => import(
+) }, "path": "/connections/" }, { "page": true, "$component": { "src": "src/routes/dashboards/index.tsx?pick=default&pick=$css", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-CBetMHfn.js"
+  "./_build/assets/index-VhEYKGTU.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-CBetMHfn.js"
-) }, "path": "/dashboards/:id" }, { "page": true, "$component": { "src": "src/routes/dashboards/index.tsx?pick=default&pick=$css", "build": () => import(
+  "./_build/assets/index-VhEYKGTU.js"
+) }, "path": "/dashboards/" }, { "page": true, "$component": { "src": "src/routes/dashboards/library.tsx?pick=default&pick=$css", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-DYPRNCon.js"
+  "./_build/assets/library-L8tabsvh.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-DYPRNCon.js"
-) }, "path": "/dashboards/" }, { "page": true, "$component": { "src": "src/routes/database/[db].tsx?pick=default&pick=$css", "build": () => import(
+  "./_build/assets/library-L8tabsvh.js"
+) }, "path": "/dashboards/library" }, { "page": true, "$component": { "src": "src/routes/database/[db].tsx?pick=default&pick=$css", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/_db_-C0S2IR5K.js"
+  "./_build/assets/_db_-CZfZmRwI.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/_db_-C0S2IR5K.js"
+  "./_build/assets/_db_-CZfZmRwI.js"
 ) }, "path": "/database/:db" }, { "page": true, "$component": { "src": "src/routes/database/index.tsx?pick=default&pick=$css", "build": () => import(
   /* @vite-ignore */
   "./_build/assets/index-BFTcs6yI.js"
@@ -1235,10 +1242,10 @@ const fileRoutes = [{ "page": true, "$component": { "src": "src/routes/TrustedCA
   "./_build/assets/index-BFTcs6yI.js"
 ) }, "path": "/database/" }, { "page": true, "$component": { "src": "src/routes/p/[id].tsx?pick=default&pick=$css", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-rmTSgUIB.js"
+  "./_build/assets/_id_-CPd1yV4i.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-rmTSgUIB.js"
+  "./_build/assets/_id_-CPd1yV4i.js"
 ) }, "path": "/p/:id" }, { "page": true, "$component": { "src": "src/routes/protos/index.tsx?pick=default&pick=$css", "build": () => import(
   /* @vite-ignore */
   "./_build/assets/index-CRbc-Zf9.js"
@@ -1247,16 +1254,16 @@ const fileRoutes = [{ "page": true, "$component": { "src": "src/routes/TrustedCA
   "./_build/assets/index-CRbc-Zf9.js"
 ) }, "path": "/protos/" }, { "page": true, "$component": { "src": "src/routes/workflows/[id].tsx?pick=default&pick=$css", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-CBV7yLux.js"
+  "./_build/assets/_id_-D3_yuTLz.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-CBV7yLux.js"
+  "./_build/assets/_id_-D3_yuTLz.js"
 ) }, "path": "/workflows/:id" }, { "page": true, "$component": { "src": "src/routes/workflows/index.tsx?pick=default&pick=$css", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-C7ztWUp0.js"
+  "./_build/assets/index-r65OSEUb.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-C7ztWUp0.js"
+  "./_build/assets/index-r65OSEUb.js"
 ) }, "path": "/workflows/" }, { "page": false, "$GET": { "src": "src/routes/api/auth/[...solidauth].ts?pick=GET", "build": () => import(
   /* @vite-ignore */
   "./_build/assets/_...solidauth_-BdX805ST.js"
@@ -1373,16 +1380,16 @@ const fileRoutes = [{ "page": true, "$component": { "src": "src/routes/TrustedCA
   "./_build/assets/test-oafj6Cl_.js"
 ) }, "path": "/api/connections/test" }, { "page": false, "$GET": { "src": "src/routes/api/dashboards/index.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-CBd8M8H4.js"
+  "./_build/assets/index-Bp3O-lVx.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-CBd8M8H4.js"
+  "./_build/assets/index-Bp3O-lVx.js"
 ) }, "$HEAD": { "src": "src/routes/api/dashboards/index.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-CBd8M8H4.js"
+  "./_build/assets/index-Bp3O-lVx.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-CBd8M8H4.js"
+  "./_build/assets/index-Bp3O-lVx.js"
 ) }, "$POST": { "src": "src/routes/api/dashboards/index.ts?pick=POST", "build": () => import(
   /* @vite-ignore */
   "./_build/assets/index-Dha14AW4.js"
@@ -1729,7 +1736,72 @@ function createRoutes() {
 }
 let routes;
 const FileRoutes = isServer ? () => getRequestEvent().routes : () => routes || (routes = createRoutes());
-var _tmpl$$3 = ["<div", ' class="flex items-center gap-3"><span class="text-sm font-mono text-[#8b8b9e] bg-[#1e1e2e]/50 px-2 py-1 rounded">', '</span><button class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors duration-200 hover:bg-blue-700">Logout</button></div>'], _tmpl$2$2 = ["<nav", ' class="sticky top-0 z-50 border-b border-[#1e1e2e] bg-[#0a0a0f]/90 backdrop-blur-xl"><div class="mx-auto flex max-w-7xl items-center justify-between px-6 py-4"><a href="/" class="flex items-center gap-3 group"><div class="relative flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-violet-600 shadow-lg shadow-blue-500/20"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"></polyline><polyline points="16 7 22 7 22 13"></polyline></svg></div><span class="text-lg font-bold tracking-tight text-white">Solid<span class="gradient-text">Flow</span></span></a><ul class="flex items-center gap-1">', '</ul><div class="flex items-center gap-4"><div class="flex items-center gap-2 rounded-full bg-[#10b981]/10 px-3 py-1.5"><span class="relative flex h-2 w-2"><span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span><span class="relative inline-flex h-2 w-2 rounded-full bg-emerald-500"></span></span><span class="text-xs font-medium text-emerald-400">Live</span></div><!--$-->', "<!--/--></div></div></nav>"], _tmpl$3 = ["<li", "><a", ' rel="external" class="', '">', "</a></li>"], _tmpl$4 = ["<div", ' class="h-9 w-20" aria-label="Checking session"></div>'], _tmpl$5 = ["<button", ' class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors duration-200 hover:bg-blue-700">Log In</button>'];
+function Badge(props) {
+  const [local, rest] = splitProps(props, ["variant", "class", "children"]);
+  const variantClass = () => {
+    switch (local.variant) {
+      case "secondary":
+        return "border-zinc-800 bg-zinc-800 text-zinc-300";
+      case "outline":
+        return "border-zinc-700/80 bg-transparent text-zinc-300";
+      case "success":
+        return "border-emerald-500/30 bg-emerald-500/10 text-emerald-400";
+      case "purple":
+        return "border-purple-500/30 bg-purple-500/15 text-purple-300";
+      case "blue":
+        return "border-blue-500/30 bg-blue-500/10 text-blue-300";
+      case "amber":
+        return "border-amber-500/30 bg-amber-500/10 text-amber-300";
+      case "default":
+      default:
+        return "border-transparent bg-zinc-100 text-zinc-900";
+    }
+  };
+  return ssrElement("span", mergeProps({
+    get ["class"]() {
+      return `inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold tracking-wide transition-colors ${variantClass()} ${local.class || ""}`;
+    }
+  }, rest), () => escape(local.children), true);
+}
+function Button(props) {
+  const [local, rest] = splitProps(props, ["variant", "size", "class", "children"]);
+  const variantClass = () => {
+    switch (local.variant) {
+      case "primary":
+        return "bg-gradient-to-r from-purple-600 to-indigo-600 text-white hover:from-purple-500 hover:to-indigo-500 shadow-md shadow-purple-500/20 border border-purple-500/30";
+      case "secondary":
+        return "bg-zinc-800 text-zinc-100 hover:bg-zinc-700/90 border border-zinc-700/60 shadow-sm";
+      case "outline":
+        return "border border-zinc-700/80 bg-transparent text-zinc-200 hover:bg-zinc-800/80 hover:text-white";
+      case "ghost":
+        return "text-zinc-400 hover:bg-zinc-800/60 hover:text-white";
+      case "destructive":
+        return "bg-red-600 text-white hover:bg-red-500 shadow-sm";
+      case "default":
+      default:
+        return "bg-zinc-100 text-zinc-900 hover:bg-zinc-200 shadow-sm font-semibold";
+    }
+  };
+  const sizeClass = () => {
+    switch (local.size) {
+      case "sm":
+        return "h-8 rounded-lg px-3 text-xs";
+      case "lg":
+        return "h-11 rounded-xl px-6 text-sm";
+      case "icon":
+        return "h-9 w-9 p-0 rounded-lg flex items-center justify-center";
+      case "default":
+      default:
+        return "h-9 rounded-lg px-4 py-2 text-xs font-medium";
+    }
+  };
+  return ssrElement("button", mergeProps({
+    get ["class"]() {
+      return `inline-flex items-center justify-center gap-2 whitespace-nowrap transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500/50 disabled:pointer-events-none disabled:opacity-50 select-none ${variantClass()} ${sizeClass()} ${local.class || ""}`;
+    }
+  }, rest), () => escape(local.children), true);
+}
+var _tmpl$$3 = ["<span", ' class="relative flex h-2 w-2"><span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span><span class="relative inline-flex h-2 w-2 rounded-full bg-emerald-500"></span></span>'], _tmpl$2$2 = ["<span", ">Live</span>"], _tmpl$3 = ["<div", ' class="flex items-center gap-2.5"><!--$-->', "<!--/--><!--$-->", "<!--/--></div>"], _tmpl$4 = ["<nav", ' class="sticky top-0 z-50 border-b border-zinc-800/80 bg-zinc-950/85 backdrop-blur-xl"><div class="mx-auto flex max-w-7xl items-center justify-between px-6 py-3.5"><a href="/" class="flex items-center gap-3 group"><div class="relative flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-violet-600 shadow-lg shadow-blue-500/20 transition-transform group-hover:scale-105"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"></polyline><polyline points="16 7 22 7 22 13"></polyline></svg></div><span class="text-lg font-bold tracking-tight text-white">Solid<span class="gradient-text">Flow</span></span></a><ul class="flex items-center gap-1">', '</ul><div class="flex items-center gap-3"><!--$-->', "<!--/--><!--$-->", "<!--/--></div></div></nav>"], _tmpl$5 = ["<li", "><a", ' rel="external" class="', '">', "</a></li>"], _tmpl$6 = ["<div", ' class="h-8 w-20" aria-label="Checking session"></div>'];
 const fetchSession = async () => {
   try {
     const res = await fetch("/api/auth/session");
@@ -1746,15 +1818,21 @@ function Nav() {
     setSession(await fetchSession());
   });
   const active = (path) => {
-    if (isServer) return "text-[#8b8b9e]";
-    return window.location.pathname === path ? "text-white" : "text-[#8b8b9e] hover:text-white";
+    if (isServer) return "text-zinc-400 hover:text-white hover:bg-zinc-800/50";
+    return window.location.pathname === path ? "text-white bg-zinc-800/80 font-semibold shadow-sm" : "text-zinc-400 hover:text-white hover:bg-zinc-800/50";
   };
-  return ssr(_tmpl$2$2, ssrHydrationKey(), escape(["/", "/dashboards", "/workflows", "/TrustedCA", "/connections", "/protos", "/database", "/requests", "/about"].map((path) => ssr(_tmpl$3, ssrHydrationKey(), ssrAttribute("href", escape(path, true), false), `rounded-lg px-4 py-2 text-sm font-medium transition-colors duration-200 ${escape(active(path), true)}`, path === "/" ? "Home" : path === "/TrustedCA" ? "Trusted CAs" : escape(path.replace("/", "").charAt(0).toUpperCase()) + escape(path.replace("/", "").slice(1))))), escape(createComponent$1(Show, {
+  return ssr(_tmpl$4, ssrHydrationKey(), escape(["/", "/library", "/dashboards", "/workflows", "/TrustedCA", "/connections", "/protos", "/database", "/requests", "/about"].map((path) => ssr(_tmpl$5, ssrHydrationKey(), ssrAttribute("href", escape(path, true), false), `rounded-lg px-3 py-1.5 text-xs font-medium transition-colors duration-200 ${escape(active(path), true)}`, path === "/" ? "Home" : path === "/library" ? "Library" : path === "/TrustedCA" ? "Trusted CAs" : escape(path.replace("/", "").charAt(0).toUpperCase()) + escape(path.replace("/", "").slice(1))))), escape(createComponent$1(Badge, {
+    variant: "success",
+    "class": "gap-1.5 px-3 py-1",
+    get children() {
+      return [ssr(_tmpl$$3, ssrHydrationKey()), ssr(_tmpl$2$2, ssrHydrationKey())];
+    }
+  })), escape(createComponent$1(Show, {
     get when() {
       return session() !== void 0;
     },
     get fallback() {
-      return ssr(_tmpl$4, ssrHydrationKey());
+      return ssr(_tmpl$6, ssrHydrationKey());
     },
     get children() {
       return createComponent$1(Show, {
@@ -1762,10 +1840,28 @@ function Nav() {
           return session();
         },
         get fallback() {
-          return ssr(_tmpl$5, ssrHydrationKey());
+          return createComponent$1(Button, {
+            variant: "primary",
+            size: "sm",
+            onClick: () => signIn("oidc", {
+              callbackUrl: typeof window !== "undefined" ? window.location.href : "/"
+            }),
+            children: "Log In"
+          });
         },
         get children() {
-          return ssr(_tmpl$$3, ssrHydrationKey(), escape(session()?.user?.sub) || "No Subject");
+          return ssr(_tmpl$3, ssrHydrationKey(), escape(createComponent$1(Badge, {
+            variant: "secondary",
+            "class": "font-mono text-xs text-zinc-300",
+            get children() {
+              return session()?.user?.sub || "No Subject";
+            }
+          })), escape(createComponent$1(Button, {
+            variant: "secondary",
+            size: "sm",
+            onClick: () => signOut(),
+            children: "Logout"
+          })));
         }
       });
     }
@@ -2352,13 +2448,15 @@ const entryServer = createHandler((event) => {
   });
 });
 export {
-  useNavigate as a,
-  useResolvedPath as b,
-  useHref as c,
-  useLocation as d,
+  Badge as B,
+  Button as a,
+  useParams as b,
+  useResolvedPath as c,
+  useHref as d,
   entryServer as default,
+  useLocation as e,
   id$$,
   normalizePath as n,
-  useParams as u
+  useNavigate as u
 };
 //# sourceMappingURL=entry-server.js.map

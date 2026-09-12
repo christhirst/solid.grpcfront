@@ -1,0 +1,688 @@
+import { createSignal, createMemo, createResource, For, Show, Suspense, onMount, onCleanup } from "solid-js";
+import { useNavigate } from "@solidjs/router";
+import { isServer } from "solid-js/web";
+import DashboardGrid, { getDefaultWidgetDimensions } from "~/components/dashboard/DashboardGrid";
+import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "~/components/ui/card";
+import { Badge } from "~/components/ui/badge";
+import { Button } from "~/components/ui/button";
+import { Input } from "~/components/ui/input";
+
+type DashboardSummary = {
+  id: string;
+  name?: string;
+  isPublic?: boolean;
+  buttons?: any[];
+  updated_at?: string;
+  created_at?: string;
+  description?: string;
+};
+
+const dashboardId = (id: string) => id.replace("dashboard:", "");
+
+const formatDate = (value?: string) => {
+  if (!value) return "Recently";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Recently";
+  return new Intl.DateTimeFormat("en", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(date);
+};
+
+const getWidgetColor = (type?: string) => {
+  switch (type) {
+    case "chart":
+      return "border-purple-500/40 bg-purple-500/15 text-purple-300";
+    case "table":
+      return "border-emerald-500/40 bg-emerald-500/15 text-emerald-300";
+    case "news":
+      return "border-blue-500/40 bg-blue-500/15 text-blue-300";
+    case "toggle":
+      return "border-cyan-500/40 bg-cyan-500/15 text-cyan-300";
+    case "form":
+      return "border-amber-500/40 bg-amber-500/15 text-amber-300";
+    case "infographic":
+      return "border-pink-500/40 bg-pink-500/15 text-pink-300";
+    case "button":
+    default:
+      return "border-indigo-500/40 bg-indigo-500/15 text-indigo-300";
+  }
+};
+
+const getWidgetIcon = (type?: string) => {
+  switch (type) {
+    case "chart": return "📊";
+    case "table": return "📋";
+    case "news": return "📰";
+    case "toggle": return "🎚️";
+    case "form": return "📝";
+    case "infographic": return "📈";
+    default: return "⚡";
+  }
+};
+
+export default function DashboardLibrary() {
+  const navigate = useNavigate();
+  const [search, setSearch] = createSignal("");
+  const [widgetFilter, setWidgetFilter] = createSignal("all");
+  const [sortBy, setSortBy] = createSignal<"updated" | "widgets" | "name">("updated");
+  const [currentIndex, setCurrentIndex] = createSignal(0);
+  const [error, setError] = createSignal("");
+
+  const [dashboards, { refetch }] = createResource<DashboardSummary[]>(async () => {
+    setError("");
+    try {
+      const url = isServer
+        ? `http://127.0.0.1:${process.env.PORT || 3000}/api/dashboards?published=true`
+        : `/api/dashboards?published=true`;
+      const res = await fetch(url);
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.error || "Failed to load library");
+      return (json.data || []).filter((d: any) => d.isPublic);
+    } catch (e: any) {
+      console.error("[Dashboard Library] Fetch error:", e);
+      setError(e.message);
+      return [];
+    }
+  });
+
+  const filteredDashboards = createMemo(() => {
+    let list = [...(dashboards() || [])];
+    const q = search().toLowerCase().trim();
+    const tag = widgetFilter();
+
+    if (q) {
+      list = list.filter((d) => {
+        const nameMatch = (d.name || "").toLowerCase().includes(q);
+        const widgetMatch = (d.buttons || []).some((b: any) =>
+          (b.label || "").toLowerCase().includes(q) || (b.widgetType || "").toLowerCase().includes(q)
+        );
+        return nameMatch || widgetMatch;
+      });
+    }
+
+    if (tag !== "all") {
+      list = list.filter((d) =>
+        (d.buttons || []).some((b: any) => (b.widgetType || "button") === tag)
+      );
+    }
+
+    if (sortBy() === "updated") {
+      list.sort((a, b) => new Date(b.updated_at || b.created_at || 0).getTime() - new Date(a.updated_at || a.created_at || 0).getTime());
+    } else if (sortBy() === "widgets") {
+      list.sort((a, b) => (b.buttons?.length || 0) - (a.buttons?.length || 0));
+    } else if (sortBy() === "name") {
+      list.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    }
+
+    return list;
+  });
+
+  const currentBoard = createMemo(() => {
+    const list = filteredDashboards();
+    if (!list.length) return null;
+    const idx = Math.min(currentIndex(), list.length - 1);
+    return list[idx >= 0 ? idx : 0];
+  });
+
+  const nextBoard = () => {
+    const total = filteredDashboards().length;
+    if (total <= 1) return;
+    setCurrentIndex((prev) => (prev + 1) % total);
+  };
+
+  const prevBoard = () => {
+    const total = filteredDashboards().length;
+    if (total <= 1) return;
+    setCurrentIndex((prev) => (prev - 1 + total) % total);
+  };
+
+  onMount(() => {
+    if (isServer) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.key === "ArrowLeft") prevBoard();
+      if (e.key === "ArrowRight") nextBoard();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    onCleanup(() => window.removeEventListener("keydown", handleKeyDown));
+  });
+
+  const widgetKindCounts = (buttons: any[] = []) => {
+    const counts: Record<string, number> = {};
+    for (const b of buttons) {
+      const type = b.widgetType || "button";
+      counts[type] = (counts[type] || 0) + 1;
+    }
+    return counts;
+  };
+
+  const renderMiniBlueprint = (buttons: any[] = [], isZoomed = false) => {
+    if (!buttons || buttons.length === 0) {
+      return (
+        <div class="flex items-center justify-center h-full min-h-[90px] text-xs text-zinc-500 italic">
+          No widgets placed yet
+        </div>
+      );
+    }
+    return (
+      <div class={`grid grid-cols-12 ${isZoomed ? "gap-2" : "gap-1.5"} w-full auto-rows-fr`}>
+        <For each={buttons}>
+          {(btn) => {
+            const dims = getDefaultWidgetDimensions(btn.widgetType);
+            const w = Math.min(12, Math.max(1, btn.w || dims.w || 4));
+            const h = Math.max(1, btn.h || dims.h || 2);
+            const color = getWidgetColor(btn.widgetType);
+            const icon = getWidgetIcon(btn.widgetType);
+
+            const colStyle = () => {
+              if (btn.x !== undefined && btn.x !== null) {
+                const start = Math.min(12, Math.max(1, Number(btn.x) + 1));
+                const span = Math.min(13 - start, w);
+                return `${start} / span ${span}`;
+              }
+              return `span ${w}`;
+            };
+
+            const rowStyle = () => {
+              if (btn.y !== undefined && btn.y !== null) {
+                const start = Math.max(1, Number(btn.y) + 1);
+                return `${start} / span ${h}`;
+              }
+              return undefined;
+            };
+
+            return (
+              <div
+                style={{
+                  "grid-column": colStyle(),
+                  ...(rowStyle() ? { "grid-row": rowStyle() } : {}),
+                  "min-height": isZoomed ? `${Math.max(48, h * 24)}px` : `${Math.max(26, h * 13)}px`,
+                }}
+                class={`rounded-lg border p-1.5 transition-all flex flex-col justify-between overflow-hidden shadow-sm ${color}`}
+              >
+                <div class="flex items-center gap-1.5 truncate">
+                  <span class={isZoomed ? "text-sm" : "text-xs"}>{icon}</span>
+                  <span class={`truncate font-semibold ${isZoomed ? "text-xs text-white" : "text-[11px]"}`}>
+                    {btn.label || "Widget"}
+                  </span>
+                </div>
+                <Show when={isZoomed}>
+                  <div class="flex items-center justify-between text-[10px] text-zinc-400 mt-1 pt-1 border-t border-white/10">
+                    <span class="capitalize">{btn.widgetType || "button"}</span>
+                    <span class="font-mono">{w}×{h}</span>
+                  </div>
+                </Show>
+              </div>
+            );
+          }}
+        </For>
+      </div>
+    );
+  };
+
+  return (
+    <main class="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:py-10">
+      {/* Hero Header */}
+      <Card class="mb-8 overflow-hidden bg-zinc-950/80 border-zinc-800/80">
+        <div class="flex flex-col gap-6 border-b border-zinc-800/80 p-6 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <div class="mb-2">
+              <Badge variant="purple" class="gap-1.5">
+                <span class="h-1.5 w-1.5 rounded-full bg-purple-400 animate-pulse"></span>
+                Public Dashboard Library
+              </Badge>
+            </div>
+            <h1 class="text-3xl font-extrabold tracking-tight text-white">Dashboard Library</h1>
+            <p class="mt-2 max-w-2xl text-sm leading-6 text-zinc-400">
+              Explore, cycle through, and preview published dashboards arranged by their creators.
+            </p>
+          </div>
+
+          <div class="flex items-center gap-3">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => refetch()}
+              disabled={dashboards.loading}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 0 1-15.5 6.3L3 16"></path><path d="M3 21v-5h5"></path><path d="M3 12a9 9 0 0 1 15.5-6.3L21 8"></path><path d="M21 3v5h-5"></path></svg>
+              Refresh
+            </Button>
+            <a href="/dashboards">
+              <Button variant="primary" size="sm">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="14" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect></svg>
+                Dashboard Manager
+              </Button>
+            </a>
+          </div>
+        </div>
+
+        {/* Filter Bar on Top */}
+        <div class="p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-zinc-950/40">
+          <div class="flex-1 flex flex-col sm:flex-row gap-3">
+            {/* Search */}
+            <div class="relative flex-1">
+              <svg class="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg>
+              <Input
+                type="text"
+                value={search()}
+                onInput={(e) => {
+                  setSearch(e.currentTarget.value);
+                  setCurrentIndex(0);
+                }}
+                placeholder="Search by dashboard name or widget..."
+                class="pl-10"
+              />
+            </div>
+
+            {/* Widget Filter Chips */}
+            <div class="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
+              {[
+                { id: "all", label: "All" },
+                { id: "chart", label: "Charts" },
+                { id: "table", label: "Tables" },
+                { id: "news", label: "Alerts" },
+                { id: "button", label: "Buttons" },
+                { id: "form", label: "Forms" },
+                { id: "toggle", label: "Toggles" },
+              ].map((chip) => (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setWidgetFilter(chip.id);
+                    setCurrentIndex(0);
+                  }}
+                  class={`rounded-lg px-3 py-2 text-xs font-semibold transition-all shrink-0 select-none ${
+                    widgetFilter() === chip.id
+                      ? "bg-purple-600 text-white shadow-md shadow-purple-500/20"
+                      : "bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-white border border-zinc-800/80"
+                  }`}
+                >
+                  {chip.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Sort Selector & Count */}
+          <div class="flex items-center gap-3 shrink-0">
+            <label class="text-xs text-zinc-400">Sort by:</label>
+            <select
+              value={sortBy()}
+              onChange={(e) => setSortBy(e.currentTarget.value as any)}
+              class="rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2 text-xs text-white focus:border-purple-500 focus:outline-none transition-colors"
+            >
+              <option value="updated">Recently Updated</option>
+              <option value="widgets">Most Widgets</option>
+              <option value="name">Name (A-Z)</option>
+            </select>
+            <Badge variant="purple">
+              {filteredDashboards().length} {filteredDashboards().length === 1 ? "board" : "boards"}
+            </Badge>
+          </div>
+        </div>
+      </Card>
+
+      {/* Showcase / Spotlight Cycler Section */}
+      <Show when={currentBoard()}>
+        {(board) => (
+          <Card class="mb-12 overflow-hidden border-purple-500/30 bg-zinc-950/90 shadow-2xl relative">
+            {/* Cycler Header Control Bar */}
+            <div class="flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-zinc-800/80 bg-zinc-900/50 px-6 py-4">
+              <div class="flex items-center gap-3">
+                <span class="inline-flex items-center justify-center h-8 w-8 rounded-xl bg-purple-600/20 text-purple-400 font-bold text-sm border border-purple-500/30">
+                  ★
+                </span>
+                <div>
+                  <div class="flex items-center gap-2">
+                    <h2 class="text-lg font-bold text-white tracking-tight">{board().name || "Untitled Dashboard"}</h2>
+                    <Badge variant="success">Fixed Layout</Badge>
+                  </div>
+                  <p class="text-xs text-zinc-400">
+                    Updated {formatDate(board().updated_at || board().created_at)} • {board().buttons?.length || 0} widgets arranged by owner
+                  </p>
+                </div>
+              </div>
+
+              {/* Cycle navigation controls */}
+              <div class="flex items-center gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={prevBoard}
+                  title="Previous Dashboard (Left Arrow)"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"></polyline></svg>
+                  <span>Prev</span>
+                </Button>
+
+                <span class="px-2 text-xs font-mono font-semibold text-zinc-400">
+                  {currentIndex() + 1} / {filteredDashboards().length}
+                </span>
+
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={nextBoard}
+                  title="Next Dashboard (Right Arrow)"
+                >
+                  <span>Next</span>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                </Button>
+
+                <a
+                  href={`/p/${dashboardId(board().id)}`}
+                  target="_blank"
+                  class="ml-2"
+                >
+                  <Button variant="primary" size="sm">
+                    <span>Open Public View</span>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+                  </Button>
+                </a>
+              </div>
+            </div>
+
+            {/* Quick jump dot selector */}
+            <Show when={filteredDashboards().length > 1}>
+              <div class="flex items-center justify-center gap-1.5 py-2.5 bg-zinc-950 border-b border-zinc-800/80">
+                <For each={filteredDashboards()}>
+                  {(b, idx) => (
+                    <button
+                      type="button"
+                      onClick={() => setCurrentIndex(idx())}
+                      title={b.name}
+                      class={`h-2 transition-all rounded-full ${
+                        currentIndex() === idx()
+                          ? "w-8 bg-purple-500"
+                          : "w-2 bg-zinc-800 hover:bg-zinc-700"
+                      }`}
+                    />
+                  )}
+                </For>
+              </div>
+            </Show>
+
+            {/* Fixed Live Preview Content */}
+            <div class="p-6 bg-zinc-950/70 min-h-[360px]">
+              <Show
+                when={(board().buttons || []).length > 0}
+                fallback={
+                  <div class="py-16 text-center text-zinc-500 text-sm italic">
+                    This dashboard has no widgets configured yet.
+                  </div>
+                }
+              >
+                <DashboardGrid
+                  buttons={board().buttons || []}
+                  isStatic={true}
+                  dashboardId={dashboardId(board().id)}
+                  renderWidget={(btn) => (
+                    <div class="flex flex-col h-full justify-between gap-3">
+                      <div class="flex items-center justify-between pb-2 border-b border-zinc-800">
+                        <div class="flex items-center gap-2">
+                          <span class="text-lg">
+                            {btn.widgetType === "chart" ? "📊" : btn.widgetType === "table" ? "📋" : btn.widgetType === "news" ? "📰" : btn.widgetType === "toggle" ? "🎚️" : "⚡"}
+                          </span>
+                          <span class="font-bold text-white text-sm">{btn.label || "Widget"}</span>
+                        </div>
+                        <span class="text-[10px] uppercase font-bold text-zinc-400 bg-zinc-800/80 px-2 py-0.5 rounded border border-zinc-700/60">
+                          {btn.widgetType || "button"}
+                        </span>
+                      </div>
+
+                      <div class="flex-1 flex items-center justify-center py-4 text-center">
+                        <Show when={btn.widgetType === "chart"}>
+                          <div class="text-xs text-purple-300 font-medium">
+                            📈 {btn.chartType ? btn.chartType.toUpperCase() : "BAR"} Chart • {btn.workflowId ? "Linked to Workflow" : "Configured"}
+                          </div>
+                        </Show>
+                        <Show when={btn.widgetType === "table"}>
+                          <div class="text-xs text-emerald-300 font-medium">
+                            📋 Dynamic Table Grid • {btn.columns ? `${btn.columns.split(",").length} Columns` : "Auto Columns"}
+                          </div>
+                        </Show>
+                        <Show when={btn.widgetType === "news"}>
+                          <div class="text-xs text-blue-300 font-medium">
+                            📰 Live Streaming Feed & Alert Rules
+                          </div>
+                        </Show>
+                        <Show when={btn.widgetType === "toggle"}>
+                          <div class="text-xs text-cyan-300 font-medium">
+                            🎚️ Active/Inactive State Switch
+                          </div>
+                        </Show>
+                        <Show when={btn.widgetType === "button" || !btn.widgetType}>
+                          <div class="text-xs text-zinc-300 font-medium">
+                            ⚡ Interactive Trigger Action
+                          </div>
+                        </Show>
+                        <Show when={btn.widgetType === "form"}>
+                          <div class="text-xs text-amber-300 font-medium">
+                            📝 Input Form ({btn.formConfig?.length || 0} fields)
+                          </div>
+                        </Show>
+                      </div>
+
+                      <div class="pt-2 border-t border-zinc-800 flex items-center justify-between text-[11px] text-zinc-400">
+                        <span>Dimensions: {btn.w || getDefaultWidgetDimensions(btn.widgetType).w} × {btn.h || getDefaultWidgetDimensions(btn.widgetType).h}</span>
+                        <a
+                          href={`/p/${dashboardId(board().id)}`}
+                          target="_blank"
+                          class="text-purple-400 hover:text-purple-300 font-semibold"
+                        >
+                          Interact ↗
+                        </a>
+                      </div>
+                    </div>
+                  )}
+                />
+              </Show>
+            </div>
+          </Card>
+        )}
+      </Show>
+
+      {/* Grid of Boards: Automatically Rearranges on Filter */}
+      <div>
+        <div class="mb-4 flex items-center justify-between">
+          <h2 class="text-lg font-bold text-white tracking-tight flex items-center gap-2">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+            All Published Dashboards
+          </h2>
+          <span class="text-xs text-zinc-400">Hover any card to zoom preview layout • Click to spotlight</span>
+        </div>
+
+        <div class="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3 transition-all duration-300">
+          <Suspense fallback={<div class="col-span-full py-12 text-center text-zinc-400">Loading published library...</div>}>
+            <Show when={error()}>
+              <div class="col-span-full rounded-xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-300">
+                {error()}
+              </div>
+            </Show>
+
+            <Show when={!dashboards.loading && filteredDashboards().length === 0}>
+              <div class="col-span-full rounded-2xl border border-dashed border-zinc-800 bg-zinc-950/50 p-12 text-center">
+                <p class="text-base font-semibold text-white">No matching dashboards found</p>
+                <p class="mt-1 text-sm text-zinc-400">Try adjusting your search terms or widget filter.</p>
+              </div>
+            </Show>
+
+            <For each={filteredDashboards()}>
+              {(d, idx) => {
+                const counts = widgetKindCounts(d.buttons || []);
+                const isSelected = () => currentBoard()?.id === d.id;
+
+                return (
+                  <div class="relative group">
+                    {/* Main Base Card */}
+                    <Card
+                      onClick={() => {
+                        setCurrentIndex(idx());
+                        window.scrollTo({ top: 0, behavior: "smooth" });
+                      }}
+                      class={`cursor-pointer flex flex-col justify-between h-full border transition-all duration-200 select-none ${
+                        isSelected()
+                          ? "border-purple-500/80 bg-zinc-900/90 shadow-xl shadow-purple-500/15 ring-1 ring-purple-500/40"
+                          : "border-zinc-800/80 bg-zinc-950/75 hover:border-purple-500/50 hover:bg-zinc-900/60"
+                      }`}
+                    >
+                      <CardHeader class="p-5 pb-3">
+                        <div class="flex items-start justify-between gap-3">
+                          <div class="min-w-0">
+                            <div class="flex items-center gap-2">
+                              <CardTitle class="truncate text-base font-bold text-white transition-colors group-hover:text-purple-300">
+                                {d.name || "Untitled Dashboard"}
+                              </CardTitle>
+                              <Show when={isSelected()}>
+                                <Badge variant="purple" class="text-[10px] px-2 py-0.2">Active</Badge>
+                              </Show>
+                            </div>
+                            <CardDescription class="mt-1">
+                              Updated {formatDate(d.updated_at || d.created_at)} • {d.buttons?.length || 0} widgets
+                            </CardDescription>
+                          </div>
+                          <Badge variant="success" class="shrink-0">Published</Badge>
+                        </div>
+                      </CardHeader>
+
+                      <CardContent class="p-5 pt-0 pb-3 flex-1 flex flex-col justify-between gap-3">
+                        {/* Miniature Blueprint Preview Area */}
+                        <div class="rounded-xl border border-zinc-800/80 bg-zinc-900/50 p-2.5 min-h-[120px] max-h-[160px] overflow-hidden flex flex-col justify-center">
+                          <div class="flex items-center justify-between text-[10px] font-medium text-zinc-500 mb-1.5 pb-1 border-b border-zinc-800/60">
+                            <span>12-Col Grid Blueprint</span>
+                            <span class="text-purple-400 font-semibold group-hover:text-purple-300 flex items-center gap-1">
+                              <span>Hover to Zoom</span>
+                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="11" y1="8" x2="11" y2="14"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg>
+                            </span>
+                          </div>
+                          {renderMiniBlueprint(d.buttons, false)}
+                        </div>
+
+                        {/* Widget Type Badges */}
+                        <div class="flex flex-wrap gap-1.5 pt-1">
+                          <Show when={counts.chart}>
+                            <Badge variant="purple">📊 {counts.chart} {counts.chart === 1 ? "Chart" : "Charts"}</Badge>
+                          </Show>
+                          <Show when={counts.table}>
+                            <Badge variant="success">📋 {counts.table} {counts.table === 1 ? "Table" : "Tables"}</Badge>
+                          </Show>
+                          <Show when={counts.news}>
+                            <Badge variant="blue">📰 {counts.news} {counts.news === 1 ? "Feed" : "Feeds"}</Badge>
+                          </Show>
+                          <Show when={counts.button}>
+                            <Badge variant="secondary">⚡ {counts.button} {counts.button === 1 ? "Button" : "Buttons"}</Badge>
+                          </Show>
+                          <Show when={counts.form}>
+                            <Badge variant="amber">📝 {counts.form} {counts.form === 1 ? "Form" : "Forms"}</Badge>
+                          </Show>
+                          <Show when={counts.toggle}>
+                            <Badge variant="outline">🎚️ {counts.toggle} {counts.toggle === 1 ? "Toggle" : "Toggles"}</Badge>
+                          </Show>
+                        </div>
+                      </CardContent>
+
+                      <CardFooter class="p-4 pt-3 border-t border-zinc-800/80 bg-zinc-950/60 flex items-center justify-between text-xs">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setCurrentIndex(idx());
+                            window.scrollTo({ top: 0, behavior: "smooth" });
+                          }}
+                          class="font-semibold text-purple-400 hover:text-purple-300 flex items-center gap-1.5 transition-colors"
+                        >
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polygon points="10 8 16 12 10 16 10 8"></polygon></svg>
+                          Spotlight Preview
+                        </button>
+
+                        <a
+                          href={`/p/${dashboardId(d.id)}`}
+                          target="_blank"
+                          onClick={(e) => e.stopPropagation()}
+                          class="font-semibold text-zinc-400 hover:text-white flex items-center gap-1 transition-colors"
+                        >
+                          <span>Open Public View</span>
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+                        </a>
+                      </CardFooter>
+                    </Card>
+
+                    {/* Interactive Hover Zoom Preview Popover (Magnified Zoom Effect) */}
+                    <div
+                      class="absolute -inset-3.5 z-50 rounded-2xl border-2 border-purple-500/80 bg-zinc-950/98 p-5 shadow-2xl shadow-purple-500/30 backdrop-blur-2xl transition-all duration-300 ease-out pointer-events-none opacity-0 scale-95 group-hover:opacity-100 group-hover:scale-100 group-hover:pointer-events-auto flex flex-col justify-between ring-1 ring-purple-500/30"
+                      onClick={() => {
+                        setCurrentIndex(idx());
+                        window.scrollTo({ top: 0, behavior: "smooth" });
+                      }}
+                    >
+                      {/* Zoom Header */}
+                      <div>
+                        <div class="flex items-center justify-between gap-2 pb-2 border-b border-zinc-800">
+                          <div class="flex items-center gap-2">
+                            <Badge variant="purple" class="gap-1 text-[10px]">
+                              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="11" y1="8" x2="11" y2="14"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg>
+                              Zoom Preview (12 Columns)
+                            </Badge>
+                            <Show when={isSelected()}>
+                              <Badge variant="purple" class="text-[10px]">Active</Badge>
+                            </Show>
+                          </div>
+                          <Badge variant="success">Published</Badge>
+                        </div>
+
+                        <div class="mt-2.5">
+                          <h4 class="text-base font-bold text-white tracking-tight truncate">
+                            {d.name || "Untitled Dashboard"}
+                          </h4>
+                          <p class="text-xs text-zinc-400 mt-0.5">
+                            Updated {formatDate(d.updated_at || d.created_at)} • {d.buttons?.length || 0} widgets arranged
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Zoomed Blueprint Canvas */}
+                      <div class="my-3 rounded-xl border border-zinc-800 bg-zinc-900/80 p-3 min-h-[160px] max-h-[220px] overflow-y-auto flex flex-col justify-center">
+                        {renderMiniBlueprint(d.buttons, true)}
+                      </div>
+
+                      {/* Zoom Action Footer */}
+                      <div class="pt-3 border-t border-zinc-800 flex items-center justify-between gap-3">
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setCurrentIndex(idx());
+                            window.scrollTo({ top: 0, behavior: "smooth" });
+                          }}
+                          class="text-xs"
+                        >
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polygon points="10 8 16 12 10 16 10 8"></polygon></svg>
+                          Spotlight Cycler
+                        </Button>
+
+                        <a
+                          href={`/p/${dashboardId(d.id)}`}
+                          target="_blank"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <Button variant="primary" size="sm" class="text-xs">
+                            <span>Open Public View</span>
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+                          </Button>
+                        </a>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }}
+            </For>
+          </Suspense>
+        </div>
+      </div>
+    </main>
+  );
+}

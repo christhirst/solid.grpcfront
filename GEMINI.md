@@ -130,3 +130,6 @@ When assisting on this repository:
    - Whenever exposing saved connections in forms/steps, always display a clear summary badge and keep manual inputs accessible as optional overrides.
 3. **Verify Build Integrity**:
    - Run `bun run build` to ensure the server patches and client bundle compile cleanly before marking tasks complete.
+
+
+## 7. UI: solid-ui like: https://github.com/stefan-karger/solid-ui/blob/main/apps/docs/public/og.png

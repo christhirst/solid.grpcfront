@@ -9,11 +9,19 @@ export async function GET(event: APIEvent) {
     const db = await getDb();
     const url = new URL(event.request.url);
     const q = url.searchParams.get("q")?.trim() || "";
+    const publishedOnly = url.searchParams.get("published") === "true" || url.searchParams.get("public") === "true";
 
     let dashboards: any = [];
     try {
       let result;
-      if (q) {
+      if (q && publishedOnly) {
+        result = await db.query(
+          "SELECT * FROM dashboard WHERE isPublic = true AND string::lowercase(name) CONTAINS string::lowercase($q) ORDER BY updated_at DESC",
+          { q }
+        );
+      } else if (publishedOnly) {
+        result = await db.query("SELECT * FROM dashboard WHERE isPublic = true ORDER BY updated_at DESC");
+      } else if (q) {
         result = await db.query(
           "SELECT * FROM dashboard WHERE string::lowercase(name) CONTAINS string::lowercase($q) ORDER BY updated_at DESC",
           { q }

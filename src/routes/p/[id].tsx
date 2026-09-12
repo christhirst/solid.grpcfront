@@ -17,6 +17,7 @@ if (typeof window !== "undefined") {
 
 import { evaluateNewsRules, newsColorClasses, type NewsRule } from "~/lib/newsRulesEvaluator";
 import { checkWidgetVariablesConfigured } from "~/lib/workflowVariableChecker";
+import DashboardGrid from "~/components/dashboard/DashboardGrid";
 
 
 
@@ -812,22 +813,35 @@ export default function PublicDashboard() {
       </Show>
 
       <Show when={dashboard()}>
-        <div class="max-w-4xl mx-auto">
+        <div class="max-w-7xl mx-auto px-4">
           {/* Header */}
           <div class="relative pt-12 pb-8 text-center mb-10">
             <div class="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-purple-500 to-transparent opacity-50"></div>
+            <div class="flex items-center justify-between mb-4">
+              <a href="/library" class="text-xs text-[#8b8b9e] hover:text-white flex items-center gap-1.5 transition-colors">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg>
+                <span>Dashboard Library</span>
+              </a>
+              <a href={`/dashboards/${params.id}`} class="text-xs text-purple-400 hover:text-purple-300 flex items-center gap-1.5 transition-colors">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+                <span>Edit & Arrange</span>
+              </a>
+            </div>
             <h1 class="text-4xl font-extrabold tracking-tight text-white mb-2">{dashboard().name}</h1>
-            <p class="text-[12px] font-bold tracking-widest text-[#5b5b6e] uppercase">Internal Operations</p>
+            <p class="text-[12px] font-bold tracking-widest text-[#5b5b6e] uppercase">Public View • Fixed Layout</p>
           </div>
 
-          {/* Widgets grid */}
-          <div class="space-y-6">
-            <Show when={(dashboard().buttons || []).length === 0}>
-              <div class="text-center py-16 text-[#5b5b6e] text-sm italic">No actions available right now.</div>
-            </Show>
+          {/* Widgets grid (GridStack fixed layout) */}
+          <Show when={(dashboard().buttons || []).length === 0}>
+            <div class="text-center py-16 text-[#5b5b6e] text-sm italic">No actions available right now.</div>
+          </Show>
 
-            <For each={dashboard().buttons || []}>
-              {(btn) => {
+          <Show when={(dashboard().buttons || []).length > 0}>
+            <DashboardGrid
+              buttons={dashboard().buttons || []}
+              isStatic={true}
+              dashboardId={params.id}
+              renderWidget={(btn) => {
                 const wf = () => workflowMap()[btn.workflowId];
                 const kind = () => btn.widgetType || (wf() ? lastStepType(wf()) : "button");
 
@@ -990,8 +1004,8 @@ export default function PublicDashboard() {
                   </Show>
                 );
               }}
-            </For>
-          </div>
+            />
+          </Show>
 
           <div class="mt-12 text-center text-[10px] text-[#5b5b6e]">
             Powered by <span class="font-bold font-mono text-purple-400/80">solid.grpcfront</span>

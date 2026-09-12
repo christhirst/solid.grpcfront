@@ -1,4 +1,8 @@
 {
+  "_DashboardGrid-CVJV4D7U.js": {
+    "file": "_build/assets/DashboardGrid-CVJV4D7U.js",
+    "name": "DashboardGrid"
+  },
   "_auth-ZuQbpxqj.js": {
     "file": "_build/assets/auth-ZuQbpxqj.js",
     "name": "auth",
@@ -14,8 +18,8 @@
       "_logger-BDLv3oYI.js"
     ]
   },
-  "_components-CudbSkEV.js": {
-    "file": "_build/assets/components-CudbSkEV.js",
+  "_components-DY6vXCQs.js": {
+    "file": "_build/assets/components-DY6vXCQs.js",
     "name": "components",
     "imports": [
       "src/entry-server.tsx"
@@ -56,20 +60,20 @@
     "file": "_build/assets/index-DNUuAjQM.js",
     "name": "index"
   },
+  "_input-_8DYE3Q5.js": {
+    "file": "_build/assets/input-_8DYE3Q5.js",
+    "name": "input"
+  },
   "_logger-BDLv3oYI.js": {
     "file": "_build/assets/logger-BDLv3oYI.js",
     "name": "logger"
-  },
-  "_newsRulesEvaluator-Br54GSU2.js": {
-    "file": "_build/assets/newsRulesEvaluator-Br54GSU2.js",
-    "name": "newsRulesEvaluator"
   },
   "_protoParser-C1XlV9an.js": {
     "file": "_build/assets/protoParser-C1XlV9an.js",
     "name": "protoParser"
   },
-  "_workflowVariableChecker-CcT-pYzg.js": {
-    "file": "_build/assets/workflowVariableChecker-CcT-pYzg.js",
+  "_workflowVariableChecker-Cs0JTqKX.js": {
+    "file": "_build/assets/workflowVariableChecker-Cs0JTqKX.js",
     "name": "workflowVariableChecker"
   },
   "src/entry-server.tsx": {
@@ -90,6 +94,8 @@
       "src/routes/health.ts?pick=GET",
       "src/routes/index.tsx?pick=default&pick=$css",
       "src/routes/index.tsx?pick=default&pick=$css",
+      "src/routes/library.tsx?pick=default&pick=$css",
+      "src/routes/library.tsx?pick=default&pick=$css",
       "src/routes/requests.tsx?pick=default&pick=$css",
       "src/routes/requests.tsx?pick=default&pick=$css",
       "src/routes/api/grpc.ts?pick=POST",
@@ -102,10 +108,10 @@
       "src/routes/cas/index.tsx?pick=default&pick=$css",
       "src/routes/connections/index.tsx?pick=default&pick=$css",
       "src/routes/connections/index.tsx?pick=default&pick=$css",
-      "src/routes/dashboards/[id].tsx?pick=default&pick=$css",
-      "src/routes/dashboards/[id].tsx?pick=default&pick=$css",
       "src/routes/dashboards/index.tsx?pick=default&pick=$css",
       "src/routes/dashboards/index.tsx?pick=default&pick=$css",
+      "src/routes/dashboards/library.tsx?pick=default&pick=$css",
+      "src/routes/dashboards/library.tsx?pick=default&pick=$css",
       "src/routes/database/[db].tsx?pick=default&pick=$css",
       "src/routes/database/[db].tsx?pick=default&pick=$css",
       "src/routes/database/index.tsx?pick=default&pick=$css",
@@ -252,7 +258,7 @@
       "src/routes/api/workflows/runs/[id]/stream.ts?pick=POST"
     ],
     "css": [
-      "_build/assets/entry-server-D_pA2FCj.css"
+      "_build/assets/entry-server-BCnjqYcZ.css"
     ]
   },
   "src/routes/TrustedCA.tsx?pick=default&pick=$css": {
@@ -262,22 +268,22 @@
     "isDynamicEntry": true
   },
   "src/routes/[...404].tsx?pick=default&pick=$css": {
-    "file": "_build/assets/_...404_-R2HCm90c.js",
+    "file": "_build/assets/_...404_-DCmUvTvb.js",
     "name": "_...404_",
     "src": "src/routes/[...404].tsx?pick=default&pick=$css",
     "isDynamicEntry": true,
     "imports": [
-      "_components-CudbSkEV.js",
+      "_components-DY6vXCQs.js",
       "src/entry-server.tsx"
     ]
   },
   "src/routes/about.tsx?pick=default&pick=$css": {
-    "file": "_build/assets/about-k65Gi6lo.js",
+    "file": "_build/assets/about-lUnMEjed.js",
     "name": "about",
     "src": "src/routes/about.tsx?pick=default&pick=$css",
     "isDynamicEntry": true,
     "imports": [
-      "_components-CudbSkEV.js",
+      "_components-DY6vXCQs.js",
       "src/entry-server.tsx"
     ]
   },
@@ -525,7 +531,7 @@
     ]
   },
   "src/routes/api/dashboards/index.ts?pick=GET": {
-    "file": "_build/assets/index-CBd8M8H4.js",
+    "file": "_build/assets/index-Bp3O-lVx.js",
     "name": "index",
     "src": "src/routes/api/dashboards/index.ts?pick=GET",
     "isDynamicEntry": true,
@@ -937,37 +943,36 @@
     "src": "src/routes/connections/index.tsx?pick=default&pick=$css",
     "isDynamicEntry": true
   },
-  "src/routes/dashboards/[id].tsx?pick=default&pick=$css": {
-    "file": "_build/assets/_id_-CBetMHfn.js",
-    "name": "_id_",
-    "src": "src/routes/dashboards/[id].tsx?pick=default&pick=$css",
-    "isDynamicEntry": true,
-    "imports": [
-      "_index-D4uTJpLk.js",
-      "_workflowVariableChecker-CcT-pYzg.js",
-      "_newsRulesEvaluator-Br54GSU2.js",
-      "src/entry-server.tsx",
-      "_components-CudbSkEV.js"
-    ]
-  },
   "src/routes/dashboards/index.tsx?pick=default&pick=$css": {
-    "file": "_build/assets/index-DYPRNCon.js",
+    "file": "_build/assets/index-VhEYKGTU.js",
     "name": "index",
     "src": "src/routes/dashboards/index.tsx?pick=default&pick=$css",
     "isDynamicEntry": true,
     "imports": [
+      "_input-_8DYE3Q5.js",
+      "src/entry-server.tsx"
+    ]
+  },
+  "src/routes/dashboards/library.tsx?pick=default&pick=$css": {
+    "file": "_build/assets/library-L8tabsvh.js",
+    "name": "library",
+    "src": "src/routes/dashboards/library.tsx?pick=default&pick=$css",
+    "isDynamicEntry": true,
+    "imports": [
+      "_DashboardGrid-CVJV4D7U.js",
+      "_input-_8DYE3Q5.js",
       "src/entry-server.tsx"
     ]
   },
   "src/routes/database/[db].tsx?pick=default&pick=$css": {
-    "file": "_build/assets/_db_-C0S2IR5K.js",
+    "file": "_build/assets/_db_-CZfZmRwI.js",
     "name": "_db_",
     "src": "src/routes/database/[db].tsx?pick=default&pick=$css",
     "isDynamicEntry": true,
     "imports": [
       "_index-DNUuAjQM.js",
       "src/entry-server.tsx",
-      "_components-CudbSkEV.js"
+      "_components-DY6vXCQs.js"
     ]
   },
   "src/routes/database/index.tsx?pick=default&pick=$css": {
@@ -988,14 +993,25 @@
     "src": "src/routes/index.tsx?pick=default&pick=$css",
     "isDynamicEntry": true
   },
+  "src/routes/library.tsx?pick=default&pick=$css": {
+    "file": "_build/assets/library-btmYa8FL.js",
+    "name": "library",
+    "src": "src/routes/library.tsx?pick=default&pick=$css",
+    "isDynamicEntry": true,
+    "imports": [
+      "_DashboardGrid-CVJV4D7U.js",
+      "_input-_8DYE3Q5.js",
+      "src/entry-server.tsx"
+    ]
+  },
   "src/routes/p/[id].tsx?pick=default&pick=$css": {
-    "file": "_build/assets/_id_-rmTSgUIB.js",
+    "file": "_build/assets/_id_-CPd1yV4i.js",
     "name": "_id_",
     "src": "src/routes/p/[id].tsx?pick=default&pick=$css",
     "isDynamicEntry": true,
     "imports": [
       "_index-D4uTJpLk.js",
-      "_newsRulesEvaluator-Br54GSU2.js",
+      "_DashboardGrid-CVJV4D7U.js",
       "src/entry-server.tsx"
     ]
   },
@@ -1017,24 +1033,24 @@
     ]
   },
   "src/routes/workflows/[id].tsx?pick=default&pick=$css": {
-    "file": "_build/assets/_id_-CBV7yLux.js",
+    "file": "_build/assets/_id_-D3_yuTLz.js",
     "name": "_id_",
     "src": "src/routes/workflows/[id].tsx?pick=default&pick=$css",
     "isDynamicEntry": true,
     "imports": [
-      "_workflowVariableChecker-CcT-pYzg.js",
+      "_workflowVariableChecker-Cs0JTqKX.js",
       "_protoParser-C1XlV9an.js",
       "_index-D4uTJpLk.js",
       "src/entry-server.tsx"
     ]
   },
   "src/routes/workflows/index.tsx?pick=default&pick=$css": {
-    "file": "_build/assets/index-C7ztWUp0.js",
+    "file": "_build/assets/index-r65OSEUb.js",
     "name": "index",
     "src": "src/routes/workflows/index.tsx?pick=default&pick=$css",
     "isDynamicEntry": true,
     "imports": [
-      "_workflowVariableChecker-CcT-pYzg.js"
+      "_workflowVariableChecker-Cs0JTqKX.js"
     ]
   }
 }

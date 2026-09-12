@@ -1,6 +1,6 @@
 import { getStepCategory } from "~/lib/stepCategories";
 import ReteWorkflowEditor from "~/components/workflow/ReteWorkflowEditor";
-import { createSignal, createEffect, onMount, For, Show, createResource, createMemo } from "solid-js";
+import { createSignal, createEffect, onMount, For, Show, createResource, createMemo, Index } from "solid-js";
 import { extractFormVariables, checkWorkflowConfiguredInDashboards } from "~/lib/workflowVariableChecker";
 
 
@@ -2514,25 +2514,26 @@ export default function WorkflowBuilder() {
                           </p>
                           <p class="text-[10px] text-[#5b5b6e] mb-3">Leave empty to show all keys found in the array. Add keys only when you want to limit or order columns.</p>
                           <div class="space-y-2">
-                            <For each={(step as any).columns || []}>
-                              {(col: string, ci) => (
+                            <Index each={(step as any).columns || []}>
+                              {(col, ci) => (
                                 <div class="flex gap-2">
                                   <input
                                     type="text"
                                     class="flex-1 rounded-lg border border-[#2a2a3a] bg-[#1a1a26] px-3 py-1.5 text-sm text-white font-mono focus:border-emerald-500 focus:outline-none"
                                     placeholder="key name, e.g. symbol"
-                                    value={col}
+                                    value={col()}
                                     onInput={(e) => {
                                       const cols = [...((step as any).columns || [])];
-                                      cols[ci()] = e.currentTarget.value;
+                                      cols[ci] = e.currentTarget.value;
                                       updateStep(index(), "columns", cols);
                                     }}
                                   />
                                   <button
+                                    type="button"
                                     class="text-[#5b5b6e] hover:text-red-400 px-2"
                                     onClick={() => {
                                       const cols = [...((step as any).columns || [])];
-                                      cols.splice(ci(), 1);
+                                      cols.splice(ci, 1);
                                       updateStep(index(), "columns", cols);
                                     }}
                                   >
@@ -2540,8 +2541,9 @@ export default function WorkflowBuilder() {
                                   </button>
                                 </div>
                               )}
-                            </For>
+                            </Index>
                             <button
+                              type="button"
                               class="text-xs text-emerald-400 hover:text-emerald-300 flex items-center gap-1 mt-1"
                               onClick={() => updateStep(index(), "columns", [...((step as any).columns || []), ""])}
                             >

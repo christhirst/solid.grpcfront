@@ -18,6 +18,8 @@ if (!isServer) {
 }
 
 import { extractFormVariables, checkWidgetVariablesConfigured } from "~/lib/workflowVariableChecker";
+import DashboardGrid, { getDefaultWidgetDimensions } from "~/components/dashboard/DashboardGrid";
+import { TabsList, TabsTrigger } from "~/components/ui/tabs";
 
 
 import { evaluateNewsRules, newsColorClasses, type NewsRule } from "~/lib/newsRulesEvaluator";
@@ -40,6 +42,37 @@ export default function DashboardBuilder() {
   const [name, setName] = createSignal("New Dashboard");
   const [isPublic, setIsPublic] = createSignal(false);
   const [buttons, setButtons] = createStore<any[]>([]);
+  const [activeTab, setActiveTab] = createSignal<"config" | "arrange">("config");
+
+  const handleLayoutChange = (newLayout: Array<{ id: string; x: number; y: number; w: number; h: number }>) => {
+    const map = new Map(newLayout.map((item) => [item.id, item]));
+    const updated = buttons.map((btn) => {
+      const pos = map.get(btn.id);
+      if (pos) {
+        return { ...btn, x: pos.x, y: pos.y, w: pos.w, h: pos.h };
+      }
+      return btn;
+    });
+    setButtons(reconcile(updated));
+  };
+
+  const autoPackLayout = () => {
+    let curX = 0;
+    let curY = 0;
+    const updated = buttons.map((btn) => {
+      const dims = getDefaultWidgetDimensions(btn.widgetType);
+      const w = dims.w;
+      const h = dims.h;
+      if (curX + w > 12) {
+        curX = 0;
+        curY += 4;
+      }
+      const res = { ...btn, x: curX, y: curY, w, h };
+      curX += w;
+      return res;
+    });
+    setButtons(reconcile(updated));
+  };
 
   // Fetch all workflows for dropdowns
   const [workflows] = createResource(async () => {
@@ -211,12 +244,151 @@ export default function DashboardBuilder() {
   const kindLabel: Record<string, string> = {
     grpc:  "⚡ Button (triggers run)",
     table: "📊 Table (auto-refreshes)",
-    chart: "📈 Chart (auto-refreshes)",
+  const renderLiveWidget = (btn: any) => {
+    const wtype = btn.widgetType || widgetKind(btn);
+    const colorCls = colorOptions.find(c => c.value === (btn.color || "blue"))?.class || "bg-blue-600 hover:bg-blue-500";
+    if (wtype === "table" || wtype === "chart") {
+      return (
+        <PreviewWidget btn={btn} />
+      );
+    }
+    if (wtype === "news") {
+      return <NewsWidgetComponent btn={btn} dashboardId={params.id} />;
+    }
+    if (wtype === "infographic") {
+      return <InfographicWidget syntax={btn.infographicSyntax} editable={btn.infographicEditable} />;
+    }
+    if (wtype === "toggle") {
+      return <ToggleWidgetComponent btn={btn} dashboardId={params.id} formState={formState()} updateForm={updateForm} triggerButton={triggerButton} />;
+    }
+
+    const state = () => executing()[btn.id] || "idle";
+    const btnClass = () => {
+      if (state() === "running") return "w-full py-4 px-6 text-[15px] font-bold text-white/70 rounded-2xl shadow-xl transition-all duration-300 flex items-center justify-center gap-3 bg-slate-800 cursor-not-allowed";
+      if (state() === "success") return "w-full py-4 px-6 text-[15px] font-bold text-white rounded-2xl shadow-xl transition-all duration-300 flex items-center justify-center gap-3 bg-emerald-600 ring-4 ring-emerald-500/50";
+      if (state() === "error")   return "w-full py-4 px-6 text-[15px] font-bold text-white rounded-2xl shadow-xl transition-all duration-300 flex items-center justify-center gap-3 bg-red-600 ring-4 ring-red-500/50";
+      return `w-full py-4 px-6 text-[15px] font-bold text-white rounded-2xl shadow-xl transition-all duration-300 flex items-center justify-center gap-3 active:scale-[0.98] focus:ring-4 focus:outline-none ${colorCls}`;
+    };
+
+    return (
+      <Show when={btn.formConfig && btn.formConfig.length > 0} fallback={
+        <button 
+          onClick={() => triggerButton(btn)} 
+          disabled={state() !== "idle"} 
+          class={btnClass()}
+        >
+          <Show when={state() === "idle"}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+            <span>{btn.label}</span>
+          </Show>
+          <Show when={state() === "running"}>
+            <svg class="animate-spin h-5 w-5 text-purple-400" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+            <span>Executing...</span>
+          </Show>
+          <Show when={state() === "success"}>
+            <svg class="animate-bounce h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            <span>Success!</span>
+          </Show>
+          <Show when={state() === "error"}>
+            <svg class="animate-pulse h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>
+            <span>Failed</span>
+          </Show>
+        </button>
+      }>
+        <div class="rounded-2xl border border-[#2a2a3a] bg-[#0e0e15] p-5 shadow-xl space-y-4 text-left">
+          <div class="flex items-center gap-2 pb-2 border-b border-[#2a2a3a]">
+            <span class="w-2.5 h-2.5 rounded-full bg-purple-500"></span>
+            <h3 class="text-sm font-bold text-white">{btn.label}</h3>
+          </div>
+          
+          <div class="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
+            <For each={btn.formConfig}>
+              {(field: any) => {
+                const val = () => (formState()[btn.id] || {})[field.name];
+                return (
+                  <div class="col-span-1">
+                    <label class="block text-xs font-bold text-[#8b8b9e] mb-1.5">{field.label}</label>
+                    <Show when={field.type === "boolean"}>
+                      <label class="flex items-center gap-3 cursor-pointer py-1.5">
+                        <input
+                          type="checkbox"
+                          class="w-4 h-4 rounded border-[#2a2a3a] bg-[#1e1e2e] text-purple-500 focus:ring-purple-500/50"
+                          checked={val() !== undefined ? !!val() : !!field.defaultValue}
+                          onChange={(e) => updateForm(btn.id, field.name, e.currentTarget.checked)}
+                        />
+                        <span class="text-sm text-white">Enable</span>
+                      </label>
+                    </Show>
+                    <Show when={field.type === "select"}>
+                      <select
+                        class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500/50 transition-all"
+                        value={val() !== undefined ? val() : (field.defaultValue || "")}
+                        onChange={(e) => updateForm(btn.id, field.name, e.currentTarget.value)}
+                      >
+                        <option value="" disabled>Select an option...</option>
+                        <For each={(field.options || "").split(",").map((o: string) => o.trim()).filter(Boolean)}>
+                          {(opt) => <option value={opt}>{opt}</option>}
+                        </For>
+                      </select>
+                    </Show>
+                    <Show when={field.type === "textarea"}>
+                      <textarea
+                        rows={3}
+                        required={field.required}
+                        class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500/50 transition-all font-mono"
+                        value={val() !== undefined ? val() : (field.defaultValue || "")}
+                        onInput={(e) => updateForm(btn.id, field.name, e.currentTarget.value)}
+                        placeholder={`Enter ${field.label}...`}
+                      />
+                    </Show>
+                    <Show when={field.type !== "boolean" && field.type !== "select" && field.type !== "textarea"}>
+                      <input
+                        type={field.type === "number" ? "number" : "text"}
+                        required={field.required}
+                        class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500/50 transition-all"
+                        value={val() !== undefined ? val() : (field.defaultValue || "")}
+                        onInput={(e) => updateForm(btn.id, field.name, field.type === "number" ? Number(e.currentTarget.value) : e.currentTarget.value)}
+                        placeholder={`Enter ${field.label}...`}
+                      />
+                    </Show>
+                  </div>
+                );
+              }}
+            </For>
+          </div>
+
+          <div class="pt-2">
+            <button
+              onClick={() => triggerButton(btn)}
+              disabled={state() !== "idle"}
+              class={btnClass()}
+            >
+              <Show when={state() === "idle"}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                <span>Execute {btn.label}</span>
+              </Show>
+              <Show when={state() === "running"}>
+                <svg class="animate-spin h-4 w-4 text-purple-400" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                <span>Running...</span>
+              </Show>
+              <Show when={state() === "success"}>
+                <svg class="animate-bounce h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                <span>Success!</span>
+              </Show>
+              <Show when={state() === "error"}>
+                <svg class="animate-pulse h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>
+                <span>Failed</span>
+              </Show>
+            </button>
+          </div>
+        </div>
+      </Show>
+    );
   };
 
   return (
     <main class="mx-auto max-w-7xl px-6 py-12">
-      <div class="mb-8 flex items-center justify-between">
+      <div class="mb-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <input
             class="bg-transparent text-3xl font-extrabold tracking-tight text-white border-none outline-none focus:ring-2 focus:ring-purple-500 rounded px-2 -ml-2 transition-all"
@@ -225,8 +397,27 @@ export default function DashboardBuilder() {
             placeholder="Dashboard Name"
           />
         </div>
+
+        {/* View Mode Switcher */}
+        <TabsList>
+          <TabsTrigger
+            active={activeTab() === "config"}
+            onClick={() => setActiveTab("config")}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+            Configure
+          </TabsTrigger>
+          <TabsTrigger
+            active={activeTab() === "arrange"}
+            onClick={() => setActiveTab("arrange")}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+            Arrange Layout (GridStack)
+          </TabsTrigger>
+        </TabsList>
+
         <div class="flex items-center gap-4">
-          <label class="flex items-center gap-3 cursor-pointer mr-4">
+          <label class="flex items-center gap-3 cursor-pointer mr-2">
             <span class="text-sm font-bold text-white transition-colors">Published</span>
             <div class="relative">
               <input
@@ -245,6 +436,7 @@ export default function DashboardBuilder() {
         </div>
       </div>
 
+      <Show when={activeTab() === "config"}>
       <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
         {/* Editor */}
         <div class="lg:col-span-8 space-y-6">
@@ -733,18 +925,27 @@ export default function DashboardBuilder() {
           </div>
         </div>
 
-
-
-        {/* Live Preview */}
+        {/* Live Preview Column */}
         <div class="lg:col-span-4 pl-0 lg:pl-4 border-t lg:border-t-0 lg:border-l border-[#2a2a3a]/50 pt-8 lg:pt-0">
           <h2 class="text-sm font-bold text-[#8b8b9e] mb-4 tracking-wider uppercase flex items-center justify-between">
-            Live Preview
-            <Show when={isPublic() && !isNew}>
-              <A href={`/p/${params.id}`} target="_blank" class="text-xs text-blue-400 hover:underline flex items-center gap-1 normal-case tracking-normal">
-                Open Public Link
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
-              </A>
-            </Show>
+            <span>Live Preview</span>
+            <div class="flex items-center gap-2.5">
+              <button
+                type="button"
+                onClick={() => setActiveTab("arrange")}
+                class="text-xs text-purple-400 hover:text-purple-300 flex items-center gap-1 normal-case tracking-normal font-semibold"
+                title="Arrange widgets in 12-column canvas"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+                Arrange
+              </button>
+              <Show when={isPublic() && !isNew}>
+                <A href={`/p/${params.id}`} target="_blank" class="text-xs text-blue-400 hover:underline flex items-center gap-1 normal-case tracking-normal font-semibold">
+                  Public View
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+                </A>
+              </Show>
+            </div>
           </h2>
 
           <div class="bg-[#0a0a0f] rounded-2xl border border-[#2a2a3a] overflow-hidden min-h-[400px] shadow-2xl relative">
@@ -755,156 +956,113 @@ export default function DashboardBuilder() {
                 <div class="w-3 h-3 rounded-full bg-yellow-500/80"></div>
                 <div class="w-3 h-3 rounded-full bg-green-500/80"></div>
               </div>
-              <div class="mx-auto bg-[#0a0a0f] text-center rounded-md px-24 py-1 text-[10px] text-[#5b5b6e] font-mono truncate hidden sm:block">
+              <div class="mx-auto bg-[#0a0a0f] text-center rounded-md px-16 py-1 text-[10px] text-[#5b5b6e] font-mono truncate hidden sm:block">
                 {isPublic() && !isNew ? `/p/${params.id}` : `Draft: ${name()}`}
               </div>
             </div>
 
             {/* Board render */}
-            <div class="p-6">
+            <div class="p-4">
               <h1 class="text-xl font-bold text-white mb-6 text-center">{name() || "Untitled Dashboard"}</h1>
-              <div class="flex flex-col gap-3">
-                <Show when={buttons.length === 0}>
-                  <div class="text-center text-[#5b5b6e] text-xs py-10 border border-dashed border-[#2a2a3a] rounded-lg">Widgets will appear here</div>
-                </Show>
-                <For each={buttons}>
-                  {(btn) => {
-                    const wtype = btn.widgetType || widgetKind(btn);
-                    const colorCls = colorOptions.find(c => c.value === (btn.color || "blue"))?.class || "bg-blue-600 hover:bg-blue-500";
-                    if (wtype === "table" || wtype === "chart") {
-                      return (
-                        <PreviewWidget btn={btn} />
-                      );
-                    }
-                    if (wtype === "news") {
-                      return <NewsWidgetComponent btn={btn} dashboardId={params.id} />;
-                    }
-                    if (wtype === "infographic") {
-                      return <InfographicWidget syntax={btn.infographicSyntax} editable={btn.infographicEditable} />;
-                    }
-                    if (wtype === "toggle") {
-                      return <ToggleWidgetComponent btn={btn} dashboardId={params.id} formState={formState()} updateForm={updateForm} triggerButton={triggerButton} />;
-                    }
-
-                    const state = () => executing()[btn.id] || "idle";
-                    const btnClass = () => {
-                      if (state() === "running") return "w-full py-4 px-6 text-[15px] font-bold text-white/70 rounded-2xl shadow-xl transition-all duration-300 flex items-center justify-center gap-3 bg-slate-800 cursor-not-allowed";
-                      if (state() === "success") return "w-full py-4 px-6 text-[15px] font-bold text-white rounded-2xl shadow-xl transition-all duration-300 flex items-center justify-center gap-3 bg-emerald-600 ring-4 ring-emerald-500/50";
-                      if (state() === "error")   return "w-full py-4 px-6 text-[15px] font-bold text-white rounded-2xl shadow-xl transition-all duration-300 flex items-center justify-center gap-3 bg-red-600 ring-4 ring-red-500/50";
-                      return `w-full py-4 px-6 text-[15px] font-bold text-white rounded-2xl shadow-xl transition-all duration-300 flex items-center justify-center gap-3 active:scale-[0.98] focus:ring-4 focus:outline-none ${colorCls}`;
-                    };
-
-                    return (
-                      <Show when={btn.formConfig && btn.formConfig.length > 0} fallback={
-                        <button 
-                          onClick={() => triggerButton(btn)} 
-                          disabled={state() !== "idle"} 
-                          class={btnClass()}
-                        >
-                          <Show when={state() === "idle"}>
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-                            <span>{btn.label}</span>
-                          </Show>
-                          <Show when={state() === "running"}>
-                            <svg class="animate-spin h-5 w-5 text-purple-400" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                            <span>Executing...</span>
-                          </Show>
-                          <Show when={state() === "success"}>
-                            <svg class="animate-bounce h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                            <span>Success!</span>
-                          </Show>
-                          <Show when={state() === "error"}>
-                            <svg class="animate-pulse h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>
-                            <span>Failed</span>
-                          </Show>
-                        </button>
-                      }>
-                        <div class="rounded-2xl border border-[#2a2a3a] bg-[#0e0e15] p-5 shadow-xl space-y-4 text-left">
-                          <div class="flex items-center gap-2 pb-2 border-b border-[#2a2a3a]">
-                            <span class="w-2.5 h-2.5 rounded-full bg-purple-500"></span>
-                            <h3 class="text-sm font-bold text-white">{btn.label}</h3>
-                          </div>
-                          
-                          <div class="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
-                            <For each={btn.formConfig}>
-                              {(field: any) => {
-                                const val = () => (formState()[btn.id] || {})[field.name];
-                                return (
-                                  <div class="col-span-1">
-                                    <label class="block text-xs font-bold text-[#8b8b9e] mb-1.5">{field.label}</label>
-                                    <Show when={field.type === "boolean"}>
-                                      <label class="flex items-center gap-3 cursor-pointer py-1.5">
-                                        <input
-                                          type="checkbox"
-                                          class="w-4 h-4 rounded border-[#2a2a3a] bg-[#1e1e2e] text-purple-500 focus:ring-purple-500/50"
-                                          checked={!!val()}
-                                          onChange={(e) => updateForm(btn.id, field.name, e.currentTarget.checked)}
-                                        />
-                                        <span class="text-sm text-white">Enable</span>
-                                      </label>
-                                    </Show>
-                                    <Show when={field.type === "select"}>
-                                      <select
-                                        class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500/50 transition-all"
-                                        value={val() || ""}
-                                        onChange={(e) => updateForm(btn.id, field.name, e.currentTarget.value)}
-                                      >
-                                        <option value="" disabled>Select an option...</option>
-                                        <For each={(field.options || "").split(",").map((o: string) => o.trim()).filter(Boolean)}>
-                                          {(opt) => <option value={opt}>{opt}</option>}
-                                        </For>
-                                      </select>
-                                    </Show>
-                                    <Show when={field.type !== "boolean" && field.type !== "select"}>
-                                      <input
-                                        type={field.type === "number" ? "number" : "text"}
-                                        required={field.required}
-                                        class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500/50 transition-all"
-                                        value={val() || ""}
-                                        onInput={(e) => updateForm(btn.id, field.name, field.type === "number" ? Number(e.currentTarget.value) : e.currentTarget.value)}
-                                        placeholder={`Enter ${field.label}...`}
-                                      />
-                                    </Show>
-                                  </div>
-                                );
-                              }}
-                            </For>
-                          </div>
-
-                          <div class="pt-2">
-                            <button
-                              onClick={() => triggerButton(btn)}
-                              disabled={state() !== "idle"}
-                              class={btnClass()}
-                            >
-                              <Show when={state() === "idle"}>
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-                                <span>Execute {btn.label}</span>
-                              </Show>
-                              <Show when={state() === "running"}>
-                                <svg class="animate-spin h-4 w-4 text-purple-400" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                                <span>Running...</span>
-                              </Show>
-                              <Show when={state() === "success"}>
-                                <svg class="animate-bounce h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                                <span>Success!</span>
-                              </Show>
-                              <Show when={state() === "error"}>
-                                <svg class="animate-pulse h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>
-                                <span>Failed</span>
-                              </Show>
-                            </button>
-                          </div>
-                        </div>
-                      </Show>
-                    );
-                  }}
-                </For>
-              </div>
+              <Show when={buttons.length === 0}>
+                <div class="text-center text-[#5b5b6e] text-xs py-10 border border-dashed border-[#2a2a3a] rounded-lg">Widgets will appear here</div>
+              </Show>
+              <Show when={buttons.length > 0}>
+                <DashboardGrid
+                  buttons={buttons}
+                  isStatic={false}
+                  dashboardId={params.id}
+                  onLayoutChange={handleLayoutChange}
+                  renderWidget={renderLiveWidget}
+                />
+              </Show>
             </div>
           </div>
         </div>
       </div>
+      </Show>
+
+      {/* Arrange Layout Mode: Full-width 12-column Canvas */}
+      <Show when={activeTab() === "arrange"}>
+        <div class="space-y-6">
+          <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-5 rounded-2xl border border-purple-500/20 bg-[#12121e]">
+            <div>
+              <div class="flex items-center gap-2">
+                <h2 class="text-lg font-bold text-white flex items-center gap-2">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-purple-400"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+                  12-Column Grid Canvas Arranger
+                </h2>
+                <span class="rounded-full bg-purple-500/20 px-2.5 py-0.5 text-[10px] font-bold text-purple-300 uppercase">
+                  Interactive Drag & Resize
+                </span>
+              </div>
+              <p class="text-xs text-[#8b8b9e] mt-1">
+                Drag by the top header bar to position widgets across 12 columns. Grab border handles to resize. Layout is saved automatically.
+              </p>
+            </div>
+
+            <div class="flex items-center gap-2.5">
+              <button
+                type="button"
+                onClick={autoPackLayout}
+                class="btn-secondary text-xs flex items-center gap-1.5"
+                title="Sequentially pack widgets into 12 columns"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
+                Auto Pack
+              </button>
+
+              <button
+                type="button"
+                onClick={() => saveDashboard(false)}
+                class="btn-primary bg-purple-600 hover:bg-purple-500 text-white text-xs flex items-center gap-1.5"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+                Save Layout
+              </button>
+
+              <Show when={isPublic() && !isNew}>
+                <A
+                  href={`/p/${params.id}`}
+                  target="_blank"
+                  class="flex items-center gap-1.5 rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-xs font-semibold text-blue-300 hover:bg-blue-500/20"
+                >
+                  <span>Public View</span>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+                </A>
+              </Show>
+            </div>
+          </div>
+
+          <div class="rounded-2xl border border-[#2a2a3a] bg-[#0a0a0f] p-6 shadow-2xl min-h-[500px]">
+            <Show
+              when={buttons.length > 0}
+              fallback={
+                <div class="py-24 text-center text-[#5b5b6e] text-sm">
+                  <div class="mb-3 text-2xl">📐</div>
+                  <p class="font-semibold text-white">No widgets to arrange yet</p>
+                  <p class="mt-1 text-xs">Switch to "Configure" tab to add your buttons, charts, tables, or alerts.</p>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("config")}
+                    class="mt-4 btn-secondary text-xs"
+                  >
+                    Go to Widget Configuration
+                  </button>
+                </div>
+              }
+            >
+              <DashboardGrid
+                buttons={buttons}
+                isStatic={false}
+                dashboardId={params.id}
+                onLayoutChange={handleLayoutChange}
+                renderWidget={renderLiveWidget}
+              />
+            </Show>
+          </div>
+        </div>
+      </Show>
     </main>
   );
 }
