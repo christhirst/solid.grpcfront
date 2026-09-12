@@ -1,7 +1,7 @@
-import { createSignal, createMemo, createResource, For, Show, Suspense, onMount, onCleanup } from "solid-js";
+import { createSignal, createMemo, createResource, For, Show, Suspense } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { isServer } from "solid-js/web";
-import DashboardGrid, { getDefaultWidgetDimensions } from "~/components/dashboard/DashboardGrid";
+import { getDefaultWidgetDimensions } from "~/components/dashboard/DashboardGrid";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "~/components/ui/card";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -67,7 +67,6 @@ export default function DashboardLibrary() {
   const [search, setSearch] = createSignal("");
   const [widgetFilter, setWidgetFilter] = createSignal("all");
   const [sortBy, setSortBy] = createSignal<"updated" | "widgets" | "name">("updated");
-  const [currentIndex, setCurrentIndex] = createSignal(0);
   const [error, setError] = createSignal("");
 
   const [dashboards, { refetch }] = createResource<DashboardSummary[]>(async () => {
@@ -117,36 +116,6 @@ export default function DashboardLibrary() {
     }
 
     return list;
-  });
-
-  const currentBoard = createMemo(() => {
-    const list = filteredDashboards();
-    if (!list.length) return null;
-    const idx = Math.min(currentIndex(), list.length - 1);
-    return list[idx >= 0 ? idx : 0];
-  });
-
-  const nextBoard = () => {
-    const total = filteredDashboards().length;
-    if (total <= 1) return;
-    setCurrentIndex((prev) => (prev + 1) % total);
-  };
-
-  const prevBoard = () => {
-    const total = filteredDashboards().length;
-    if (total <= 1) return;
-    setCurrentIndex((prev) => (prev - 1 + total) % total);
-  };
-
-  onMount(() => {
-    if (isServer) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-      if (e.key === "ArrowLeft") prevBoard();
-      if (e.key === "ArrowRight") nextBoard();
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    onCleanup(() => window.removeEventListener("keydown", handleKeyDown));
   });
 
   const widgetKindCounts = (buttons: any[] = []) => {
@@ -224,7 +193,7 @@ export default function DashboardLibrary() {
 
   return (
     <main class="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:py-10">
-      {/* Hero Header */}
+      {/* Hero Header & Filter Bar on Top */}
       <Card class="mb-8 overflow-hidden bg-zinc-950/80 border-zinc-800/80">
         <div class="flex flex-col gap-6 border-b border-zinc-800/80 p-6 lg:flex-row lg:items-center lg:justify-between">
           <div>
@@ -236,7 +205,7 @@ export default function DashboardLibrary() {
             </div>
             <h1 class="text-3xl font-extrabold tracking-tight text-white">Dashboard Library</h1>
             <p class="mt-2 max-w-2xl text-sm leading-6 text-zinc-400">
-              Explore, cycle through, and preview published dashboards arranged by their creators.
+              Explore and preview published dashboards arranged by their creators.
             </p>
           </div>
 
@@ -259,7 +228,7 @@ export default function DashboardLibrary() {
           </div>
         </div>
 
-        {/* Filter Bar on Top */}
+        {/* Filter Bar */}
         <div class="p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-zinc-950/40">
           <div class="flex-1 flex flex-col sm:flex-row gap-3">
             {/* Search */}
@@ -268,10 +237,7 @@ export default function DashboardLibrary() {
               <Input
                 type="text"
                 value={search()}
-                onInput={(e) => {
-                  setSearch(e.currentTarget.value);
-                  setCurrentIndex(0);
-                }}
+                onInput={(e) => setSearch(e.currentTarget.value)}
                 placeholder="Search by dashboard name or widget..."
                 class="pl-10"
               />
@@ -290,10 +256,7 @@ export default function DashboardLibrary() {
               ].map((chip) => (
                 <button
                   type="button"
-                  onClick={() => {
-                    setWidgetFilter(chip.id);
-                    setCurrentIndex(0);
-                  }}
+                  onClick={() => setWidgetFilter(chip.id)}
                   class={`rounded-lg px-3 py-2 text-xs font-semibold transition-all shrink-0 select-none ${
                     widgetFilter() === chip.id
                       ? "bg-purple-600 text-white shadow-md shadow-purple-500/20"
@@ -325,174 +288,16 @@ export default function DashboardLibrary() {
         </div>
       </Card>
 
-      {/* Showcase / Spotlight Cycler Section */}
-      <Show when={currentBoard()}>
-        {(board) => (
-          <Card class="mb-12 overflow-hidden border-purple-500/30 bg-zinc-950/90 shadow-2xl relative">
-            {/* Cycler Header Control Bar */}
-            <div class="flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-zinc-800/80 bg-zinc-900/50 px-6 py-4">
-              <div class="flex items-center gap-3">
-                <span class="inline-flex items-center justify-center h-8 w-8 rounded-xl bg-purple-600/20 text-purple-400 font-bold text-sm border border-purple-500/30">
-                  ★
-                </span>
-                <div>
-                  <div class="flex items-center gap-2">
-                    <h2 class="text-lg font-bold text-white tracking-tight">{board().name || "Untitled Dashboard"}</h2>
-                    <Badge variant="success">Fixed Layout</Badge>
-                  </div>
-                  <p class="text-xs text-zinc-400">
-                    Updated {formatDate(board().updated_at || board().created_at)} • {board().buttons?.length || 0} widgets arranged by owner
-                  </p>
-                </div>
-              </div>
-
-              {/* Cycle navigation controls */}
-              <div class="flex items-center gap-2">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={prevBoard}
-                  title="Previous Dashboard (Left Arrow)"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"></polyline></svg>
-                  <span>Prev</span>
-                </Button>
-
-                <span class="px-2 text-xs font-mono font-semibold text-zinc-400">
-                  {currentIndex() + 1} / {filteredDashboards().length}
-                </span>
-
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={nextBoard}
-                  title="Next Dashboard (Right Arrow)"
-                >
-                  <span>Next</span>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"></polyline></svg>
-                </Button>
-
-                <a
-                  href={`/p/${dashboardId(board().id)}`}
-                  target="_blank"
-                  class="ml-2"
-                >
-                  <Button variant="primary" size="sm">
-                    <span>Open Public View</span>
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
-                  </Button>
-                </a>
-              </div>
-            </div>
-
-            {/* Quick jump dot selector */}
-            <Show when={filteredDashboards().length > 1}>
-              <div class="flex items-center justify-center gap-1.5 py-2.5 bg-zinc-950 border-b border-zinc-800/80">
-                <For each={filteredDashboards()}>
-                  {(b, idx) => (
-                    <button
-                      type="button"
-                      onClick={() => setCurrentIndex(idx())}
-                      title={b.name}
-                      class={`h-2 transition-all rounded-full ${
-                        currentIndex() === idx()
-                          ? "w-8 bg-purple-500"
-                          : "w-2 bg-zinc-800 hover:bg-zinc-700"
-                      }`}
-                    />
-                  )}
-                </For>
-              </div>
-            </Show>
-
-            {/* Fixed Live Preview Content */}
-            <div class="p-6 bg-zinc-950/70 min-h-[360px]">
-              <Show
-                when={(board().buttons || []).length > 0}
-                fallback={
-                  <div class="py-16 text-center text-zinc-500 text-sm italic">
-                    This dashboard has no widgets configured yet.
-                  </div>
-                }
-              >
-                <DashboardGrid
-                  buttons={board().buttons || []}
-                  isStatic={true}
-                  dashboardId={dashboardId(board().id)}
-                  renderWidget={(btn) => (
-                    <div class="flex flex-col h-full justify-between gap-3">
-                      <div class="flex items-center justify-between pb-2 border-b border-zinc-800">
-                        <div class="flex items-center gap-2">
-                          <span class="text-lg">
-                            {btn.widgetType === "chart" ? "📊" : btn.widgetType === "table" ? "📋" : btn.widgetType === "news" ? "📰" : btn.widgetType === "toggle" ? "🎚️" : "⚡"}
-                          </span>
-                          <span class="font-bold text-white text-sm">{btn.label || "Widget"}</span>
-                        </div>
-                        <span class="text-[10px] uppercase font-bold text-zinc-400 bg-zinc-800/80 px-2 py-0.5 rounded border border-zinc-700/60">
-                          {btn.widgetType || "button"}
-                        </span>
-                      </div>
-
-                      <div class="flex-1 flex items-center justify-center py-4 text-center">
-                        <Show when={btn.widgetType === "chart"}>
-                          <div class="text-xs text-purple-300 font-medium">
-                            📈 {btn.chartType ? btn.chartType.toUpperCase() : "BAR"} Chart • {btn.workflowId ? "Linked to Workflow" : "Configured"}
-                          </div>
-                        </Show>
-                        <Show when={btn.widgetType === "table"}>
-                          <div class="text-xs text-emerald-300 font-medium">
-                            📋 Dynamic Table Grid • {btn.columns ? `${btn.columns.split(",").length} Columns` : "Auto Columns"}
-                          </div>
-                        </Show>
-                        <Show when={btn.widgetType === "news"}>
-                          <div class="text-xs text-blue-300 font-medium">
-                            📰 Live Streaming Feed & Alert Rules
-                          </div>
-                        </Show>
-                        <Show when={btn.widgetType === "toggle"}>
-                          <div class="text-xs text-cyan-300 font-medium">
-                            🎚️ Active/Inactive State Switch
-                          </div>
-                        </Show>
-                        <Show when={btn.widgetType === "button" || !btn.widgetType}>
-                          <div class="text-xs text-zinc-300 font-medium">
-                            ⚡ Interactive Trigger Action
-                          </div>
-                        </Show>
-                        <Show when={btn.widgetType === "form"}>
-                          <div class="text-xs text-amber-300 font-medium">
-                            📝 Input Form ({btn.formConfig?.length || 0} fields)
-                          </div>
-                        </Show>
-                      </div>
-
-                      <div class="pt-2 border-t border-zinc-800 flex items-center justify-between text-[11px] text-zinc-400">
-                        <span>Dimensions: {btn.w || getDefaultWidgetDimensions(btn.widgetType).w} × {btn.h || getDefaultWidgetDimensions(btn.widgetType).h}</span>
-                        <a
-                          href={`/p/${dashboardId(board().id)}`}
-                          target="_blank"
-                          class="text-purple-400 hover:text-purple-300 font-semibold"
-                        >
-                          Interact ↗
-                        </a>
-                      </div>
-                    </div>
-                  )}
-                />
-              </Show>
-            </div>
-          </Card>
-        )}
-      </Show>
-
-      {/* Grid of Boards: Automatically Rearranges on Filter */}
+      {/* Grid of Published Dashboards */}
       <div>
-        <div class="mb-4 flex items-center justify-between">
+        <div class="mb-5 flex items-center justify-between">
           <h2 class="text-lg font-bold text-white tracking-tight flex items-center gap-2">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
             All Published Dashboards
           </h2>
-          <span class="text-xs text-zinc-400">Hover any card to zoom preview layout • Click to spotlight</span>
+          <span class="text-xs text-zinc-500 font-mono">
+            {filteredDashboards().length} {filteredDashboards().length === 1 ? "dashboard" : "dashboards"} available
+          </span>
         </div>
 
         <div class="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3 transition-all duration-300">
@@ -511,35 +316,22 @@ export default function DashboardLibrary() {
             </Show>
 
             <For each={filteredDashboards()}>
-              {(d, idx) => {
+              {(d) => {
                 const counts = widgetKindCounts(d.buttons || []);
-                const isSelected = () => currentBoard()?.id === d.id;
 
                 return (
                   <div class="relative group">
                     {/* Main Base Card */}
                     <Card
-                      onClick={() => {
-                        setCurrentIndex(idx());
-                        window.scrollTo({ top: 0, behavior: "smooth" });
-                      }}
-                      class={`cursor-pointer flex flex-col justify-between h-full border transition-all duration-200 select-none ${
-                        isSelected()
-                          ? "border-purple-500/80 bg-zinc-900/90 shadow-xl shadow-purple-500/15 ring-1 ring-purple-500/40"
-                          : "border-zinc-800/80 bg-zinc-950/75 hover:border-purple-500/50 hover:bg-zinc-900/60"
-                      }`}
+                      onClick={() => navigate(`/p/${dashboardId(d.id)}`)}
+                      class="cursor-pointer flex flex-col justify-between h-full border border-zinc-800/80 bg-zinc-950/75 hover:border-purple-500/50 hover:bg-zinc-900/60 transition-all duration-200 select-none"
                     >
                       <CardHeader class="p-5 pb-3">
                         <div class="flex items-start justify-between gap-3">
                           <div class="min-w-0">
-                            <div class="flex items-center gap-2">
-                              <CardTitle class="truncate text-base font-bold text-white transition-colors group-hover:text-purple-300">
-                                {d.name || "Untitled Dashboard"}
-                              </CardTitle>
-                              <Show when={isSelected()}>
-                                <Badge variant="purple" class="text-[10px] px-2 py-0.2">Active</Badge>
-                              </Show>
-                            </div>
+                            <CardTitle class="truncate text-base font-bold text-white transition-colors group-hover:text-purple-300">
+                              {d.name || "Untitled Dashboard"}
+                            </CardTitle>
                             <CardDescription class="mt-1">
                               Updated {formatDate(d.updated_at || d.created_at)} • {d.buttons?.length || 0} widgets
                             </CardDescription>
@@ -585,24 +377,12 @@ export default function DashboardLibrary() {
                       </CardContent>
 
                       <CardFooter class="p-4 pt-3 border-t border-zinc-800/80 bg-zinc-950/60 flex items-center justify-between text-xs">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setCurrentIndex(idx());
-                            window.scrollTo({ top: 0, behavior: "smooth" });
-                          }}
-                          class="font-semibold text-purple-400 hover:text-purple-300 flex items-center gap-1.5 transition-colors"
-                        >
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polygon points="10 8 16 12 10 16 10 8"></polygon></svg>
-                          Spotlight Preview
-                        </button>
-
+                        <span class="text-zinc-500 text-[11px]">Click card to open</span>
                         <a
                           href={`/p/${dashboardId(d.id)}`}
                           target="_blank"
                           onClick={(e) => e.stopPropagation()}
-                          class="font-semibold text-zinc-400 hover:text-white flex items-center gap-1 transition-colors"
+                          class="font-semibold text-purple-400 hover:text-purple-300 flex items-center gap-1.5 transition-colors"
                         >
                           <span>Open Public View</span>
                           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
@@ -612,24 +392,16 @@ export default function DashboardLibrary() {
 
                     {/* Interactive Hover Zoom Preview Popover (Magnified Zoom Effect) */}
                     <div
-                      class="absolute -inset-3.5 z-50 rounded-2xl border-2 border-purple-500/80 bg-zinc-950/98 p-5 shadow-2xl shadow-purple-500/30 backdrop-blur-2xl transition-all duration-300 ease-out pointer-events-none opacity-0 scale-95 group-hover:opacity-100 group-hover:scale-100 group-hover:pointer-events-auto flex flex-col justify-between ring-1 ring-purple-500/30"
-                      onClick={() => {
-                        setCurrentIndex(idx());
-                        window.scrollTo({ top: 0, behavior: "smooth" });
-                      }}
+                      class="absolute -inset-3.5 z-50 rounded-2xl border-2 border-purple-500/80 bg-zinc-950/98 p-5 shadow-2xl shadow-purple-500/30 backdrop-blur-2xl transition-all duration-300 ease-out pointer-events-none opacity-0 scale-95 group-hover:opacity-100 group-hover:scale-100 group-hover:pointer-events-auto flex flex-col justify-between ring-1 ring-purple-500/30 cursor-pointer"
+                      onClick={() => navigate(`/p/${dashboardId(d.id)}`)}
                     >
                       {/* Zoom Header */}
                       <div>
                         <div class="flex items-center justify-between gap-2 pb-2 border-b border-zinc-800">
-                          <div class="flex items-center gap-2">
-                            <Badge variant="purple" class="gap-1 text-[10px]">
-                              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="11" y1="8" x2="11" y2="14"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg>
-                              Zoom Preview (12 Columns)
-                            </Badge>
-                            <Show when={isSelected()}>
-                              <Badge variant="purple" class="text-[10px]">Active</Badge>
-                            </Show>
-                          </div>
+                          <Badge variant="purple" class="gap-1 text-[10px]">
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="11" y1="8" x2="11" y2="14"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg>
+                            Zoom Preview (12 Columns)
+                          </Badge>
                           <Badge variant="success">Published</Badge>
                         </div>
 
@@ -650,20 +422,7 @@ export default function DashboardLibrary() {
 
                       {/* Zoom Action Footer */}
                       <div class="pt-3 border-t border-zinc-800 flex items-center justify-between gap-3">
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setCurrentIndex(idx());
-                            window.scrollTo({ top: 0, behavior: "smooth" });
-                          }}
-                          class="text-xs"
-                        >
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polygon points="10 8 16 12 10 16 10 8"></polygon></svg>
-                          Spotlight Cycler
-                        </Button>
-
+                        <span class="text-xs text-zinc-400">Click to view public board</span>
                         <a
                           href={`/p/${dashboardId(d.id)}`}
                           target="_blank"

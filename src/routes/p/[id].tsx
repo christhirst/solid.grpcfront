@@ -822,7 +822,7 @@ export default function PublicDashboard() {
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg>
                 <span>Dashboard Library</span>
               </a>
-              <a href={`/dashboards/${params.id}`} class="text-xs text-purple-400 hover:text-purple-300 flex items-center gap-1.5 transition-colors">
+              <a href={`/dashboards/${(dashboard()?.id || params.id || "").replace("dashboard:", "")}`} class="text-xs text-purple-400 hover:text-purple-300 flex items-center gap-1.5 transition-colors">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
                 <span>Edit & Arrange</span>
               </a>

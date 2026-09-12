@@ -68,12 +68,16 @@
     "file": "_build/assets/logger-BDLv3oYI.js",
     "name": "logger"
   },
+  "_newsRulesEvaluator-Br54GSU2.js": {
+    "file": "_build/assets/newsRulesEvaluator-Br54GSU2.js",
+    "name": "newsRulesEvaluator"
+  },
   "_protoParser-C1XlV9an.js": {
     "file": "_build/assets/protoParser-C1XlV9an.js",
     "name": "protoParser"
   },
-  "_workflowVariableChecker-Cs0JTqKX.js": {
-    "file": "_build/assets/workflowVariableChecker-Cs0JTqKX.js",
+  "_workflowVariableChecker-CcT-pYzg.js": {
+    "file": "_build/assets/workflowVariableChecker-CcT-pYzg.js",
     "name": "workflowVariableChecker"
   },
   "src/entry-server.tsx": {
@@ -108,6 +112,8 @@
       "src/routes/cas/index.tsx?pick=default&pick=$css",
       "src/routes/connections/index.tsx?pick=default&pick=$css",
       "src/routes/connections/index.tsx?pick=default&pick=$css",
+      "src/routes/dashboards/[id].tsx?pick=default&pick=$css",
+      "src/routes/dashboards/[id].tsx?pick=default&pick=$css",
       "src/routes/dashboards/index.tsx?pick=default&pick=$css",
       "src/routes/dashboards/index.tsx?pick=default&pick=$css",
       "src/routes/dashboards/library.tsx?pick=default&pick=$css",
@@ -258,7 +264,7 @@
       "src/routes/api/workflows/runs/[id]/stream.ts?pick=POST"
     ],
     "css": [
-      "_build/assets/entry-server-BCnjqYcZ.css"
+      "_build/assets/entry-server-J1wkDzgk.css"
     ]
   },
   "src/routes/TrustedCA.tsx?pick=default&pick=$css": {
@@ -943,6 +949,20 @@
     "src": "src/routes/connections/index.tsx?pick=default&pick=$css",
     "isDynamicEntry": true
   },
+  "src/routes/dashboards/[id].tsx?pick=default&pick=$css": {
+    "file": "_build/assets/_id_-DpJIAGeB.js",
+    "name": "_id_",
+    "src": "src/routes/dashboards/[id].tsx?pick=default&pick=$css",
+    "isDynamicEntry": true,
+    "imports": [
+      "_index-D4uTJpLk.js",
+      "_workflowVariableChecker-CcT-pYzg.js",
+      "_DashboardGrid-CVJV4D7U.js",
+      "_newsRulesEvaluator-Br54GSU2.js",
+      "src/entry-server.tsx",
+      "_components-DY6vXCQs.js"
+    ]
+  },
   "src/routes/dashboards/index.tsx?pick=default&pick=$css": {
     "file": "_build/assets/index-VhEYKGTU.js",
     "name": "index",
@@ -954,7 +974,7 @@
     ]
   },
   "src/routes/dashboards/library.tsx?pick=default&pick=$css": {
-    "file": "_build/assets/library-L8tabsvh.js",
+    "file": "_build/assets/library-C0MgaCIJ.js",
     "name": "library",
     "src": "src/routes/dashboards/library.tsx?pick=default&pick=$css",
     "isDynamicEntry": true,
@@ -994,7 +1014,7 @@
     "isDynamicEntry": true
   },
   "src/routes/library.tsx?pick=default&pick=$css": {
-    "file": "_build/assets/library-btmYa8FL.js",
+    "file": "_build/assets/library-PBDbGYfc.js",
     "name": "library",
     "src": "src/routes/library.tsx?pick=default&pick=$css",
     "isDynamicEntry": true,
@@ -1005,12 +1025,13 @@
     ]
   },
   "src/routes/p/[id].tsx?pick=default&pick=$css": {
-    "file": "_build/assets/_id_-CPd1yV4i.js",
+    "file": "_build/assets/_id_-Cjq8OYdt.js",
     "name": "_id_",
     "src": "src/routes/p/[id].tsx?pick=default&pick=$css",
     "isDynamicEntry": true,
     "imports": [
       "_index-D4uTJpLk.js",
+      "_newsRulesEvaluator-Br54GSU2.js",
       "_DashboardGrid-CVJV4D7U.js",
       "src/entry-server.tsx"
     ]
@@ -1033,24 +1054,24 @@
     ]
   },
   "src/routes/workflows/[id].tsx?pick=default&pick=$css": {
-    "file": "_build/assets/_id_-D3_yuTLz.js",
+    "file": "_build/assets/_id_-CeU3wG6Q.js",
     "name": "_id_",
     "src": "src/routes/workflows/[id].tsx?pick=default&pick=$css",
     "isDynamicEntry": true,
     "imports": [
-      "_workflowVariableChecker-Cs0JTqKX.js",
+      "_workflowVariableChecker-CcT-pYzg.js",
       "_protoParser-C1XlV9an.js",
       "_index-D4uTJpLk.js",
       "src/entry-server.tsx"
     ]
   },
   "src/routes/workflows/index.tsx?pick=default&pick=$css": {
-    "file": "_build/assets/index-r65OSEUb.js",
+    "file": "_build/assets/index-C7ztWUp0.js",
     "name": "index",
     "src": "src/routes/workflows/index.tsx?pick=default&pick=$css",
     "isDynamicEntry": true,
     "imports": [
-      "_workflowVariableChecker-Cs0JTqKX.js"
+      "_workflowVariableChecker-CcT-pYzg.js"
     ]
   }
 }

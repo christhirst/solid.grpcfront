@@ -244,6 +244,9 @@ export default function DashboardBuilder() {
   const kindLabel: Record<string, string> = {
     grpc:  "⚡ Button (triggers run)",
     table: "📊 Table (auto-refreshes)",
+    chart: "📈 Chart (visualizer)",
+  };
+
   const renderLiveWidget = (btn: any) => {
     const wtype = btn.widgetType || widgetKind(btn);
     const colorCls = colorOptions.find(c => c.value === (btn.color || "blue"))?.class || "bg-blue-600 hover:bg-blue-500";
