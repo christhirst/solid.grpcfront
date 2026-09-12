@@ -1019,7 +1019,7 @@ function extractLastStep(logs: any[]): { data: any[]; meta: any } {
 }
 
 async function pollRun(runId: string, onDone: (logs: any[]) => void, onError: (msg: string) => void) {
-  const rawId = runId.includes(":") ? runId.split(":")[1] : runId;
+  const rawId = (runId.includes(":") ? runId.split(":")[1] : runId).replace(/[⟨⟩]/g, "");
   let attempts = 0;
   const interval = setInterval(async () => {
     attempts++;
@@ -1497,8 +1497,9 @@ function PreviewWidget(props: { btn: any }) {
     setStatus("loading");
     setError("");
 
+    const wfId = props.btn.workflowId.includes(":") ? props.btn.workflowId.split(":")[1].replace(/[⟨⟩]/g, "") : props.btn.workflowId.replace(/[⟨⟩]/g, "");
     try {
-      const res = await fetch(`/api/workflows/${props.btn.workflowId.split(":")[1]}/run`, {
+      const res = await fetch(`/api/workflows/${wfId}/run`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ form: {} })
@@ -1608,7 +1609,7 @@ function NewsWidgetComponent(props: { btn: any; dashboardId?: string }) {
 
   onMount(() => {
     if (!props.btn.workflowId) return;
-    const wfId = props.btn.workflowId.includes(":") ? props.btn.workflowId.split(":")[1] : props.btn.workflowId;
+    const wfId = (props.btn.workflowId.includes(":") ? props.btn.workflowId.split(":")[1] : props.btn.workflowId).replace(/[⟨⟩]/g, "");
 
     if (props.btn.streamActive !== false) {
       setStatus("live");
@@ -1655,7 +1656,7 @@ function NewsWidgetComponent(props: { btn: any; dashboardId?: string }) {
 
   const fetchManual = async () => {
     if (!props.btn.workflowId) return;
-    const wfId = props.btn.workflowId.includes(":") ? props.btn.workflowId.split(":")[1] : props.btn.workflowId;
+    const wfId = (props.btn.workflowId.includes(":") ? props.btn.workflowId.split(":")[1] : props.btn.workflowId).replace(/[⟨⟩]/g, "");
     setStatus("loading");
     try {
       const res = await fetch(`/api/workflows/${wfId}/run`, {

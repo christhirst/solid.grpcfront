@@ -20,6 +20,9 @@ export async function GET(event: APIEvent) {
 
         const eventHandler = (payload: any) => {
           sendEvent(payload.type || "message", payload);
+          if (payload.type && payload.type !== "message") {
+            sendEvent("message", payload);
+          }
           if (payload.type === "workflow_complete" || payload.type === "workflow_failed") {
             setTimeout(() => {
               try { controller.close(); } catch {}

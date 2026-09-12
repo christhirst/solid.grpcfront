@@ -60,14 +60,17 @@ export async function GET(event: APIEvent) {
   try {
     const id = event.params.id;
     const db = await getDb();
-    const dbId = id.includes(":") ? id.split(":")[1] : id;
+    const rawDbId = id.includes(":") ? id.split(":")[1] : id;
+    const dbId = rawDbId.replace(/[⟨⟩]/g, "");
     const recordId = new RecordId("workflow", dbId);
+    const wfIdStr = recordId.toString();
+    const cleanWfIdStr = `workflow:${dbId}`;
     
-    // Get all runs for this workflow
-    const query = "SELECT * FROM workflow_run WHERE workflowId = $wfId ORDER BY startTime DESC LIMIT 20";
+    // Get all runs for this workflow matching RecordId, chevron string, or clean string
+    const query = "SELECT * FROM workflow_run WHERE workflowId = $wfId OR workflowId = $wfIdStr OR workflowId = $cleanWfIdStr OR workflowId = $dbId ORDER BY startTime DESC LIMIT 20";
     let results: any = [[]];
     try {
-      const raw: any = await db.query(query, { wfId: recordId });
+      const raw: any = await db.query(query, { wfId: recordId, wfIdStr, cleanWfIdStr, dbId });
       results = [ (raw[0] || []).map((r: any) => ({ ...r, id: r.id?.toString().replace(/[⟨⟩]/g, "") })) ];
     } catch (e: any) {
       if (!e.message?.includes("does not exist")) throw e;

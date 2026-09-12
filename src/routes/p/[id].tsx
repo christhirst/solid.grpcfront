@@ -29,7 +29,7 @@ function NewsWidgetComponent(props: { btn: any; dashboardId?: string }) {
 
   onMount(() => {
     if (!props.btn.workflowId) return;
-    const wfId = props.btn.workflowId.includes(":") ? props.btn.workflowId.split(":")[1] : props.btn.workflowId;
+    const wfId = (props.btn.workflowId.includes(":") ? props.btn.workflowId.split(":")[1] : props.btn.workflowId).replace(/[⟨⟩]/g, "");
 
     if (props.btn.streamActive !== false) {
       setStatus("live");
@@ -76,7 +76,7 @@ function NewsWidgetComponent(props: { btn: any; dashboardId?: string }) {
 
   const fetchManual = async () => {
     if (!props.btn.workflowId) return;
-    const wfId = props.btn.workflowId.includes(":") ? props.btn.workflowId.split(":")[1] : props.btn.workflowId;
+    const wfId = (props.btn.workflowId.includes(":") ? props.btn.workflowId.split(":")[1] : props.btn.workflowId).replace(/[⟨⟩]/g, "");
     setStatus("loading");
     try {
       const res = await fetch(`/api/workflows/${wfId}/run`, {
@@ -555,7 +555,7 @@ function DashChart(props: { data: any[]; xKey?: string; yKey?: string; chartType
 // ─── Poll a run until complete ────────────────────────────────────────────────
 
 async function pollRun(runId: string, onDone: (logs: any[]) => void, onError: (msg: string) => void) {
-  const rawId = runId.includes(":") ? runId.split(":")[1] : runId;
+  const rawId = (runId.includes(":") ? runId.split(":")[1] : runId).replace(/[⟨⟩]/g, "");
   let attempts = 0;
   const interval = setInterval(async () => {
     attempts++;
@@ -709,7 +709,7 @@ export default function PublicDashboard() {
         const ids: string[] = [...new Set((dash.buttons || []).map((b: any) => b.workflowId).filter(Boolean))] as string[];
         const entries = await Promise.all(
           ids.map(async (wid) => {
-            const rawId = wid.includes(":") ? wid.split(":")[1] : wid;
+            const rawId = (wid.includes(":") ? wid.split(":")[1] : wid).replace(/[⟨⟩]/g, "");
             try {
               const r = await fetch(`/api/workflows/${rawId}`);
               const j = await r.json();

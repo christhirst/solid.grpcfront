@@ -290,9 +290,12 @@ export async function runWorkflowBackground(workflow: WorkflowDefinition, runId:
 async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: string, customContext: Record<string, any> = {}) {
   const db = await getDb();
   
+  const rawWfId = workflow.id ? (typeof workflow.id === "object" ? (workflow.id as any).toString() : String(workflow.id)) : "";
+  const cleanWfId = rawWfId.replace(/[⟨⟩]/g, "");
+
   const runRecord: WorkflowRun = {
     id: runId,
-    workflowId: workflow.id as string,
+    workflowId: cleanWfId,
     status: "running",
     startTime: new Date().toISOString(),
     context: { steps: {}, ...customContext },
@@ -302,13 +305,13 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
   // Create initial run record in DB
   const { id: _runId, ...dataWithoutId } = runRecord;
   const idString = String(runId);
-  const dbId = idString.includes(":") ? idString.split(":")[1] : idString;
+  const dbId = idString.includes(":") ? idString.split(":")[1].replace(/[⟨⟩]/g, "") : idString.replace(/[⟨⟩]/g, "");
   const runRecordId = new RecordId("workflow_run", dbId);
   await db.query("CREATE $id CONTENT $data", { id: runRecordId, data: dataWithoutId });
 
-  emitWorkflowEvent(runId, workflow.id || "", "workflow_start", {
+  emitWorkflowEvent(runId, cleanWfId || "", "workflow_start", {
     runId,
-    workflowId: workflow.id,
+    workflowId: cleanWfId,
     startTime: runRecord.startTime,
   });
 
@@ -903,6 +906,12 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
       }
 
       if (step.type === "table" || step.type === "chart" || step.type === "infographic") {
+        emitWorkflowEvent(runId, workflow.id || "", "step_start", {
+          stepId: step.id,
+          stepType: step.type,
+          timestamp: new Date().toISOString(),
+        });
+
         let payload;
         const sourceIds = (step.sourceStepIds && step.sourceStepIds.length > 0)
           ? step.sourceStepIds
@@ -988,17 +997,48 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
         const { id: _t_v, ...data_v } = runRecord;
         const sId_v = new RecordId("workflow_run", dbId);
         await db.query("UPDATE $id CONTENT $data", { id: sId_v, data: data_v });
+
+        emitWorkflowEvent(runId, workflow.id || "", "step_complete", {
+          stepId: step.id,
+          response: visData,
+          timestamp: new Date().toISOString(),
+        });
         return "continue";
       }
 
       if (step.type === "database") {
-        let queryPayload;
+        emitWorkflowEvent(runId, workflow.id || "", "step_start", {
+          stepId: step.id,
+          stepType: "database",
+          timestamp: new Date().toISOString(),
+        });
+
+        let queryPayload: any = "";
         try {
            const parsedTemplate = JSON.parse(step.requestBodyTemplate || "{}");
-           queryPayload = evaluatePayload(parsedTemplate, context);
+           if (typeof parsedTemplate === "string") {
+             queryPayload = interpolateTemplate(parsedTemplate, context);
+           } else if (parsedTemplate && typeof parsedTemplate === "object" && typeof parsedTemplate.query === "string") {
+             queryPayload = interpolateTemplate(parsedTemplate.query, context);
+           } else {
+             queryPayload = evaluatePayload(parsedTemplate, context);
+           }
         } catch (e) {
            // If it fails to parse as JSON, treat it as a raw string (which is standard for SurrealQL)
            queryPayload = interpolateTemplate(step.requestBodyTemplate || "", context);
+        }
+
+        // Auto-unwrap accidental wrapping braces around SurrealQL statements
+        // e.g. "{SELECT * FROM incident_source}" or "{\n  SELECT * FROM incident_source;\n}"
+        if (typeof queryPayload === "string") {
+          const trimmed = queryPayload.trim();
+          if (
+            trimmed.startsWith("{") && 
+            trimmed.endsWith("}") && 
+            /^\{\s*(SELECT|CREATE|UPDATE|DELETE|INSERT|RELATE|DEFINE|REMOVE|INFO|LET|IF|FOR|RETURN|BEGIN|COMMIT|CANCEL)\b/i.test(trimmed)
+          ) {
+            queryPayload = trimmed.slice(1, -1).trim();
+          }
         }
         
         let execResult;
@@ -1078,6 +1118,11 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
         await db.query("UPDATE $id CONTENT $data", { id: sId1, data: data1 });
 
         if (!execResult.success) {
+          emitWorkflowEvent(runId, workflow.id || "", "step_failed", {
+            stepId: step.id,
+            error: execResult.error,
+            timestamp: new Date().toISOString(),
+          });
           runRecord.status = "failed";
           runRecord.endTime = new Date().toISOString();
           const { id: _t2, ...data2 } = runRecord;
@@ -1085,10 +1130,23 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
           await db.query("UPDATE $id CONTENT $data", { id: sId2, data: data2 });
           return "abort";
         }
+
+        emitWorkflowEvent(runId, workflow.id || "", "step_complete", {
+          stepId: step.id,
+          response: responseData,
+          latencyMs,
+          timestamp: new Date().toISOString(),
+        });
         return "continue";
       }
 
       if (step.type === "rest") {
+        emitWorkflowEvent(runId, workflow.id || "", "step_start", {
+          stepId: step.id,
+          stepType: "rest",
+          timestamp: new Date().toISOString(),
+        });
+
         let requestPayload;
         let evaluatedUrl = step.restUrl || "";
         
@@ -1242,6 +1300,11 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
         await db.query("UPDATE $id CONTENT $data", { id: sId1, data: data1 });
 
         if (!execResult.success) {
+           emitWorkflowEvent(runId, workflow.id || "", "step_failed", {
+             stepId: step.id,
+             error: execResult.error,
+             timestamp: new Date().toISOString(),
+           });
            runRecord.status = "failed";
            runRecord.endTime = new Date().toISOString();
            const { id: _t2, ...data2 } = runRecord;
@@ -1249,8 +1312,21 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
            await db.query("UPDATE $id CONTENT $data", { id: sId2, data: data2 });
            return "abort";
         }
+
+        emitWorkflowEvent(runId, workflow.id || "", "step_complete", {
+          stepId: step.id,
+          response: execResult.data,
+          latencyMs: execResult.latencyMs,
+          timestamp: new Date().toISOString(),
+        });
         return "continue";
       }
+
+      emitWorkflowEvent(runId, workflow.id || "", "step_start", {
+        stepId: step.id,
+        stepType: "grpc",
+        timestamp: new Date().toISOString(),
+      });
 
       let requestPayload;
 
@@ -1363,6 +1439,11 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
 
       // Stop workflow on failure
       if (!execResult.success) {
+        emitWorkflowEvent(runId, workflow.id || "", "step_failed", {
+          stepId: step.id,
+          error: execResult.error,
+          timestamp: new Date().toISOString(),
+        });
         runRecord.status = "failed";
         runRecord.endTime = new Date().toISOString();
         const { id: _t2, ...data2 } = runRecord;
@@ -1370,6 +1451,13 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
         await db.query("UPDATE $id CONTENT $data", { id: sId2, data: data2 });
         return "abort";
       }
+
+      emitWorkflowEvent(runId, workflow.id || "", "step_complete", {
+        stepId: step.id,
+        response: execResult.data,
+        latencyMs: execResult.latencyMs,
+        timestamp: new Date().toISOString(),
+      });
 
       return "continue";
 

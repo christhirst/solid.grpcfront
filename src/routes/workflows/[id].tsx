@@ -713,16 +713,20 @@ export default function WorkflowBuilder() {
       setRunId(json.runId);
       const es = new EventSource(`/api/workflows/runs/${json.runId}/stream`);
 
-      es.onmessage = (e) => {
+      const appendEvent = (e: MessageEvent) => {
         try {
           const payload = JSON.parse(e.data);
           setLiveStreamEvents((prev) => [...prev, payload]);
         } catch {}
       };
 
+      es.onmessage = appendEvent;
+      ["workflow_start", "step_start", "step_chunk", "step_complete", "step_failed", "workflow_complete", "workflow_failed"].forEach((evtName) => {
+        es.addEventListener(evtName, appendEvent as any);
+      });
+
       const handleEnd = () => {
         es.close();
-        setIsRunning(false);
         pollRunData(json.runId);
       };
 
@@ -818,10 +822,23 @@ export default function WorkflowBuilder() {
           ...s,
           category: cat,
           sourceStepIds: sources,
+          columns: Array.isArray(s.columns) ? s.columns.filter((c: string) => typeof c === "string" && c.trim().length > 0) : s.columns,
         };
       });
       
       setSteps(reconcile(normalizedSteps));
+
+      if (!isServer && !isNew && !runData()) {
+        const cleanId = (data.id || params.id).replace(/[⟨⟩]/g, "").replace(/^workflow:/, "");
+        fetch(`/api/workflows/${cleanId}/run`)
+          .then((res) => res.json())
+          .then((json) => {
+            if (json.success && Array.isArray(json.data) && json.data.length > 0 && !runData()) {
+              setRunData(json.data[0]);
+            }
+          })
+          .catch((err) => console.error("Error hydrating last workflow run:", err));
+      }
     }
   });
 
@@ -869,7 +886,8 @@ export default function WorkflowBuilder() {
       graph: graphData() || workflow()?.graph || undefined,
       steps: steps.map(s => ({
         ...s,
-        type: s.type || "grpc"
+        type: s.type || "grpc",
+        columns: Array.isArray(s.columns) ? s.columns.filter((c: string) => typeof c === "string" && c.trim().length > 0) : s.columns,
       })),
     };
 
@@ -901,7 +919,7 @@ export default function WorkflowBuilder() {
       category: cat,
       serviceName: parsedProto()?.services[0]?.fullName || "",
       methodName: parsedProto()?.services[0]?.methods[0]?.name || "",
-      requestBodyTemplate: "{}",
+      requestBodyTemplate: type === "database" ? "" : "{}",
       headersTemplate: "{}",
       serverAddress: "",
       caId: caId(),
@@ -924,6 +942,7 @@ export default function WorkflowBuilder() {
     }
 
     if (type === "database") {
+       newStep.requestBodyTemplate = "";
        const conn = (connections() || []).find((c: any) => c.type === "surrealdb");
        newStep.connectionMode = conn ? "saved" : "custom";
        if (conn) newStep.connectionId = conn.id;
@@ -1045,15 +1064,31 @@ export default function WorkflowBuilder() {
   };
 
   const pollRunData = async (id: string) => {
-    const interval = setInterval(async () => {
-      const res = await fetch(`/api/workflows/runs/${id.split(":")[1]}`);
-      const json = await res.json();
-      if (json.success) {
-        setRunData(json.data);
-        if (json.data.status === "completed" || json.data.status === "failed") {
-          clearInterval(interval);
-          setIsRunning(false);
+    const rawId = id.includes(":") ? id.split(":")[1].replace(/[⟨⟩]/g, "") : id.replace(/[⟨⟩]/g, "");
+    const fetchRun = async () => {
+      try {
+        const res = await fetch(`/api/workflows/runs/${rawId}`);
+        const json = await res.json();
+        if (json.success && json.data) {
+          setRunData(json.data);
+          if (json.data.status === "completed" || json.data.status === "failed") {
+            setIsRunning(false);
+            return true;
+          }
         }
+      } catch (e) {
+        console.error("pollRunData error:", e);
+      }
+      return false;
+    };
+
+    const done = await fetchRun();
+    if (done) return;
+
+    const interval = setInterval(async () => {
+      const isDone = await fetchRun();
+      if (isDone) {
+        clearInterval(interval);
       }
     }, 1000); // poll every second
   };

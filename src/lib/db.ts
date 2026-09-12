@@ -531,18 +531,6 @@ export async function getCustomDb(opts: CustomDbOpts): Promise<TracedDb> {
             try {
                 const s = await createConnectedClient(url, user, pass, namespace, database, connectTimeoutMs);
                 
-                try {
-                    await s.query(`DEFINE NAMESPACE IF NOT EXISTS ${namespace}`);
-                } catch (e: any) {
-                    console.log(`[DB] [CUSTOM] Could not define namespace (possibly insufficient permissions): ${e.message}`);
-                }
-                await s.use({ namespace });
-
-                try {
-                    await s.query(`DEFINE DATABASE IF NOT EXISTS ${database}`);
-                } catch (e: any) {
-                    console.log(`[DB] [CUSTOM] Could not define database (possibly insufficient permissions): ${e.message}`);
-                }
                 await s.use({ namespace, database });
                 
                 console.log(`[DB] [CUSTOM] Successfully connected to '${database}'`);
