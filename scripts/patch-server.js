@@ -224,6 +224,12 @@ const patchMjsFiles = (dir) => {
                 changed = true;
             }
 
+            // Fix varlock initVarlockEnv crash when running without `varlock run`
+            if (code.includes("initVarlockEnv()")) {
+                code = code.replace(/initVarlockEnv\(\)/g, "initVarlockEnv({ allowFail: true })");
+                changed = true;
+            }
+
             if (changed) {
                 fs.writeFileSync(fullPath, code);
                 console.log(`Patched: ${fullPath}`);
@@ -300,6 +306,9 @@ globalThis.fetch = function(input, init) {
   }
   return originalFetch.call(this, input, init);
 };
+
+// Safeguard against strict varlock throw behavior in unmanaged container runtime
+globalThis.__varlockThrowOnMissingKeys = false;
 `;
 
 if (fs.existsSync(serverDir)) {

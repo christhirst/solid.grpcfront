@@ -2,11 +2,6 @@ import { ssr, ssrHydrationKey, escape, createComponent } from "solid-js/web";
 import { A } from "./components-CudbSkEV.js";
 import "solid-js";
 import "../../entry-server.js";
-import "varlock/env";
-import "varlock/patch-console";
-import "varlock/patch-response";
-import "varlock/encrypt-env";
-import "varlock/patch-server-response";
 import "pathe";
 import "radix3";
 import "seroval";
@@ -29,4 +24,4 @@ export {
   About as default,
   id$$
 };
-//# sourceMappingURL=about-BHf-p5rT.js.map
+//# sourceMappingURL=about-k65Gi6lo.js.map

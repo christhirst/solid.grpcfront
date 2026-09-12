@@ -9,11 +9,6 @@ import { c as checkWidgetVariablesConfigured } from "./workflowVariableChecker-C
 import { n as newsColorClasses, e as evaluateNewsRules } from "./newsRulesEvaluator-Br54GSU2.js";
 import { u as useParams, a as useNavigate } from "../../entry-server.js";
 import { A } from "./components-CudbSkEV.js";
-import "varlock/env";
-import "varlock/patch-console";
-import "varlock/patch-response";
-import "varlock/encrypt-env";
-import "varlock/patch-server-response";
 import "pathe";
 import "radix3";
 import "seroval";
@@ -1217,4 +1212,4 @@ export {
   DashboardBuilder as default,
   id$$
 };
-//# sourceMappingURL=_id_-BnYngiuE.js.map
+//# sourceMappingURL=_id_-BkJYJeP0.js.map

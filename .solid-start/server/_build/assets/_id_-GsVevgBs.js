@@ -13,11 +13,6 @@ import { Chart, registerables } from "chart.js";
 import * as ChartGeo from "chartjs-chart-geo";
 import { u as useParams, a as useNavigate } from "../../entry-server.js";
 import "protobufjs";
-import "varlock/env";
-import "varlock/patch-console";
-import "varlock/patch-response";
-import "varlock/encrypt-env";
-import "varlock/patch-server-response";
 import "pathe";
 import "radix3";
 import "seroval";
@@ -1718,4 +1713,4 @@ export {
   WorkflowBuilder as default,
   id$$
 };
-//# sourceMappingURL=_id_-Cg7CwYzm.js.map
+//# sourceMappingURL=_id_-GsVevgBs.js.map

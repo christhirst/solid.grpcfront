@@ -5,11 +5,6 @@ import { u as useParams } from "../../entry-server.js";
 import { A } from "./components-CudbSkEV.js";
 import { getCoreRowModel } from "@tanstack/table-core";
 import "solid-js/store";
-import "varlock/env";
-import "varlock/patch-console";
-import "varlock/patch-response";
-import "varlock/encrypt-env";
-import "varlock/patch-server-response";
 import "pathe";
 import "radix3";
 import "seroval";
@@ -229,4 +224,4 @@ export {
   DatabaseViewer as default,
   id$$
 };
-//# sourceMappingURL=_db_-BrPhwcqM.js.map
+//# sourceMappingURL=_db_-C0S2IR5K.js.map

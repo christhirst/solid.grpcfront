@@ -1,11 +1,6 @@
 import { isServer, ssr, ssrHydrationKey, ssrAttribute, escape, createComponent } from "solid-js/web";
 import { createSignal, createResource, createMemo, Show, Suspense, For } from "solid-js";
 import { a as useNavigate } from "../../entry-server.js";
-import "varlock/env";
-import "varlock/patch-console";
-import "varlock/patch-response";
-import "varlock/encrypt-env";
-import "varlock/patch-server-response";
 import "pathe";
 import "radix3";
 import "seroval";
@@ -114,4 +109,4 @@ export {
   Dashboards as default,
   id$$
 };
-//# sourceMappingURL=index-yYpzfo2d.js.map
+//# sourceMappingURL=index-DYPRNCon.js.map

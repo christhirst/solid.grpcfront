@@ -17,6 +17,9 @@ WORKDIR /app
 COPY --from=base /app/.output ./.output
 COPY --from=base /app/package.json ./
 COPY --from=base /app/node_modules ./node_modules
+COPY --from=base /app/.env.schema ./
+COPY --from=base /app/start.sh ./
+RUN chmod +x ./start.sh
 
 # Port konfigurieren (Standard 3000)
 ENV PORT=3000

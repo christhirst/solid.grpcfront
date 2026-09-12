@@ -7,11 +7,6 @@ import get from "lodash.get";
 import { n as newsColorClasses, e as evaluateNewsRules } from "./newsRulesEvaluator-Br54GSU2.js";
 import { u as useParams } from "../../entry-server.js";
 import "solid-js/store";
-import "varlock/env";
-import "varlock/patch-console";
-import "varlock/patch-response";
-import "varlock/encrypt-env";
-import "varlock/patch-server-response";
 import "pathe";
 import "radix3";
 import "seroval";
@@ -1070,4 +1065,4 @@ export {
   PublicDashboard as default,
   id$$
 };
-//# sourceMappingURL=_id_-C5g5K2LP.js.map
+//# sourceMappingURL=_id_-BhpffeBx.js.map

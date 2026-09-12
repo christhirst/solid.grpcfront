@@ -98,3 +98,29 @@ Run application commands inside the Varlock environment wrapper:
 bunx varlock run -- bun run dev
 bunx varlock run -- bun run build
 ```
+
+---
+
+## 6. Kubernetes & Docker Runtime
+
+SolidFlow is designed to support both native Kubernetes configuration (standard `process.env`) and dynamic OpenBao/Vault resolution at runtime:
+
+### Option A: Standard Kubernetes Secrets (Default)
+When deploying with Helm, Kustomize, or Kubernetes Secrets/ConfigMaps, variables are injected directly into the container pod environment. SolidFlow runs seamlessly without needing any external secret resolver:
+```yaml
+env:
+  - name: SURREALDB_URL
+    value: "wss://..."
+  - name: SURREALDB_PASS
+    valueFrom:
+      secretKeyRef:
+        name: solidflow-secrets
+        key: SURREALDB_PASS
+```
+
+### Option B: Runtime Resolution with OpenBao & Varlock
+To resolve secrets from OpenBao at container startup:
+1. Provide `VAULT_ADDR` and authentication credentials (`VAULT_ROLE_ID` and `VAULT_SECRET_ID`, or `VAULT_TOKEN`) in the pod environment.
+2. Set `VARLOCK_RUN=true` or use `start.sh` as the container entrypoint.
+3. The entrypoint script will invoke `varlock run`, automatically populating secrets from OpenBao before launching the server.
+

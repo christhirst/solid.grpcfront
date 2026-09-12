@@ -1,20 +1,9 @@
 #!/bin/bash
 
-# Run the patch and server in the same Bun process
-# --import loads Sentry instrumentation before any app code
-bun --import ./.output/server/instrument.server.mjs -e "
-// Patch URL constructor to handle relative paths
-const originalURL = globalThis.URL;
-globalThis.URL = function(input, base) {
-  if (typeof input === 'string' && input.startsWith('/') && base == null) {
-    input = 'http://localhost' + input;
-  }
-  return new originalURL(input, base);
-};
-globalThis.URL.prototype = originalURL.prototype;
-Object.setPrototypeOf(globalThis.URL, originalURL);
-Object.defineProperty(globalThis.URL, '_relativePathNormalized', { value: true });
-
-// Now import and run the server
-import('./.output/server/index.mjs');
-"
+# Determine if we should wrap with varlock run (e.g. if OpenBao/Vault is configured or requested)
+if [ "$VARLOCK_RUN" = "true" ] || [ "$VARLOCK_RUN" = "1" ] || ([ -n "$VAULT_ADDR" ] && [ -f "./.env.schema" ]); then
+  echo "🔒 Starting SolidFlow with OpenBao / Varlock runtime resolution..."
+  exec bun ./node_modules/varlock/bin/varlock.js run -- bun --import ./.output/server/instrument.server.mjs .output/server/index.mjs
+else
+  exec bun --import ./.output/server/instrument.server.mjs .output/server/index.mjs
+fi
