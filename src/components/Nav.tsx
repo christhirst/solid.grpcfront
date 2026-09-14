@@ -1,4 +1,4 @@
-import { createSignal, onMount, Show } from "solid-js";
+import { createSignal, createMemo, onMount, Show, For } from "solid-js";
 import { isServer } from "solid-js/web";
 import { signIn, signOut } from "@auth/solid-start/client";
 import { Badge } from "~/components/ui/badge";
@@ -15,6 +15,47 @@ const fetchSession = async () => {
   }
 };
 
+const publicLinks = ["/", "/library", "/about"];
+const authenticatedLinks = [
+  "/",
+  "/library",
+  "/dashboards",
+  "/workflows",
+  "/TrustedCA",
+  "/connections",
+  "/protos",
+  "/database",
+  "/requests",
+  "/about",
+];
+
+const linkLabel = (path: string) => {
+  switch (path) {
+    case "/":
+      return "Home";
+    case "/library":
+      return "Library";
+    case "/dashboards":
+      return "Dashboards";
+    case "/workflows":
+      return "Workflows";
+    case "/TrustedCA":
+      return "Trusted CAs";
+    case "/connections":
+      return "Connections";
+    case "/protos":
+      return "Protos";
+    case "/database":
+      return "Database";
+    case "/requests":
+      return "Requests";
+    case "/about":
+      return "About";
+    default:
+      return path.replace("/", "").charAt(0).toUpperCase() + path.replace("/", "").slice(1);
+  }
+};
+
 export default function Nav() {
   // Do not serialize an anonymous SSR result: it briefly replaces an active
   // browser session after every native navigation. Keep this state client-only.
@@ -23,6 +64,8 @@ export default function Nav() {
   onMount(async () => {
     setSession(await fetchSession());
   });
+
+  const visibleLinks = createMemo(() => (session() ? authenticatedLinks : publicLinks));
 
   // Use a simpler active check that doesn't rely on useLocation to avoid router context issues
   const active = (path: string) => {
@@ -48,19 +91,21 @@ export default function Nav() {
           </span>
         </a>
 
-        {/* Navigation Links - Using explicit native navigation to bypass router interception */}
+        {/* Navigation Links - Only Home, Library, About when not logged in */}
         <ul class="flex items-center gap-1">
-          {["/", "/library", "/dashboards", "/workflows", "/TrustedCA", "/connections", "/protos", "/database", "/requests", "/about"].map((path) => (
-            <li>
-              <a
-                href={path}
-                rel="external"
-                class={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors duration-200 ${active(path)}`}
-              >
-                {path === "/" ? "Home" : path === "/library" ? "Library" : path === "/TrustedCA" ? "Trusted CAs" : path.replace("/", "").charAt(0).toUpperCase() + path.replace("/", "").slice(1)}
-              </a>
-            </li>
-          ))}
+          <For each={visibleLinks()}>
+            {(path) => (
+              <li>
+                <a
+                  href={path}
+                  rel="external"
+                  class={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors duration-200 ${active(path)}`}
+                >
+                  {linkLabel(path)}
+                </a>
+              </li>
+            )}
+          </For>
         </ul>
 
         {/* Right Corner (Status + Auth) */}

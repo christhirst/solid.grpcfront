@@ -690,8 +690,14 @@ export default function PublicDashboard() {
   const [dashboard, setDashboard] = createSignal<any>(undefined);
   // Map workflowId -> full workflow object (for last-step detection)
   const [workflowMap, setWorkflowMap] = createSignal<Record<string, any>>({});
+  const [session, setSession] = createSignal<any | null>(null);
 
   onMount(async () => {
+    fetch("/api/auth/session")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((s) => setSession(s && Object.keys(s).length > 0 ? s : null))
+      .catch(() => setSession(null));
+
     try {
       const res = await fetch(`/api/dashboards/${params.id}`);
       const json = await res.json();
@@ -822,10 +828,12 @@ export default function PublicDashboard() {
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg>
                 <span>Dashboard Library</span>
               </a>
-              <a href={`/dashboards/${(dashboard()?.id || params.id || "").replace("dashboard:", "")}`} class="text-xs text-purple-400 hover:text-purple-300 flex items-center gap-1.5 transition-colors">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
-                <span>Edit & Arrange</span>
-              </a>
+              <Show when={session()}>
+                <a href={`/dashboards/${(dashboard()?.id || params.id || "").replace("dashboard:", "")}`} class="text-xs text-purple-400 hover:text-purple-300 flex items-center gap-1.5 transition-colors">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+                  <span>Edit & Arrange</span>
+                </a>
+              </Show>
             </div>
             <h1 class="text-4xl font-extrabold tracking-tight text-white mb-2">{dashboard().name}</h1>
             <p class="text-[12px] font-bold tracking-widest text-[#5b5b6e] uppercase">Public View • Fixed Layout</p>
@@ -863,10 +871,11 @@ export default function PublicDashboard() {
                       const baseStyle = colorConfig ? colorConfig.class : "bg-blue-600 hover:bg-blue-500 ring-blue-500/50";
 
                       const btnClass = () => {
-                        if (state() === "running") return "w-full py-4 px-6 text-[15px] font-bold text-white/70 rounded-2xl shadow-xl transition-all duration-300 flex items-center justify-center gap-3 bg-slate-800 cursor-not-allowed";
-                        if (state() === "success") return "w-full py-4 px-6 text-[15px] font-bold text-white rounded-2xl shadow-xl transition-all duration-300 flex items-center justify-center gap-3 bg-emerald-600 ring-4 ring-emerald-500/50";
-                        if (state() === "error")   return "w-full py-4 px-6 text-[15px] font-bold text-white rounded-2xl shadow-xl transition-all duration-300 flex items-center justify-center gap-3 bg-red-600 ring-4 ring-red-500/50";
-                        return `w-full py-4 px-6 text-[15px] font-bold text-white rounded-2xl shadow-xl transition-all duration-300 flex items-center justify-center gap-3 active:scale-[0.98] focus:ring-4 focus:outline-none ${baseStyle}`;
+                        const base = "w-full h-full min-h-[36px] py-2 px-3 text-xs sm:text-sm font-bold text-white rounded-xl shadow-md transition-all duration-200 flex items-center justify-center gap-2 select-none truncate";
+                        if (state() === "running") return `${base} bg-slate-800 text-white/70 cursor-not-allowed`;
+                        if (state() === "success") return `${base} bg-emerald-600 ring-2 ring-emerald-500/50`;
+                        if (state() === "error")   return `${base} bg-red-600 ring-2 ring-red-500/50`;
+                        return `${base} active:scale-[0.98] focus:ring-2 focus:outline-none ${baseStyle}`;
                       };
 
                       return (

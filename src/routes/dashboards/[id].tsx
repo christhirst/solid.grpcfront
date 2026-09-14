@@ -20,6 +20,7 @@ if (!isServer) {
 import { extractFormVariables, checkWidgetVariablesConfigured } from "~/lib/workflowVariableChecker";
 import DashboardGrid, { getDefaultWidgetDimensions } from "~/components/dashboard/DashboardGrid";
 import { TabsList, TabsTrigger } from "~/components/ui/tabs";
+import { Badge } from "~/components/ui/badge";
 
 
 import { evaluateNewsRules, newsColorClasses, type NewsRule } from "~/lib/newsRulesEvaluator";
@@ -40,6 +41,9 @@ export default function DashboardBuilder() {
   const isNew = params.id === "new";
 
   const [name, setName] = createSignal("New Dashboard");
+  const [description, setDescription] = createSignal("");
+  const [tags, setTags] = createSignal<string[]>([]);
+  const [tagInput, setTagInput] = createSignal("");
   const [isPublic, setIsPublic] = createSignal(false);
   const [buttons, setButtons] = createStore<any[]>([]);
   const [activeTab, setActiveTab] = createSignal<"config" | "arrange">("config");
@@ -94,6 +98,8 @@ export default function DashboardBuilder() {
       setName(json.data.name || "Untitled");
       setIsPublic(json.data.isPublic || false);
       setButtons(reconcile(json.data.buttons || []));
+      setDescription(json.data.description || "");
+      setTags(json.data.tags || []);
     }
   };
 
@@ -103,6 +109,8 @@ export default function DashboardBuilder() {
     const payload = {
       id: isNew ? undefined : `dashboard:${params.id}`,
       name: name(),
+      description: description(),
+      tags: tags(),
       isPublic: isPublic(),
       buttons: buttons,
     };
@@ -267,10 +275,11 @@ export default function DashboardBuilder() {
 
     const state = () => executing()[btn.id] || "idle";
     const btnClass = () => {
-      if (state() === "running") return "w-full py-4 px-6 text-[15px] font-bold text-white/70 rounded-2xl shadow-xl transition-all duration-300 flex items-center justify-center gap-3 bg-slate-800 cursor-not-allowed";
-      if (state() === "success") return "w-full py-4 px-6 text-[15px] font-bold text-white rounded-2xl shadow-xl transition-all duration-300 flex items-center justify-center gap-3 bg-emerald-600 ring-4 ring-emerald-500/50";
-      if (state() === "error")   return "w-full py-4 px-6 text-[15px] font-bold text-white rounded-2xl shadow-xl transition-all duration-300 flex items-center justify-center gap-3 bg-red-600 ring-4 ring-red-500/50";
-      return `w-full py-4 px-6 text-[15px] font-bold text-white rounded-2xl shadow-xl transition-all duration-300 flex items-center justify-center gap-3 active:scale-[0.98] focus:ring-4 focus:outline-none ${colorCls}`;
+      const base = "w-full h-full min-h-[36px] py-2 px-3 text-xs sm:text-sm font-bold text-white rounded-xl shadow-md transition-all duration-200 flex items-center justify-center gap-2 select-none truncate";
+      if (state() === "running") return `${base} bg-slate-800 text-white/70 cursor-not-allowed`;
+      if (state() === "success") return `${base} bg-emerald-600 ring-2 ring-emerald-500/50`;
+      if (state() === "error")   return `${base} bg-red-600 ring-2 ring-red-500/50`;
+      return `${base} active:scale-[0.98] focus:ring-2 focus:outline-none ${colorCls}`;
     };
 
     return (
@@ -392,13 +401,52 @@ export default function DashboardBuilder() {
   return (
     <main class="mx-auto max-w-7xl px-6 py-12">
       <div class="mb-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div>
+        <div class="min-w-0 flex-1">
           <input
-            class="bg-transparent text-3xl font-extrabold tracking-tight text-white border-none outline-none focus:ring-2 focus:ring-purple-500 rounded px-2 -ml-2 transition-all"
+            class="bg-transparent text-3xl font-extrabold tracking-tight text-white border-none outline-none focus:ring-2 focus:ring-purple-500 rounded px-2 -ml-2 transition-all w-full"
             value={name()}
             onInput={(e) => setName(e.currentTarget.value)}
             placeholder="Dashboard Name"
           />
+          <div class="mt-2 ml-0">
+            <textarea
+              class="w-full rounded-xl border border-zinc-800 bg-zinc-900/60 px-4 py-3 text-sm text-zinc-300 placeholder:text-zinc-500 focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500/50 transition-colors resize-none"
+              rows={2}
+              value={description()}
+              onInput={(e) => setDescription(e.currentTarget.value)}
+              placeholder="Add a description for this dashboard..."
+            />
+          </div>
+          <div class="mt-2 flex flex-wrap items-center gap-2">
+            <For each={tags()}>
+              {(tag) => (
+                <Badge variant="purple" class="gap-1 cursor-pointer hover:bg-purple-500/25"
+                  onClick={() => setTags(tags().filter(t => t !== tag))}
+                >
+                  {tag}
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                  </svg>
+                </Badge>
+              )}
+            </For>
+            <input
+              class="rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-1.5 text-xs text-zinc-300 placeholder:text-zinc-500 focus:border-purple-500 focus:outline-none w-32"
+              placeholder="Add tag..."
+              value={tagInput()}
+              onInput={(e) => setTagInput(e.currentTarget.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === ",") {
+                  e.preventDefault();
+                  const val = tagInput().trim().toLowerCase();
+                  if (val && !tags().includes(val)) {
+                    setTags([...tags(), val]);
+                  }
+                  setTagInput("");
+                }
+              }}
+            />
+          </div>
         </div>
 
         {/* View Mode Switcher */}

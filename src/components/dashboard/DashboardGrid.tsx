@@ -13,12 +13,12 @@ export function getDefaultWidgetDimensions(widgetType?: string) {
     case "news":
       return { w: 6, h: 3, minW: 3, minH: 2 };
     case "toggle":
-      return { w: 4, h: 2, minW: 2, minH: 1 };
+      return { w: 3, h: 1, minW: 1, minH: 1 };
     case "infographic":
       return { w: 12, h: 5, minW: 4, minH: 3 };
     case "button":
     default:
-      return { w: 4, h: 2, minW: 2, minH: 1 };
+      return { w: 3, h: 1, minW: 1, minH: 1 };
   }
 }
 
@@ -47,14 +47,14 @@ export default function DashboardGrid(props: DashboardGridProps) {
     gridInstance = GridStack.init(
       {
         column: 12,
-        cellHeight: 85,
-        margin: 12,
+        cellHeight: 70,
+        margin: 10,
         animate: true,
         float: true,
         staticGrid: props.isStatic,
         handle: props.isStatic ? undefined : ".grid-stack-drag-handle",
         resizable: {
-          handles: props.isStatic ? "" : "e, se, s, sw, w",
+          handles: props.isStatic ? "" : "all",
         },
       },
       containerRef
@@ -116,8 +116,14 @@ export default function DashboardGrid(props: DashboardGridProps) {
           const dims = getDefaultWidgetDimensions(btn.widgetType);
           const w = () => (typeof btn.w === "number" ? btn.w : dims.w);
           const h = () => (typeof btn.h === "number" ? btn.h : dims.h);
-          const minW = () => (typeof btn.minW === "number" ? btn.minW : dims.minW);
-          const minH = () => (typeof btn.minH === "number" ? btn.minH : dims.minH);
+          const minW = () => {
+            if (btn.widgetType === "button" || btn.widgetType === "toggle" || !btn.widgetType) return 1;
+            return typeof btn.minW === "number" ? Math.min(btn.minW, dims.minW) : dims.minW;
+          };
+          const minH = () => {
+            if (btn.widgetType === "button" || btn.widgetType === "toggle" || !btn.widgetType) return 1;
+            return typeof btn.minH === "number" ? Math.min(btn.minH, dims.minH) : dims.minH;
+          };
 
           return (
             <div
@@ -132,7 +138,7 @@ export default function DashboardGrid(props: DashboardGridProps) {
             >
               <div class="grid-stack-item-content">
                 <Show when={!props.isStatic}>
-                  <div class="grid-stack-drag-handle flex items-center justify-between px-3 py-2 bg-[#181824] border-b border-[#2a2a3a] text-xs text-[#8b8b9e] select-none shrink-0">
+                  <div class="grid-stack-drag-handle flex items-center justify-between px-3 py-1.5 bg-[#181824] border-b border-[#2a2a3a] text-xs text-[#8b8b9e] select-none shrink-0">
                     <div class="flex items-center gap-2 font-medium truncate">
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-purple-400">
                         <circle cx="9" cy="12" r="1"></circle>
@@ -153,7 +159,7 @@ export default function DashboardGrid(props: DashboardGridProps) {
                   </div>
                 </Show>
 
-                <div class="p-4 flex-1 flex flex-col justify-center overflow-auto">
+                <div class="p-2 sm:p-2.5 flex-1 flex flex-col justify-center overflow-hidden">
                   {props.renderWidget(btn)}
                 </div>
               </div>

@@ -1,5 +1,5 @@
 import { ssrElement, escape, mergeProps, ssr, getRequestEvent, useAssets as useAssets$1, isServer, createComponent as createComponent$1, delegateEvents, ssrHydrationKey, ssrAttribute, NoHydration, Hydration, HydrationScript, renderToString, renderToStream } from "solid-js/web";
-import { sharedConfig, onCleanup, lazy as lazy$1, getOwner, runWithOwner, createMemo, useContext, createContext, createSignal, createRenderEffect, on, startTransition, resetErrorBoundaries, batch, untrack, createComponent, children, Show, createRoot, splitProps, onMount, Suspense, catchError, ErrorBoundary as ErrorBoundary$1 } from "solid-js";
+import { sharedConfig, onCleanup, lazy as lazy$1, getOwner, runWithOwner, createMemo, useContext, createContext, createSignal, createRenderEffect, on, startTransition, resetErrorBoundaries, batch, untrack, createComponent, children, Show, createRoot, splitProps, onMount, For, Suspense, catchError, ErrorBoundary as ErrorBoundary$1 } from "solid-js";
 import { join } from "pathe";
 import { createRouter as createRouter$1 } from "radix3";
 import { fromJSON, crossSerializeStream, getCrossReferenceHeader } from "seroval";
@@ -8,7 +8,7 @@ import { signOut, signIn } from "@auth/solid-start/client";
 import { getRequestIP, parseCookies, defineHandler, H3, redirect, getCookie, setCookie } from "h3";
 import { provideRequestEvent } from "solid-js/web/storage";
 import { parseSetCookie } from "cookie-es";
-const clientViteManifest = { "_DashboardGrid-Cor3NzZZ.js": { "file": "_build/assets/DashboardGrid-Cor3NzZZ.js", "name": "DashboardGrid", "imports": ["_web-GXI_jWz0.js"] }, "__commonjs-dynamic-modules-TDtrdbi3.js": { "file": "_build/assets/_commonjs-dynamic-modules-TDtrdbi3.js", "name": "_commonjs-dynamic-modules" }, "_button-BPDb7lSy.js": { "file": "_build/assets/button-BPDb7lSy.js", "name": "button", "imports": ["_web-GXI_jWz0.js"] }, "_components-C4OWPlsX.js": { "file": "_build/assets/components-C4OWPlsX.js", "name": "components", "imports": ["_web-GXI_jWz0.js", "_routing-zSuAE0jC.js"] }, "_index-BiFkrFrj.js": { "file": "_build/assets/index-BiFkrFrj.js", "name": "index", "imports": ["_index-DPuzbN3W.js"] }, "_index-C3ybZj5l.js": { "file": "_build/assets/index-C3ybZj5l.js", "name": "index", "imports": ["_web-GXI_jWz0.js", "_store-M4wBScLZ.js"] }, "_index-DPuzbN3W.js": { "file": "_build/assets/index-DPuzbN3W.js", "name": "index", "imports": ["_web-GXI_jWz0.js", "_store-M4wBScLZ.js"] }, "_input-CLGzfRCT.js": { "file": "_build/assets/input-CLGzfRCT.js", "name": "input", "imports": ["_web-GXI_jWz0.js"] }, "_newsRulesEvaluator-CzcgSQ1o.js": { "file": "_build/assets/newsRulesEvaluator-CzcgSQ1o.js", "name": "newsRulesEvaluator", "imports": ["_index-DPuzbN3W.js"] }, "_preload-helper-BXl3LOEh.js": { "file": "_build/assets/preload-helper-BXl3LOEh.js", "name": "preload-helper" }, "_protoParser-CTh_LfgJ.js": { "file": "_build/assets/protoParser-CTh_LfgJ.js", "name": "protoParser", "imports": ["_index-DPuzbN3W.js", "__commonjs-dynamic-modules-TDtrdbi3.js"] }, "_routing-zSuAE0jC.js": { "file": "_build/assets/routing-zSuAE0jC.js", "name": "routing", "imports": ["_web-GXI_jWz0.js"] }, "_store-M4wBScLZ.js": { "file": "_build/assets/store-M4wBScLZ.js", "name": "store", "imports": ["_web-GXI_jWz0.js"] }, "_web-GXI_jWz0.js": { "file": "_build/assets/web-GXI_jWz0.js", "name": "web" }, "_workflowVariableChecker-zZqqjosf.js": { "file": "_build/assets/workflowVariableChecker-zZqqjosf.js", "name": "workflowVariableChecker" }, "node_modules/@antv/infographic/esm/index.js": { "file": "_build/assets/index-4BYgWoId.js", "name": "index", "src": "node_modules/@antv/infographic/esm/index.js", "isDynamicEntry": true, "imports": ["_index-BiFkrFrj.js", "_index-DPuzbN3W.js", "__commonjs-dynamic-modules-TDtrdbi3.js", "_web-GXI_jWz0.js", "_store-M4wBScLZ.js"] }, "src/entry-client.tsx": { "file": "_build/assets/entry-client-CD7jELy-.js", "name": "entry-client", "src": "src/entry-client.tsx", "isEntry": true, "imports": ["_preload-helper-BXl3LOEh.js", "_web-GXI_jWz0.js", "_button-BPDb7lSy.js", "_routing-zSuAE0jC.js"], "dynamicImports": ["src/routes/TrustedCA.tsx?pick=default&pick=$css", "src/routes/TrustedCA.tsx?pick=default&pick=$css", "src/routes/[...404].tsx?pick=default&pick=$css", "src/routes/[...404].tsx?pick=default&pick=$css", "src/routes/about.tsx?pick=default&pick=$css", "src/routes/about.tsx?pick=default&pick=$css", "src/routes/index.tsx?pick=default&pick=$css", "src/routes/index.tsx?pick=default&pick=$css", "src/routes/library.tsx?pick=default&pick=$css", "src/routes/library.tsx?pick=default&pick=$css", "src/routes/requests.tsx?pick=default&pick=$css", "src/routes/requests.tsx?pick=default&pick=$css", "src/routes/cas/index.tsx?pick=default&pick=$css", "src/routes/cas/index.tsx?pick=default&pick=$css", "src/routes/connections/index.tsx?pick=default&pick=$css", "src/routes/connections/index.tsx?pick=default&pick=$css", "src/routes/dashboards/[id].tsx?pick=default&pick=$css", "src/routes/dashboards/[id].tsx?pick=default&pick=$css", "src/routes/dashboards/index.tsx?pick=default&pick=$css", "src/routes/dashboards/index.tsx?pick=default&pick=$css", "src/routes/dashboards/library.tsx?pick=default&pick=$css", "src/routes/dashboards/library.tsx?pick=default&pick=$css", "src/routes/database/[db].tsx?pick=default&pick=$css", "src/routes/database/[db].tsx?pick=default&pick=$css", "src/routes/database/index.tsx?pick=default&pick=$css", "src/routes/database/index.tsx?pick=default&pick=$css", "src/routes/p/[id].tsx?pick=default&pick=$css", "src/routes/p/[id].tsx?pick=default&pick=$css", "src/routes/protos/index.tsx?pick=default&pick=$css", "src/routes/protos/index.tsx?pick=default&pick=$css", "src/routes/workflows/[id].tsx?pick=default&pick=$css", "src/routes/workflows/[id].tsx?pick=default&pick=$css", "src/routes/workflows/index.tsx?pick=default&pick=$css", "src/routes/workflows/index.tsx?pick=default&pick=$css"], "css": ["_build/assets/entry-client-uA08mble.css"] }, "src/routes/TrustedCA.tsx?pick=default&pick=$css": { "file": "_build/assets/TrustedCA-DCDxHmwR.js", "name": "TrustedCA", "src": "src/routes/TrustedCA.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-GXI_jWz0.js"] }, "src/routes/[...404].tsx?pick=default&pick=$css": { "file": "_build/assets/_...404_-DNOzxb3m.js", "name": "_...404_", "src": "src/routes/[...404].tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-GXI_jWz0.js", "_components-C4OWPlsX.js", "_routing-zSuAE0jC.js"] }, "src/routes/about.tsx?pick=default&pick=$css": { "file": "_build/assets/about-478Pt5OZ.js", "name": "about", "src": "src/routes/about.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-GXI_jWz0.js", "_components-C4OWPlsX.js", "_routing-zSuAE0jC.js"] }, "src/routes/cas/index.tsx?pick=default&pick=$css": { "file": "_build/assets/index-DCDxHmwR.js", "name": "index", "src": "src/routes/cas/index.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-GXI_jWz0.js"] }, "src/routes/connections/index.tsx?pick=default&pick=$css": { "file": "_build/assets/index-1EJKHIPa.js", "name": "index", "src": "src/routes/connections/index.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-GXI_jWz0.js"] }, "src/routes/dashboards/[id].tsx?pick=default&pick=$css": { "file": "_build/assets/_id_-OyncJrDq.js", "name": "_id_", "src": "src/routes/dashboards/[id].tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_preload-helper-BXl3LOEh.js", "_web-GXI_jWz0.js", "_store-M4wBScLZ.js", "_index-DPuzbN3W.js", "_index-BiFkrFrj.js", "_newsRulesEvaluator-CzcgSQ1o.js", "_workflowVariableChecker-zZqqjosf.js", "_DashboardGrid-Cor3NzZZ.js", "_routing-zSuAE0jC.js", "_components-C4OWPlsX.js"], "dynamicImports": ["node_modules/@antv/infographic/esm/index.js"] }, "src/routes/dashboards/index.tsx?pick=default&pick=$css": { "file": "_build/assets/index-D2vKPORy.js", "name": "index", "src": "src/routes/dashboards/index.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-GXI_jWz0.js", "_input-CLGzfRCT.js", "_button-BPDb7lSy.js", "_routing-zSuAE0jC.js"] }, "src/routes/dashboards/library.tsx?pick=default&pick=$css": { "file": "_build/assets/library-CyuIbehU.js", "name": "library", "src": "src/routes/dashboards/library.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-GXI_jWz0.js", "_DashboardGrid-Cor3NzZZ.js", "_input-CLGzfRCT.js", "_button-BPDb7lSy.js", "_routing-zSuAE0jC.js"] }, "src/routes/database/[db].tsx?pick=default&pick=$css": { "file": "_build/assets/_db_-BBTYM2HA.js", "name": "_db_", "src": "src/routes/database/[db].tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-GXI_jWz0.js", "_index-C3ybZj5l.js", "_routing-zSuAE0jC.js", "_components-C4OWPlsX.js", "_store-M4wBScLZ.js"] }, "src/routes/database/index.tsx?pick=default&pick=$css": { "file": "_build/assets/index-l5NQP9cY.js", "name": "index", "src": "src/routes/database/index.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-GXI_jWz0.js"] }, "src/routes/index.tsx?pick=default&pick=$css": { "file": "_build/assets/index-BN1M-cEV.js", "name": "index", "src": "src/routes/index.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-GXI_jWz0.js"] }, "src/routes/library.tsx?pick=default&pick=$css": { "file": "_build/assets/library-hg8B_my8.js", "name": "library", "src": "src/routes/library.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-GXI_jWz0.js", "_DashboardGrid-Cor3NzZZ.js", "_input-CLGzfRCT.js", "_button-BPDb7lSy.js", "_routing-zSuAE0jC.js"] }, "src/routes/p/[id].tsx?pick=default&pick=$css": { "file": "_build/assets/_id_-CScNQsKN.js", "name": "_id_", "src": "src/routes/p/[id].tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_preload-helper-BXl3LOEh.js", "_web-GXI_jWz0.js", "_index-DPuzbN3W.js", "_index-BiFkrFrj.js", "_newsRulesEvaluator-CzcgSQ1o.js", "_DashboardGrid-Cor3NzZZ.js", "_routing-zSuAE0jC.js", "_store-M4wBScLZ.js"], "dynamicImports": ["node_modules/@antv/infographic/esm/index.js"] }, "src/routes/protos/index.tsx?pick=default&pick=$css": { "file": "_build/assets/index-BQ_W_x4I.js", "name": "index", "src": "src/routes/protos/index.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-GXI_jWz0.js"] }, "src/routes/requests.tsx?pick=default&pick=$css": { "file": "_build/assets/requests-CGpeSBQG.js", "name": "requests", "src": "src/routes/requests.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-GXI_jWz0.js", "_protoParser-CTh_LfgJ.js", "_index-DPuzbN3W.js", "_index-C3ybZj5l.js", "__commonjs-dynamic-modules-TDtrdbi3.js", "_store-M4wBScLZ.js"] }, "src/routes/workflows/[id].tsx?pick=default&pick=$css": { "file": "_build/assets/_id_-RLgByNkO.js", "name": "_id_", "src": "src/routes/workflows/[id].tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-GXI_jWz0.js", "_index-DPuzbN3W.js", "__commonjs-dynamic-modules-TDtrdbi3.js", "_workflowVariableChecker-zZqqjosf.js", "_store-M4wBScLZ.js", "_protoParser-CTh_LfgJ.js", "_index-BiFkrFrj.js", "_routing-zSuAE0jC.js"] }, "src/routes/workflows/index.tsx?pick=default&pick=$css": { "file": "_build/assets/index-B2TYkdm_.js", "name": "index", "src": "src/routes/workflows/index.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-GXI_jWz0.js", "_workflowVariableChecker-zZqqjosf.js"] } };
+const clientViteManifest = { "_DashboardGrid-BBItl9Xa.js": { "file": "_build/assets/DashboardGrid-BBItl9Xa.js", "name": "DashboardGrid", "imports": ["_web-BOa2SDBc.js"] }, "__commonjs-dynamic-modules-TDtrdbi3.js": { "file": "_build/assets/_commonjs-dynamic-modules-TDtrdbi3.js", "name": "_commonjs-dynamic-modules" }, "_badge-CwRVE1Mz.js": { "file": "_build/assets/badge-CwRVE1Mz.js", "name": "badge", "imports": ["_web-BOa2SDBc.js"] }, "_button-R2wn2p79.js": { "file": "_build/assets/button-R2wn2p79.js", "name": "button", "imports": ["_web-BOa2SDBc.js"] }, "_components-BBakQwsK.js": { "file": "_build/assets/components-BBakQwsK.js", "name": "components", "imports": ["_web-BOa2SDBc.js", "_routing-Rv_ryNap.js"] }, "_index-ByYXESj4.js": { "file": "_build/assets/index-ByYXESj4.js", "name": "index", "imports": ["_web-BOa2SDBc.js", "_store-Du2c0Rnf.js"] }, "_index-C20JyJS7.js": { "file": "_build/assets/index-C20JyJS7.js", "name": "index", "imports": ["_index-ByYXESj4.js"] }, "_index-VxWmahTa.js": { "file": "_build/assets/index-VxWmahTa.js", "name": "index", "imports": ["_web-BOa2SDBc.js", "_store-Du2c0Rnf.js"] }, "_input-CiljYSWD.js": { "file": "_build/assets/input-CiljYSWD.js", "name": "input", "imports": ["_web-BOa2SDBc.js"] }, "_newsRulesEvaluator-DBLKuf5X.js": { "file": "_build/assets/newsRulesEvaluator-DBLKuf5X.js", "name": "newsRulesEvaluator", "imports": ["_index-ByYXESj4.js"] }, "_preload-helper-BXl3LOEh.js": { "file": "_build/assets/preload-helper-BXl3LOEh.js", "name": "preload-helper" }, "_protoParser-BlcNWEsK.js": { "file": "_build/assets/protoParser-BlcNWEsK.js", "name": "protoParser", "imports": ["_index-ByYXESj4.js", "__commonjs-dynamic-modules-TDtrdbi3.js"] }, "_routing-Rv_ryNap.js": { "file": "_build/assets/routing-Rv_ryNap.js", "name": "routing", "imports": ["_web-BOa2SDBc.js"] }, "_store-Du2c0Rnf.js": { "file": "_build/assets/store-Du2c0Rnf.js", "name": "store", "imports": ["_web-BOa2SDBc.js"] }, "_web-BOa2SDBc.js": { "file": "_build/assets/web-BOa2SDBc.js", "name": "web" }, "_workflowVariableChecker-zZqqjosf.js": { "file": "_build/assets/workflowVariableChecker-zZqqjosf.js", "name": "workflowVariableChecker" }, "node_modules/@antv/infographic/esm/index.js": { "file": "_build/assets/index-DxRoKquS.js", "name": "index", "src": "node_modules/@antv/infographic/esm/index.js", "isDynamicEntry": true, "imports": ["_index-C20JyJS7.js", "_index-ByYXESj4.js", "__commonjs-dynamic-modules-TDtrdbi3.js", "_web-BOa2SDBc.js", "_store-Du2c0Rnf.js"] }, "src/entry-client.tsx": { "file": "_build/assets/entry-client-y-bVf90n.js", "name": "entry-client", "src": "src/entry-client.tsx", "isEntry": true, "imports": ["_preload-helper-BXl3LOEh.js", "_web-BOa2SDBc.js", "_badge-CwRVE1Mz.js", "_button-R2wn2p79.js", "_routing-Rv_ryNap.js"], "dynamicImports": ["src/routes/TrustedCA.tsx?pick=default&pick=$css", "src/routes/TrustedCA.tsx?pick=default&pick=$css", "src/routes/[...404].tsx?pick=default&pick=$css", "src/routes/[...404].tsx?pick=default&pick=$css", "src/routes/about.tsx?pick=default&pick=$css", "src/routes/about.tsx?pick=default&pick=$css", "src/routes/index.tsx?pick=default&pick=$css", "src/routes/index.tsx?pick=default&pick=$css", "src/routes/library.tsx?pick=default&pick=$css", "src/routes/library.tsx?pick=default&pick=$css", "src/routes/requests.tsx?pick=default&pick=$css", "src/routes/requests.tsx?pick=default&pick=$css", "src/routes/cas/index.tsx?pick=default&pick=$css", "src/routes/cas/index.tsx?pick=default&pick=$css", "src/routes/connections/index.tsx?pick=default&pick=$css", "src/routes/connections/index.tsx?pick=default&pick=$css", "src/routes/dashboards/[id].tsx?pick=default&pick=$css", "src/routes/dashboards/[id].tsx?pick=default&pick=$css", "src/routes/dashboards/index.tsx?pick=default&pick=$css", "src/routes/dashboards/index.tsx?pick=default&pick=$css", "src/routes/dashboards/library.tsx?pick=default&pick=$css", "src/routes/dashboards/library.tsx?pick=default&pick=$css", "src/routes/database/[db].tsx?pick=default&pick=$css", "src/routes/database/[db].tsx?pick=default&pick=$css", "src/routes/database/index.tsx?pick=default&pick=$css", "src/routes/database/index.tsx?pick=default&pick=$css", "src/routes/p/[id].tsx?pick=default&pick=$css", "src/routes/p/[id].tsx?pick=default&pick=$css", "src/routes/protos/index.tsx?pick=default&pick=$css", "src/routes/protos/index.tsx?pick=default&pick=$css", "src/routes/workflows/[id].tsx?pick=default&pick=$css", "src/routes/workflows/[id].tsx?pick=default&pick=$css", "src/routes/workflows/index.tsx?pick=default&pick=$css", "src/routes/workflows/index.tsx?pick=default&pick=$css"], "css": ["_build/assets/entry-client-Dbg6JbNU.css"] }, "src/routes/TrustedCA.tsx?pick=default&pick=$css": { "file": "_build/assets/TrustedCA-Bcf-VBnD.js", "name": "TrustedCA", "src": "src/routes/TrustedCA.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-BOa2SDBc.js"] }, "src/routes/[...404].tsx?pick=default&pick=$css": { "file": "_build/assets/_...404_-8G34DptV.js", "name": "_...404_", "src": "src/routes/[...404].tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-BOa2SDBc.js", "_components-BBakQwsK.js", "_routing-Rv_ryNap.js"] }, "src/routes/about.tsx?pick=default&pick=$css": { "file": "_build/assets/about-CwqDMY3f.js", "name": "about", "src": "src/routes/about.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-BOa2SDBc.js", "_components-BBakQwsK.js", "_routing-Rv_ryNap.js"] }, "src/routes/cas/index.tsx?pick=default&pick=$css": { "file": "_build/assets/index-Bcf-VBnD.js", "name": "index", "src": "src/routes/cas/index.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-BOa2SDBc.js"] }, "src/routes/connections/index.tsx?pick=default&pick=$css": { "file": "_build/assets/index-B5s_youa.js", "name": "index", "src": "src/routes/connections/index.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-BOa2SDBc.js"] }, "src/routes/dashboards/[id].tsx?pick=default&pick=$css": { "file": "_build/assets/_id_-MGLfoy6N.js", "name": "_id_", "src": "src/routes/dashboards/[id].tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_preload-helper-BXl3LOEh.js", "_web-BOa2SDBc.js", "_store-Du2c0Rnf.js", "_index-ByYXESj4.js", "_index-C20JyJS7.js", "_newsRulesEvaluator-DBLKuf5X.js", "_workflowVariableChecker-zZqqjosf.js", "_DashboardGrid-BBItl9Xa.js", "_badge-CwRVE1Mz.js", "_routing-Rv_ryNap.js", "_components-BBakQwsK.js"], "dynamicImports": ["node_modules/@antv/infographic/esm/index.js"] }, "src/routes/dashboards/index.tsx?pick=default&pick=$css": { "file": "_build/assets/index-CRcuMF5S.js", "name": "index", "src": "src/routes/dashboards/index.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-BOa2SDBc.js", "_input-CiljYSWD.js", "_badge-CwRVE1Mz.js", "_button-R2wn2p79.js", "_routing-Rv_ryNap.js"] }, "src/routes/dashboards/library.tsx?pick=default&pick=$css": { "file": "_build/assets/library-C9TKTHrl.js", "name": "library", "src": "src/routes/dashboards/library.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-BOa2SDBc.js", "_DashboardGrid-BBItl9Xa.js", "_input-CiljYSWD.js", "_badge-CwRVE1Mz.js", "_button-R2wn2p79.js", "_routing-Rv_ryNap.js"] }, "src/routes/database/[db].tsx?pick=default&pick=$css": { "file": "_build/assets/_db_-CTPst6QX.js", "name": "_db_", "src": "src/routes/database/[db].tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-BOa2SDBc.js", "_index-VxWmahTa.js", "_routing-Rv_ryNap.js", "_components-BBakQwsK.js", "_store-Du2c0Rnf.js"] }, "src/routes/database/index.tsx?pick=default&pick=$css": { "file": "_build/assets/index-C52BJlPt.js", "name": "index", "src": "src/routes/database/index.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-BOa2SDBc.js"] }, "src/routes/index.tsx?pick=default&pick=$css": { "file": "_build/assets/index-B4pXGCBW.js", "name": "index", "src": "src/routes/index.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-BOa2SDBc.js"] }, "src/routes/library.tsx?pick=default&pick=$css": { "file": "_build/assets/library-Bb5ug7BX.js", "name": "library", "src": "src/routes/library.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-BOa2SDBc.js", "_DashboardGrid-BBItl9Xa.js", "_input-CiljYSWD.js", "_badge-CwRVE1Mz.js", "_button-R2wn2p79.js", "_routing-Rv_ryNap.js"] }, "src/routes/p/[id].tsx?pick=default&pick=$css": { "file": "_build/assets/_id_-CmIqU5j8.js", "name": "_id_", "src": "src/routes/p/[id].tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_preload-helper-BXl3LOEh.js", "_web-BOa2SDBc.js", "_index-ByYXESj4.js", "_index-C20JyJS7.js", "_newsRulesEvaluator-DBLKuf5X.js", "_DashboardGrid-BBItl9Xa.js", "_routing-Rv_ryNap.js", "_store-Du2c0Rnf.js"], "dynamicImports": ["node_modules/@antv/infographic/esm/index.js"] }, "src/routes/protos/index.tsx?pick=default&pick=$css": { "file": "_build/assets/index-BkFEnWKL.js", "name": "index", "src": "src/routes/protos/index.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-BOa2SDBc.js"] }, "src/routes/requests.tsx?pick=default&pick=$css": { "file": "_build/assets/requests-7n730-1m.js", "name": "requests", "src": "src/routes/requests.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-BOa2SDBc.js", "_protoParser-BlcNWEsK.js", "_index-ByYXESj4.js", "_index-VxWmahTa.js", "__commonjs-dynamic-modules-TDtrdbi3.js", "_store-Du2c0Rnf.js"] }, "src/routes/workflows/[id].tsx?pick=default&pick=$css": { "file": "_build/assets/_id_-BdkFG_4W.js", "name": "_id_", "src": "src/routes/workflows/[id].tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-BOa2SDBc.js", "_index-ByYXESj4.js", "__commonjs-dynamic-modules-TDtrdbi3.js", "_workflowVariableChecker-zZqqjosf.js", "_store-Du2c0Rnf.js", "_protoParser-BlcNWEsK.js", "_index-C20JyJS7.js", "_routing-Rv_ryNap.js"] }, "src/routes/workflows/index.tsx?pick=default&pick=$css": { "file": "_build/assets/index-Y8OKKHrj.js", "name": "index", "src": "src/routes/workflows/index.tsx?pick=default&pick=$css", "isEntry": true, "isDynamicEntry": true, "imports": ["_web-BOa2SDBc.js", "_workflowVariableChecker-zZqqjosf.js"] } };
 function getSsrProdManifest() {
   const viteManifest = clientViteManifest;
   return {
@@ -1176,10 +1176,10 @@ const fileRoutes = [{ "page": true, "$component": { "src": "src/routes/TrustedCA
   "./_build/assets/index-4X0MzDNU.js"
 ) }, "path": "/" }, { "page": true, "$component": { "src": "src/routes/library.tsx?pick=default&pick=$css", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/library-PBDbGYfc.js"
+  "./_build/assets/library-DDwW0FUw.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/library-PBDbGYfc.js"
+  "./_build/assets/library-DDwW0FUw.js"
 ) }, "path": "/library" }, { "page": true, "$component": { "src": "src/routes/requests.tsx?pick=default&pick=$css", "build": () => import(
   /* @vite-ignore */
   "./_build/assets/requests-CrDNhDce.js"
@@ -1218,22 +1218,22 @@ const fileRoutes = [{ "page": true, "$component": { "src": "src/routes/TrustedCA
   "./_build/assets/index-DLBT9IIs.js"
 ) }, "path": "/connections/" }, { "page": true, "$component": { "src": "src/routes/dashboards/[id].tsx?pick=default&pick=$css", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-DpJIAGeB.js"
+  "./_build/assets/_id_-CBlcDfxJ.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-DpJIAGeB.js"
+  "./_build/assets/_id_-CBlcDfxJ.js"
 ) }, "path": "/dashboards/:id" }, { "page": true, "$component": { "src": "src/routes/dashboards/index.tsx?pick=default&pick=$css", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-VhEYKGTU.js"
+  "./_build/assets/index-E_f5-2wN.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-VhEYKGTU.js"
+  "./_build/assets/index-E_f5-2wN.js"
 ) }, "path": "/dashboards/" }, { "page": true, "$component": { "src": "src/routes/dashboards/library.tsx?pick=default&pick=$css", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/library-C0MgaCIJ.js"
+  "./_build/assets/library-9m_Y7gue.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/library-C0MgaCIJ.js"
+  "./_build/assets/library-9m_Y7gue.js"
 ) }, "path": "/dashboards/library" }, { "page": true, "$component": { "src": "src/routes/database/[db].tsx?pick=default&pick=$css", "build": () => import(
   /* @vite-ignore */
   "./_build/assets/_db_-CZfZmRwI.js"
@@ -1248,10 +1248,10 @@ const fileRoutes = [{ "page": true, "$component": { "src": "src/routes/TrustedCA
   "./_build/assets/index-BFTcs6yI.js"
 ) }, "path": "/database/" }, { "page": true, "$component": { "src": "src/routes/p/[id].tsx?pick=default&pick=$css", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-Cjq8OYdt.js"
+  "./_build/assets/_id_-KbMhWAxG.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/_id_-Cjq8OYdt.js"
+  "./_build/assets/_id_-KbMhWAxG.js"
 ) }, "path": "/p/:id" }, { "page": true, "$component": { "src": "src/routes/protos/index.tsx?pick=default&pick=$css", "build": () => import(
   /* @vite-ignore */
   "./_build/assets/index-CRbc-Zf9.js"
@@ -1386,16 +1386,16 @@ const fileRoutes = [{ "page": true, "$component": { "src": "src/routes/TrustedCA
   "./_build/assets/test-oafj6Cl_.js"
 ) }, "path": "/api/connections/test" }, { "page": false, "$GET": { "src": "src/routes/api/dashboards/index.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-Bp3O-lVx.js"
+  "./_build/assets/index-B3_TMP1x.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-Bp3O-lVx.js"
+  "./_build/assets/index-B3_TMP1x.js"
 ) }, "$HEAD": { "src": "src/routes/api/dashboards/index.ts?pick=GET", "build": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-Bp3O-lVx.js"
+  "./_build/assets/index-B3_TMP1x.js"
 ), "import": () => import(
   /* @vite-ignore */
-  "./_build/assets/index-Bp3O-lVx.js"
+  "./_build/assets/index-B3_TMP1x.js"
 ) }, "$POST": { "src": "src/routes/api/dashboards/index.ts?pick=POST", "build": () => import(
   /* @vite-ignore */
   "./_build/assets/index-Dha14AW4.js"
@@ -1818,16 +1818,50 @@ const fetchSession = async () => {
     return null;
   }
 };
+const publicLinks = ["/", "/library", "/about"];
+const authenticatedLinks = ["/", "/library", "/dashboards", "/workflows", "/TrustedCA", "/connections", "/protos", "/database", "/requests", "/about"];
+const linkLabel = (path) => {
+  switch (path) {
+    case "/":
+      return "Home";
+    case "/library":
+      return "Library";
+    case "/dashboards":
+      return "Dashboards";
+    case "/workflows":
+      return "Workflows";
+    case "/TrustedCA":
+      return "Trusted CAs";
+    case "/connections":
+      return "Connections";
+    case "/protos":
+      return "Protos";
+    case "/database":
+      return "Database";
+    case "/requests":
+      return "Requests";
+    case "/about":
+      return "About";
+    default:
+      return path.replace("/", "").charAt(0).toUpperCase() + path.replace("/", "").slice(1);
+  }
+};
 function Nav() {
   const [session, setSession] = createSignal(void 0);
   onMount(async () => {
     setSession(await fetchSession());
   });
+  const visibleLinks = createMemo(() => session() ? authenticatedLinks : publicLinks);
   const active = (path) => {
     if (isServer) return "text-zinc-400 hover:text-white hover:bg-zinc-800/50";
     return window.location.pathname === path ? "text-white bg-zinc-800/80 font-semibold shadow-sm" : "text-zinc-400 hover:text-white hover:bg-zinc-800/50";
   };
-  return ssr(_tmpl$4, ssrHydrationKey(), escape(["/", "/library", "/dashboards", "/workflows", "/TrustedCA", "/connections", "/protos", "/database", "/requests", "/about"].map((path) => ssr(_tmpl$5, ssrHydrationKey(), ssrAttribute("href", escape(path, true), false), `rounded-lg px-3 py-1.5 text-xs font-medium transition-colors duration-200 ${escape(active(path), true)}`, path === "/" ? "Home" : path === "/library" ? "Library" : path === "/TrustedCA" ? "Trusted CAs" : escape(path.replace("/", "").charAt(0).toUpperCase()) + escape(path.replace("/", "").slice(1))))), escape(createComponent$1(Badge, {
+  return ssr(_tmpl$4, ssrHydrationKey(), escape(createComponent$1(For, {
+    get each() {
+      return visibleLinks();
+    },
+    children: (path) => ssr(_tmpl$5, ssrHydrationKey(), ssrAttribute("href", escape(path, true), false), `rounded-lg px-3 py-1.5 text-xs font-medium transition-colors duration-200 ${escape(active(path), true)}`, escape(linkLabel(path)))
+  })), escape(createComponent$1(Badge, {
     variant: "success",
     "class": "gap-1.5 px-3 py-1",
     get children() {

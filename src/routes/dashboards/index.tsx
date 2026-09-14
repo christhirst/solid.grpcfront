@@ -13,6 +13,8 @@ type DashboardSummary = {
   buttons?: unknown[];
   updated_at?: string;
   created_at?: string;
+  description?: string;
+  tags?: string[];
 };
 
 const dashboardId = (id: string) => id.replace("dashboard:", "");
@@ -216,6 +218,16 @@ export default function Dashboards() {
                 </CardHeader>
                 
                 <CardContent class="px-5 pb-4">
+                  <Show when={d.description}>
+                    <p class="text-sm text-zinc-400 line-clamp-2 mb-3">{d.description}</p>
+                  </Show>
+                  <Show when={d.tags && d.tags.length > 0}>
+                    <div class="flex flex-wrap gap-1.5 mb-3">
+                      <For each={d.tags}>
+                        {(tag) => <Badge variant="purple">{tag}</Badge>}
+                      </For>
+                    </div>
+                  </Show>
                   <div class="grid grid-cols-2 gap-3">
                     <div class="rounded-xl border border-zinc-800/80 bg-zinc-900/50 p-3">
                       <div class="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">Widgets</div>

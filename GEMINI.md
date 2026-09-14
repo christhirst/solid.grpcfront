@@ -133,3 +133,6 @@ When assisting on this repository:
 
 
 ## 7. UI: solid-ui like: https://github.com/stefan-karger/solid-ui/blob/main/apps/docs/public/og.png
+1. **Use solid-ui components for UI development.**
+## 8. Git-Workflow
+1. **Always increase the "solid.grpcfront:TAG" by just +1 to the TAG.**

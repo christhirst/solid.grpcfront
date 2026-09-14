@@ -16,14 +16,14 @@ export async function GET(event: APIEvent) {
       let result;
       if (q && publishedOnly) {
         result = await db.query(
-          "SELECT * FROM dashboard WHERE isPublic = true AND string::lowercase(name) CONTAINS string::lowercase($q) ORDER BY updated_at DESC",
+          "SELECT * FROM dashboard WHERE isPublic = true AND (string::lowercase(name) CONTAINS string::lowercase($q) OR string::lowercase(description ?? '') CONTAINS string::lowercase($q) OR $q INSIDE tags) ORDER BY updated_at DESC",
           { q }
         );
       } else if (publishedOnly) {
         result = await db.query("SELECT * FROM dashboard WHERE isPublic = true ORDER BY updated_at DESC");
       } else if (q) {
         result = await db.query(
-          "SELECT * FROM dashboard WHERE string::lowercase(name) CONTAINS string::lowercase($q) ORDER BY updated_at DESC",
+          "SELECT * FROM dashboard WHERE (string::lowercase(name) CONTAINS string::lowercase($q) OR string::lowercase(description ?? '') CONTAINS string::lowercase($q) OR $q INSIDE tags) ORDER BY updated_at DESC",
           { q }
         );
       } else {
