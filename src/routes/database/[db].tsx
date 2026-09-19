@@ -194,7 +194,7 @@ export default function DatabaseViewer() {
   };
 
   return (
-    <main class="mx-auto max-w-7xl px-6 py-12 text-white">
+    <main class="mx-auto max-w-7xl 2xl:max-w-[90rem] px-4 sm:px-6 py-12 text-white">
       <div class="mb-8 flex items-center justify-between">
         <div class="flex items-center gap-4">
           <A href="/database" class="text-[#8b8b9e] hover:text-white flex items-center gap-1 transition-colors">

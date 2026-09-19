@@ -1094,7 +1094,7 @@ export default function WorkflowBuilder() {
   };
 
   return (
-    <main class="mx-auto max-w-7xl px-6 py-12">
+    <main class="mx-auto max-w-7xl 2xl:max-w-[90rem] px-4 sm:px-6 py-12">
       <div class="mb-8 flex items-center justify-between">
         <div>
           <input 

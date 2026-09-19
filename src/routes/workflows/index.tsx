@@ -60,11 +60,11 @@ export default function Workflows() {
   };
 
   return (
-    <main class="mx-auto max-w-7xl px-6 py-12">
+    <main class="mx-auto max-w-7xl 2xl:max-w-[90rem] px-4 sm:px-6 py-12">
       <div class="mb-10 flex items-end justify-between">
         <div>
-          <h1 class="text-4xl font-extrabold tracking-tight text-white mb-2">Workflows</h1>
-          <p class="text-[15px] text-[#8b8b9e]">Build, chain, and automate gRPC requests</p>
+          <h1 class="text-5xl font-extrabold tracking-tight text-white mb-2">Workflows</h1>
+          <p class="text-base text-[#8b8b9e]">Build, chain, and automate gRPC requests</p>
         </div>
         
         <a href="/workflows/new" target="_self" class="btn-primary hover-lift glow-effect group flex items-center gap-2">
@@ -82,11 +82,11 @@ export default function Workflows() {
           <svg class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#5a5a6e]" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg>
           <input
             onInput={(e) => handleSearch(e.currentTarget.value)}
-            class="w-full rounded-xl border border-[#1e1e2e] bg-[#12121a] py-3 pl-10 pr-4 text-sm text-white outline-none transition-colors placeholder:text-[#5a5a6e] focus:border-blue-500"
+            class="w-full rounded-xl border border-[#1e1e2e] bg-[#12121a] py-3 pl-10 pr-4 text-base text-white outline-none transition-colors placeholder:text-[#5a5a6e] focus:border-blue-500"
             placeholder="Search workflows..."
           />
         </div>
-        <div class="text-sm text-[#8b8b9e]">
+        <div class="text-base text-[#8b8b9e]">
           <Show when={!workflows.loading} fallback="Searching...">
             {workflows()?.length || 0} workflow{(workflows()?.length || 0) !== 1 ? "s" : ""}
           </Show>

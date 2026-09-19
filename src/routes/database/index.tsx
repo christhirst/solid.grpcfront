@@ -49,7 +49,7 @@ export default function DatabaseOverview() {
   };
 
   return (
-    <main class="mx-auto max-w-5xl px-6 py-12 text-white">
+    <main class="mx-auto max-w-5xl 2xl:max-w-7xl px-4 sm:px-6 py-12 text-white">
       <div class="mb-8 flex items-center justify-between">
         <h1 class="text-3xl font-extrabold tracking-tight">Database Management</h1>
       </div>

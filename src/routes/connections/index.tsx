@@ -447,11 +447,11 @@ export default function Connections() {
   };
 
   return (
-    <main class="mx-auto max-w-7xl px-6 py-12">
+    <main class="mx-auto max-w-7xl 2xl:max-w-[90rem] px-4 sm:px-6 py-12">
       {/* Header */}
       <div class="mb-8 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
-          <h1 class="text-4xl font-extrabold tracking-tight text-white mb-2">Connections</h1>
+          <h1 class="text-5xl font-extrabold tracking-tight text-white mb-2">Connections</h1>
           <p class="text-[15px] text-[#8b8b9e]">Manage HTTP, gRPC, and SurrealDB connections with optional pre-request token authentication</p>
         </div>
 

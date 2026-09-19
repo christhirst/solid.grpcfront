@@ -137,7 +137,7 @@ export default function Protos() {
       <div class="mesh-gradient" />
       <div class="grain-overlay" />
 
-      <div class="relative z-10 mx-auto max-w-5xl px-6 py-8">
+      <div class="relative z-10 mx-auto max-w-5xl 2xl:max-w-7xl px-4 sm:px-6 py-8">
         <div class="flex items-center justify-between mb-8 fade-in-up delay-1">
           <div>
             <div class="flex items-center gap-3 mb-2">

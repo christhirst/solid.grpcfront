@@ -803,7 +803,7 @@ export default function PublicDashboard() {
   ];
 
   return (
-    <main class="min-h-screen bg-[#050508] p-6 lg:p-16 font-sans">
+    <main class="min-h-screen bg-[#050508] p-4 sm:p-6 lg:p-16 font-sans">
       <Show when={dashboard() === null}>
         <div class="text-center mt-32">
           <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="mx-auto mb-4 text-[#8b8b9e]"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
@@ -819,24 +819,24 @@ export default function PublicDashboard() {
       </Show>
 
       <Show when={dashboard()}>
-        <div class="max-w-7xl mx-auto px-4">
+        <div class="max-w-7xl 2xl:max-w-[90rem] mx-auto px-4">
           {/* Header */}
           <div class="relative pt-12 pb-8 text-center mb-10">
             <div class="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-purple-500 to-transparent opacity-50"></div>
             <div class="flex items-center justify-between mb-4">
-              <a href="/library" class="text-xs text-[#8b8b9e] hover:text-white flex items-center gap-1.5 transition-colors">
+              <a href="/library" class="text-sm text-[#8b8b9e] hover:text-white flex items-center gap-1.5 transition-colors">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg>
                 <span>Dashboard Library</span>
               </a>
               <Show when={session()}>
-                <a href={`/dashboards/${(dashboard()?.id || params.id || "").replace("dashboard:", "")}`} class="text-xs text-purple-400 hover:text-purple-300 flex items-center gap-1.5 transition-colors">
+                <a href={`/dashboards/${(dashboard()?.id || params.id || "").replace("dashboard:", "")}`} class="text-sm text-purple-400 hover:text-purple-300 flex items-center gap-1.5 transition-colors">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
                   <span>Edit & Arrange</span>
                 </a>
               </Show>
             </div>
-            <h1 class="text-4xl font-extrabold tracking-tight text-white mb-2">{dashboard().name}</h1>
-            <p class="text-[12px] font-bold tracking-widest text-[#5b5b6e] uppercase">Public View • Fixed Layout</p>
+            <h1 class="text-5xl font-extrabold tracking-tight text-white mb-2">{dashboard().name}</h1>
+            <p class="text-sm font-bold tracking-widest text-[#5b5b6e] uppercase">Public View • Fixed Layout</p>
           </div>
 
           {/* Widgets grid (GridStack fixed layout) */}

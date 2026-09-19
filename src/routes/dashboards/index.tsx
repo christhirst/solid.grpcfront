@@ -94,7 +94,7 @@ export default function Dashboards() {
   };
 
   return (
-    <main class="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:py-10">
+    <main class="mx-auto max-w-7xl 2xl:max-w-[90rem] px-4 py-8 sm:px-6 lg:py-10">
       <Card class="mb-8 overflow-hidden bg-zinc-950/80 border-zinc-800/80">
         <div class="flex flex-col gap-6 border-b border-zinc-800/80 p-5 sm:p-6 lg:flex-row lg:items-center lg:justify-between">
           <div>
@@ -104,8 +104,8 @@ export default function Dashboards() {
                 Workflow control surfaces
               </Badge>
             </div>
-            <h1 class="text-3xl font-extrabold tracking-tight text-white">Dashboards</h1>
-            <p class="mt-2 max-w-2xl text-sm leading-6 text-zinc-400">
+            <h1 class="text-4xl font-extrabold tracking-tight text-white">Dashboards</h1>
+            <p class="mt-2 max-w-2xl text-base leading-6 text-zinc-400">
               Build public or internal boards that turn workflows into buttons, forms, charts, and tables.
             </p>
           </div>
@@ -137,16 +137,16 @@ export default function Dashboards() {
 
         <div class="grid grid-cols-1 divide-y divide-zinc-800/80 sm:grid-cols-3 sm:divide-x sm:divide-y-0 bg-zinc-950/40">
           <div class="p-5">
-            <div class="text-xs font-semibold uppercase tracking-wide text-zinc-500">Total</div>
-            <div class="mt-2 text-2xl font-bold text-white">{dashboards()?.length || 0}</div>
+            <div class="text-sm font-semibold uppercase tracking-wide text-zinc-500">Total</div>
+            <div class="mt-2 text-3xl font-bold text-white">{dashboards()?.length || 0}</div>
           </div>
           <div class="p-5">
-            <div class="text-xs font-semibold uppercase tracking-wide text-zinc-500">Published</div>
-            <div class="mt-2 text-2xl font-bold text-emerald-300">{publicCount()}</div>
+            <div class="text-sm font-semibold uppercase tracking-wide text-zinc-500">Published</div>
+            <div class="mt-2 text-3xl font-bold text-emerald-300">{publicCount()}</div>
           </div>
           <div class="p-5">
-            <div class="text-xs font-semibold uppercase tracking-wide text-zinc-500">Widgets</div>
-            <div class="mt-2 text-2xl font-bold text-blue-300">{widgetCount()}</div>
+            <div class="text-sm font-semibold uppercase tracking-wide text-zinc-500">Widgets</div>
+            <div class="mt-2 text-3xl font-bold text-blue-300">{widgetCount()}</div>
           </div>
         </div>
       </Card>
@@ -160,7 +160,7 @@ export default function Dashboards() {
             placeholder="Search dashboards..."
           />
         </div>
-        <div class="text-xs text-zinc-400">
+        <div class="text-sm text-zinc-400">
           <Show when={!dashboards.loading} fallback="Loading dashboards...">
             Showing {visibleDashboards().length} of {dashboards()?.length || 0}
           </Show>
@@ -204,7 +204,7 @@ export default function Dashboards() {
                 <CardHeader class="p-5 pb-3">
                   <div class="flex items-start justify-between gap-4">
                     <div class="min-w-0">
-                      <CardTitle class="truncate text-base font-bold text-white transition-colors group-hover:text-blue-300">
+                      <CardTitle class="truncate text-lg font-bold text-white transition-colors group-hover:text-blue-300">
                         {d.name || "Untitled Dashboard"}
                       </CardTitle>
                       <CardDescription class="mt-1">
@@ -230,11 +230,11 @@ export default function Dashboards() {
                   </Show>
                   <div class="grid grid-cols-2 gap-3">
                     <div class="rounded-xl border border-zinc-800/80 bg-zinc-900/50 p-3">
-                      <div class="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">Widgets</div>
+                      <div class="text-xs font-semibold uppercase tracking-wide text-zinc-500">Widgets</div>
                       <div class="mt-1 text-xl font-bold text-white">{d.buttons?.length || 0}</div>
                     </div>
                     <div class="rounded-xl border border-zinc-800/80 bg-zinc-900/50 p-3">
-                      <div class="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">Access</div>
+                      <div class="text-xs font-semibold uppercase tracking-wide text-zinc-500">Access</div>
                       <div class="mt-1 truncate text-sm font-semibold text-white">{d.isPublic ? "Shared" : "Internal"}</div>
                     </div>
                   </div>

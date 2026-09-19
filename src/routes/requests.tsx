@@ -534,7 +534,7 @@ export default function RequestsClient() {
       <div class="mesh-gradient" />
       <div class="grain-overlay" />
 
-      <div class="relative z-10 mx-auto max-w-7xl px-6 py-8">
+      <div class="relative z-10 mx-auto max-w-7xl 2xl:max-w-[90rem] px-4 sm:px-6 py-8">
         {/* Page Header */}
         <div class="mb-8 fade-in-up delay-1 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>

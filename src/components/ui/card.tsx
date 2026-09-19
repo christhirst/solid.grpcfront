@@ -33,7 +33,7 @@ export function CardTitle(props: JSX.HTMLAttributes<HTMLHeadingElement>) {
 export function CardDescription(props: JSX.HTMLAttributes<HTMLParagraphElement>) {
   const [local, rest] = splitProps(props, ["class", "children"]);
   return (
-    <p class={`text-xs text-zinc-400 leading-relaxed ${local.class || ""}`} {...rest}>
+    <p class={`text-sm text-zinc-400 leading-relaxed ${local.class || ""}`} {...rest}>
       {local.children}
     </p>
   );

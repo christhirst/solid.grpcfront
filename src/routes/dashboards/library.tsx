@@ -231,7 +231,7 @@ export default function DashboardLibrary() {
   };
 
   return (
-    <main class="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:py-10">
+    <main class="mx-auto max-w-7xl 2xl:max-w-[90rem] px-4 py-8 sm:px-6 lg:py-10">
       {/* Hero Header & Filter Bar on Top (Always Stays) */}
       <Card class="mb-8 overflow-hidden bg-zinc-950/80 border-zinc-800/80">
         <div class="flex flex-col gap-6 border-b border-zinc-800/80 p-6 lg:flex-row lg:items-center lg:justify-between">
@@ -242,8 +242,8 @@ export default function DashboardLibrary() {
                 Public Dashboard Library
               </Badge>
             </div>
-            <h1 class="text-3xl font-extrabold tracking-tight text-white">Dashboard Library</h1>
-            <p class="mt-2 max-w-2xl text-sm leading-6 text-zinc-400">
+            <h1 class="text-4xl font-extrabold tracking-tight text-white">Dashboard Library</h1>
+            <p class="mt-2 max-w-2xl text-base leading-6 text-zinc-400">
               Explore and preview published dashboards arranged by their creators.
             </p>
           </div>
@@ -312,7 +312,7 @@ export default function DashboardLibrary() {
                   <button
                     type="button"
                     onClick={() => setWidgetFilter(chip.id)}
-                    class={`rounded-lg px-3 py-2 text-xs font-semibold transition-all shrink-0 select-none ${
+                    class={`rounded-lg px-3 py-2 text-sm font-semibold transition-all shrink-0 select-none ${
                       widgetFilter() === chip.id
                         ? "bg-purple-600 text-white shadow-md shadow-purple-500/20"
                         : "bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-white border border-zinc-800/80"
@@ -328,7 +328,7 @@ export default function DashboardLibrary() {
           {/* Tag Filter Chips */}
           <Show when={allTags().length > 0}>
             <div class="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 border-t border-zinc-800/60 pt-3 mt-1 px-5">
-              <span class="text-[10px] font-semibold uppercase tracking-wide text-zinc-500 shrink-0 mr-1">Tags:</span>
+              <span class="text-xs font-semibold uppercase tracking-wide text-zinc-500 shrink-0 mr-1">Tags:</span>
               <For each={allTags()}>
                 {(tag) => (
                   <button
@@ -341,7 +341,7 @@ export default function DashboardLibrary() {
                         setSelectedTags([...current, tag]);
                       }
                     }}
-                    class={`rounded-lg px-3 py-2 text-xs font-semibold transition-all shrink-0 select-none ${
+                    class={`rounded-lg px-3 py-2 text-sm font-semibold transition-all shrink-0 select-none ${
                       selectedTags().includes(tag)
                         ? "bg-purple-600 text-white shadow-md shadow-purple-500/20"
                         : "bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-white border border-zinc-800/80"
@@ -355,7 +355,7 @@ export default function DashboardLibrary() {
                 <button
                   type="button"
                   onClick={() => setSelectedTags([])}
-                  class="rounded-lg px-2 py-2 text-[10px] font-medium text-zinc-500 hover:text-white transition-colors shrink-0"
+                  class="rounded-lg px-2 py-2 text-xs font-medium text-zinc-500 hover:text-white transition-colors shrink-0"
                 >
                   Clear
                 </button>
@@ -365,11 +365,11 @@ export default function DashboardLibrary() {
 
           {/* Sort Selector & Count */}
           <div class="flex items-center gap-3 shrink-0 p-5 pt-3">
-            <label class="text-xs text-zinc-400">Sort by:</label>
+            <label class="text-sm text-zinc-400">Sort by:</label>
             <select
               value={sortBy()}
               onChange={(e) => setSortBy(e.currentTarget.value as any)}
-              class="rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2 text-xs text-white focus:border-purple-500 focus:outline-none transition-colors"
+              class="rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-white focus:border-purple-500 focus:outline-none transition-colors"
             >
               <option value="updated">Recently Updated</option>
               <option value="widgets">Most Widgets</option>

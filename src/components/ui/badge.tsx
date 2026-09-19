@@ -29,7 +29,7 @@ export function Badge(props: BadgeProps) {
 
   return (
     <span
-      class={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold tracking-wide transition-colors ${variantClass()} ${local.class || ""}`}
+      class={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-semibold tracking-wide transition-colors ${variantClass()} ${local.class || ""}`}
       {...rest}
     >
       {local.children}

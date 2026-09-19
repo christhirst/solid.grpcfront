@@ -289,7 +289,7 @@ export default function DashboardBuilder() {
   };
 
   return (
-    <main class="mx-auto max-w-7xl px-6 py-12">
+    <main class="mx-auto max-w-7xl 2xl:max-w-[90rem] px-4 sm:px-6 py-12">
       <div class="mb-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div class="min-w-0 flex-1">
           <input
@@ -482,14 +482,14 @@ export default function DashboardBuilder() {
                     <div class="grid grid-cols-2 gap-4">
                       {/* Label — always */}
                       <div>
-                        <label class="mb-1 block text-xs text-[#8b8b9e]">Label</label>
+                        <label class="mb-1 block text-sm text-[#8b8b9e]">Label</label>
                         <input type="text" class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-purple-500 focus:outline-none" value={btn.label} onInput={(e) => updateButton(index(), "label", e.currentTarget.value)} placeholder="Widget label" />
                       </div>
 
                       {/* Color — button/form only */}
                       <Show when={wt() === "button" || wt() === "form"}>
                         <div>
-                          <label class="mb-1 block text-xs text-[#8b8b9e]">Color</label>
+                          <label class="mb-1 block text-sm text-[#8b8b9e]">Color</label>
                           <select class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-purple-500 focus:outline-none" value={btn.color} onChange={(e) => updateButton(index(), "color", e.currentTarget.value)}>
                             <For each={colorOptions}>{(c) => <option value={c.value}>{c.label}</option>}</For>
                           </select>
@@ -498,7 +498,7 @@ export default function DashboardBuilder() {
 
                       {/* Workflow binding — always */}
                       <div class="col-span-2">
-                        <label class="mb-1 block text-xs font-bold text-[#8b8b9e]">Bind to Workflow</label>
+                        <label class="mb-1 block text-sm font-bold text-[#8b8b9e]">Bind to Workflow</label>
                         <select class="w-full rounded-lg border border-[#2a2a3a] bg-[#151520] p-3 text-sm text-emerald-300 font-mono shadow-inner focus:border-purple-500 focus:outline-none"
                           value={btn.workflowId || ""}
                           onChange={(e) => {
@@ -527,7 +527,7 @@ export default function DashboardBuilder() {
                       <Show when={wt() === "chart"}>
                         <div class="col-span-2 pt-3 border-t border-[#2a2a3a]/50 grid grid-cols-3 gap-3">
                           <div>
-                            <label class="mb-1 block text-xs text-[#8b8b9e]">Chart Type</label>
+                            <label class="mb-1 block text-sm text-[#8b8b9e]">Chart Type</label>
                             <select class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2 text-xs text-white focus:border-pink-500 focus:outline-none" value={btn.chartType || "bar"} onChange={(e) => updateButton(index(), "chartType", e.currentTarget.value)}>
                               <option value="bar">Bar</option>
                               <option value="line">Line</option>
@@ -540,13 +540,13 @@ export default function DashboardBuilder() {
                             </select>
                           </div>
                           <div>
-                            <label class="mb-1 block text-xs text-[#8b8b9e]">
+                            <label class="mb-1 block text-sm text-[#8b8b9e]">
                               {btn.chartType?.startsWith("choropleth") ? "Region Field (State/Country)" : btn.chartType === "timeline" ? "Date/Year Field" : "X-Axis Field"}
                             </label>
                             <input type="text" class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2 text-xs text-white focus:border-pink-500 focus:outline-none" placeholder={btn.chartType?.startsWith("choropleth") ? "e.g. state" : btn.chartType === "timeline" ? "e.g. year" : "e.g. date"} value={btn.xKey || ""} onInput={(e) => updateButton(index(), "xKey", e.currentTarget.value)} />
                           </div>
                           <div>
-                            <label class="mb-1 block text-xs text-[#8b8b9e]">
+                            <label class="mb-1 block text-sm text-[#8b8b9e]">
                               {btn.chartType?.startsWith("choropleth") ? "Value Field" : btn.chartType === "timeline" ? "Title/Header Field" : "Y-Axis Field"}
                             </label>
                             <input type="text" class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2 text-xs text-white focus:border-pink-500 focus:outline-none" placeholder={btn.chartType === "timeline" ? "e.g. header" : "e.g. value"} value={btn.yKey || ""} onInput={(e) => updateButton(index(), "yKey", e.currentTarget.value)} />
@@ -557,7 +557,7 @@ export default function DashboardBuilder() {
                       {/* ── Table config ── */}
                       <Show when={wt() === "table"}>
                         <div class="col-span-2 pt-3 border-t border-[#2a2a3a]/50">
-                          <label class="mb-1 block text-xs text-[#8b8b9e]">Columns <span class="text-[#5b5b6e]">(comma-separated, blank = all)</span></label>
+                          <label class="mb-1 block text-sm text-[#8b8b9e]">Columns <span class="text-[#5b5b6e]">(comma-separated, blank = all)</span></label>
                           <input type="text" class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-xs text-white focus:border-emerald-500 focus:outline-none" placeholder="e.g. name, status, amount" value={btn.columns || ""} onInput={(e) => updateButton(index(), "columns", e.currentTarget.value)} />
                         </div>
                       </Show>
@@ -598,22 +598,22 @@ export default function DashboardBuilder() {
                                   <div class="bg-[#1e1e2e]/50 p-2 rounded-lg border border-[#2a2a3a]">
                                     <div class="flex items-center gap-2">
                                       <div class="flex-1">
-                                        <label class="text-[10px] text-[#5b5b6e] block mb-0.5">Variable</label>
+                                        <label class="text-xs text-[#5b5b6e] block mb-0.5">Variable</label>
                                         <input class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-1 text-xs font-mono text-purple-300 focus:outline-none focus:border-purple-500" value={field.name}
                                           onInput={(e) => { updateButton(index(),"formConfig", fIdx(), (f: any) => ({ ...f, name: e.currentTarget.value })); }} />
                                       </div>
                                       <div class="flex-1">
-                                        <label class="text-[10px] text-[#5b5b6e] block mb-0.5">Label</label>
+                                        <label class="text-xs text-[#5b5b6e] block mb-0.5">Label</label>
                                         <input class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-purple-500" value={field.label}
                                           onInput={(e) => { updateButton(index(),"formConfig", fIdx(), (f: any) => ({ ...f, label: e.currentTarget.value })); }} />
                                       </div>
                                       <div class="flex-1">
-                                        <label class="text-[10px] text-[#5b5b6e] block mb-0.5">Saved Value</label>
+                                        <label class="text-xs text-[#5b5b6e] block mb-0.5">Saved Value</label>
                                         <input class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-1 text-xs text-emerald-300 font-mono focus:outline-none focus:border-purple-500" value={field.value ?? field.defaultValue ?? ""} placeholder="Default value"
                                           onInput={(e) => { updateButton(index(),"formConfig", fIdx(), (f: any) => ({ ...f, value: e.currentTarget.value, defaultValue: e.currentTarget.value })); }} />
                                       </div>
                                       <div class="w-20">
-                                        <label class="text-[10px] text-[#5b5b6e] block mb-0.5">Type</label>
+                                        <label class="text-xs text-[#5b5b6e] block mb-0.5">Type</label>
                                         <select class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-1 py-1 text-xs text-white focus:outline-none focus:border-purple-500" value={field.type}
                                           onChange={(e) => { updateButton(index(),"formConfig", fIdx(), (f: any) => ({ ...f, type: e.currentTarget.value })); }}>
                                           <option value="string">String</option>
@@ -628,7 +628,7 @@ export default function DashboardBuilder() {
                                     </div>
                                     <Show when={field.type === "select"}>
                                       <div class="mt-2 pt-2 border-t border-[#2a2a3a]/50">
-                                        <label class="text-[10px] text-[#5b5b6e] block mb-0.5">Options (comma-separated)</label>
+                                        <label class="text-xs text-[#5b5b6e] block mb-0.5">Options (comma-separated)</label>
                                         <input class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-purple-500" value={field.options||""}
                                           onInput={(e)=>{ updateButton(index(),"formConfig", fIdx(), (f: any) => ({ ...f, options: e.currentTarget.value })); }} placeholder="e.g. US, UK, Canada" />
                                       </div>
@@ -666,7 +666,7 @@ export default function DashboardBuilder() {
                                 <div class="bg-[#1e1e2e]/60 p-2 rounded-lg border border-[#2a2a3a] space-y-1.5">
                                   <div class="grid grid-cols-12 gap-2 items-end">
                                     <div class="col-span-3">
-                                      <label class="text-[10px] text-[#5b5b6e] block mb-0.5">Data Path</label>
+                                      <label class="text-xs text-[#5b5b6e] block mb-0.5">Data Path</label>
                                       <input
                                         class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-1 text-xs font-mono text-white focus:outline-none focus:border-cyan-500"
                                         value={rule.path || ""}
@@ -675,7 +675,7 @@ export default function DashboardBuilder() {
                                       />
                                     </div>
                                     <div class="col-span-3">
-                                      <label class="text-[10px] text-[#5b5b6e] block mb-0.5">Operator</label>
+                                      <label class="text-xs text-[#5b5b6e] block mb-0.5">Operator</label>
                                       <select
                                         class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-cyan-500"
                                         value={rule.operator || "equals"}
@@ -693,7 +693,7 @@ export default function DashboardBuilder() {
                                       </select>
                                     </div>
                                     <div class="col-span-2">
-                                      <label class="text-[10px] text-[#5b5b6e] block mb-0.5">Compare Value</label>
+                                      <label class="text-xs text-[#5b5b6e] block mb-0.5">Compare Value</label>
                                       <input
                                         class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-cyan-500"
                                         value={rule.value ?? ""}
@@ -702,7 +702,7 @@ export default function DashboardBuilder() {
                                       />
                                     </div>
                                     <div class="col-span-3">
-                                      <label class="text-[10px] text-[#5b5b6e] block mb-0.5">Action</label>
+                                      <label class="text-xs text-[#5b5b6e] block mb-0.5">Action</label>
                                       <select
                                         class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-cyan-500"
                                         value={rule.action || "showWidget"}
@@ -724,7 +724,7 @@ export default function DashboardBuilder() {
                                   </div>
                                   <Show when={rule.action === "setLabel" || rule.action === "setWorkflow"}>
                                     <div>
-                                      <label class="text-[10px] text-[#5b5b6e] block mb-0.5">
+                                      <label class="text-xs text-[#5b5b6e] block mb-0.5">
                                         {rule.action === "setLabel" ? "New Label" : "Target Workflow ID"}
                                       </label>
                                       <input
@@ -763,7 +763,7 @@ export default function DashboardBuilder() {
 
                           <div class="grid grid-cols-2 gap-2">
                             <div>
-                              <label class="text-[10px] text-[#5b5b6e] block mb-0.5">Variable Data Path</label>
+                              <label class="text-xs text-[#5b5b6e] block mb-0.5">Variable Data Path</label>
                               <input
                                 class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-1 text-xs text-white focus:border-amber-500"
                                 value={btn.dataPath || ""}
@@ -862,7 +862,7 @@ export default function DashboardBuilder() {
                       <Show when={wt() === "toggle"}>
                         <div class="col-span-2 pt-3 border-t border-[#2a2a3a]/50 grid grid-cols-2 gap-3">
                           <div>
-                            <label class="text-[10px] text-[#5b5b6e] block mb-0.5">ON Label</label>
+                            <label class="text-xs text-[#5b5b6e] block mb-0.5">ON Label</label>
                             <input
                               class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-1 text-xs text-emerald-400 focus:border-cyan-500"
                               value={btn.onLabel || "ON"}
@@ -870,7 +870,7 @@ export default function DashboardBuilder() {
                             />
                           </div>
                           <div>
-                            <label class="text-[10px] text-[#5b5b6e] block mb-0.5">OFF Label</label>
+                            <label class="text-xs text-[#5b5b6e] block mb-0.5">OFF Label</label>
                             <input
                               class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-1 text-xs text-slate-400 focus:border-cyan-500"
                               value={btn.offLabel || "OFF"}
@@ -878,7 +878,7 @@ export default function DashboardBuilder() {
                             />
                           </div>
                           <div>
-                            <label class="text-[10px] text-[#5b5b6e] block mb-0.5">Form Variable Name</label>
+                            <label class="text-xs text-[#5b5b6e] block mb-0.5">Form Variable Name</label>
                             <input
                               class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-1 text-xs text-purple-300 font-mono focus:border-cyan-500"
                               value={btn.formVarName || "toggle_state"}
@@ -904,7 +904,7 @@ export default function DashboardBuilder() {
                       <Show when={wt() === "infographic"}>
                         <div class="col-span-2 pt-3 border-t border-[#2a2a3a]/50 space-y-3">
                           <div>
-                            <label class="mb-1 block text-xs text-[#8b8b9e]">Template Preset</label>
+                            <label class="mb-1 block text-sm text-[#8b8b9e]">Template Preset</label>
                             <select class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-xs text-white focus:border-rose-500 focus:outline-none"
                               value={btn.infographicTemplate || "list-row-simple-horizontal-arrow"}
                               onChange={(e) => {

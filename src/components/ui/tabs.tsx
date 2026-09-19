@@ -21,7 +21,7 @@ export function TabsTrigger(props: TabsTriggerProps) {
   return (
     <button
       type="button"
-      class={`inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg px-3.5 py-1.5 text-xs font-semibold ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500 disabled:pointer-events-none disabled:opacity-50 select-none ${
+      class={`inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg px-3.5 py-1.5 text-sm font-semibold ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500 disabled:pointer-events-none disabled:opacity-50 select-none ${
         local.active
           ? "bg-purple-600 text-white shadow-sm shadow-purple-500/20"
           : "text-zinc-400 hover:text-white hover:bg-zinc-800/50"

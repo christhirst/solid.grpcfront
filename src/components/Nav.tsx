@@ -60,6 +60,7 @@ export default function Nav() {
   // Do not serialize an anonymous SSR result: it briefly replaces an active
   // browser session after every native navigation. Keep this state client-only.
   const [session, setSession] = createSignal<any | null | undefined>(undefined);
+  const [mobileOpen, setMobileOpen] = createSignal(false);
 
   onMount(async () => {
     setSession(await fetchSession());
@@ -77,9 +78,9 @@ export default function Nav() {
 
   return (
     <nav class="sticky top-0 z-50 border-b border-zinc-800/80 bg-zinc-950/85 backdrop-blur-xl">
-      <div class="mx-auto flex max-w-7xl items-center justify-between px-6 py-3.5">
+      <div class="mx-auto flex max-w-7xl 2xl:max-w-[90rem] items-center justify-between px-4 sm:px-6 py-3.5">
         {/* Logo */}
-        <a href="/" class="flex items-center gap-3 group">
+        <a href="/" class="flex items-center gap-3 group shrink-0">
           <div class="relative flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-violet-600 shadow-lg shadow-blue-500/20 transition-transform group-hover:scale-105">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
               <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" />
@@ -91,15 +92,15 @@ export default function Nav() {
           </span>
         </a>
 
-        {/* Navigation Links - Only Home, Library, About when not logged in */}
-        <ul class="flex items-center gap-1">
+        {/* Desktop Navigation Links */}
+        <ul class="hidden lg:flex items-center gap-1">
           <For each={visibleLinks()}>
             {(path) => (
               <li>
                 <a
                   href={path}
                   rel="external"
-                  class={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors duration-200 ${active(path)}`}
+                  class={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors duration-200 ${active(path)}`}
                 >
                   {linkLabel(path)}
                 </a>
@@ -110,7 +111,7 @@ export default function Nav() {
 
         {/* Right Corner (Status + Auth) */}
         <div class="flex items-center gap-3">
-          <Badge variant="success" class="gap-1.5 px-3 py-1">
+          <Badge variant="success" class="gap-1.5 px-3 py-1 hidden sm:inline-flex">
             <span class="relative flex h-2 w-2">
               <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
               <span class="relative inline-flex h-2 w-2 rounded-full bg-emerald-500"></span>
@@ -118,38 +119,107 @@ export default function Nav() {
             <span>Live</span>
           </Badge>
 
-          <Show
-            when={session() !== undefined}
-            fallback={<div class="h-8 w-20" aria-label="Checking session" />}
-          >
+          <div class="hidden sm:block">
             <Show
-              when={session()}
-              fallback={
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={() => signIn("oidc", { callbackUrl: typeof window !== "undefined" ? window.location.href : "/" })}
-                >
-                  Log In
-                </Button>
-              }
+              when={session() !== undefined}
+              fallback={<div class="h-8 w-20" aria-label="Checking session" />}
             >
-              <div class="flex items-center gap-2.5">
-                <Badge variant="secondary" class="font-mono text-xs text-zinc-300">
-                  {session()?.user?.sub || "No Subject"}
-                </Badge>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => signOut()}
-                >
-                  Logout
-                </Button>
-              </div>
+              <Show
+                when={session()}
+                fallback={
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={() => signIn("oidc", { callbackUrl: typeof window !== "undefined" ? window.location.href : "/" })}
+                  >
+                    Log In
+                  </Button>
+                }
+              >
+                <div class="flex items-center gap-2.5">
+                  <Badge variant="secondary" class="font-mono text-sm text-zinc-300">
+                    {session()?.user?.sub || "No Subject"}
+                  </Badge>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => signOut()}
+                  >
+                    Logout
+                  </Button>
+                </div>
+              </Show>
             </Show>
-          </Show>
+          </div>
+
+          {/* Mobile hamburger */}
+          <button
+            class="lg:hidden inline-flex items-center justify-center h-9 w-9 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800/60 transition-colors"
+            onClick={() => setMobileOpen(!mobileOpen())}
+            aria-label="Toggle menu"
+          >
+            <Show when={!mobileOpen()} fallback={
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            }>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+            </Show>
+          </button>
         </div>
       </div>
+
+      {/* Mobile slide-out menu */}
+      <Show when={mobileOpen()}>
+        <div class="lg:hidden border-t border-zinc-800/80 bg-zinc-950/95 backdrop-blur-xl">
+          <div class="px-4 py-4 space-y-1">
+            <For each={visibleLinks()}>
+              {(path) => (
+                <a
+                  href={path}
+                  rel="external"
+                  onClick={() => setMobileOpen(false)}
+                  class={`block rounded-lg px-4 py-2.5 text-sm font-medium transition-colors duration-200 ${active(path)}`}
+                >
+                  {linkLabel(path)}
+                </a>
+              )}
+            </For>
+            <div class="pt-3 mt-3 border-t border-zinc-800/60 sm:hidden">
+              <Show
+                when={session() !== undefined}
+                fallback={<div class="h-8" aria-label="Checking session" />}
+              >
+                <Show
+                  when={session()}
+                  fallback={
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      class="w-full justify-center"
+                      onClick={() => signIn("oidc", { callbackUrl: typeof window !== "undefined" ? window.location.href : "/" })}
+                    >
+                      Log In
+                    </Button>
+                  }
+                >
+                  <div class="flex flex-col gap-2">
+                    <Badge variant="secondary" class="font-mono text-sm text-zinc-300 justify-center">
+                      {session()?.user?.sub || "No Subject"}
+                    </Badge>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      class="w-full justify-center"
+                      onClick={() => signOut()}
+                    >
+                      Logout
+                    </Button>
+                  </div>
+                </Show>
+              </Show>
+            </div>
+          </div>
+        </div>
+      </Show>
     </nav>
   );
 }

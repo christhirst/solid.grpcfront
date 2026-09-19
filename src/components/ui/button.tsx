@@ -29,14 +29,14 @@ export function Button(props: ButtonProps) {
   const sizeClass = () => {
     switch (local.size) {
       case "sm":
-        return "h-8 rounded-lg px-3 text-xs";
+        return "h-8 rounded-lg px-3 text-sm";
       case "lg":
-        return "h-11 rounded-xl px-6 text-sm";
+        return "h-12 rounded-xl px-6 text-base";
       case "icon":
         return "h-9 w-9 p-0 rounded-lg flex items-center justify-center";
       case "default":
       default:
-        return "h-9 rounded-lg px-4 py-2 text-xs font-medium";
+        return "h-10 rounded-lg px-4 py-2 text-sm font-medium";
     }
   };
 
