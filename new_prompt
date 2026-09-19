@@ -1,0 +1,8 @@
+[@solid.grpcfront](file:///home/c/workspace/solid.grpcfront/) Refactor the code to improve maintainability, cyclomatic complexity, and testability:
+
+Rules:
+- Keep the public signature and external behavior identical (zero regression).
+- Break monolithic logic into small, pure helper functions where feasible.
+- Eliminate deep nesting (guard clauses / early returns preferred).
+- Explain any performance trade-offs introduced by the refactor.
+- new feature: In the Dashboards i want to be able to show Buttons, Form-Fields depending of outcomes from the underlying workflow. The idea for Example could be: If the mail is in a table in the database, the form is not available and the button is "delete" and deletes the mail from the db, if the mail is not in the db the button says "add"

@@ -18,6 +18,7 @@ if (typeof window !== "undefined") {
 import { evaluateNewsRules, newsColorClasses, type NewsRule } from "~/lib/newsRulesEvaluator";
 import { checkWidgetVariablesConfigured } from "~/lib/workflowVariableChecker";
 import DashboardGrid from "~/components/dashboard/DashboardGrid";
+import { DashboardPublicButtonFormWidget } from "~/components/dashboard/DashboardPublicWidget";
 
 
 
@@ -755,7 +756,7 @@ export default function PublicDashboard() {
     }));
   };
 
-  const triggerButton = async (btn: any) => {
+  const triggerButton = async (btn: any, effectiveWorkflowId?: string) => {
     if (executing()[btn.id] === "running") return;
     setExecuting(prev => ({ ...prev, [btn.id]: "running" }));
     try {
@@ -769,11 +770,10 @@ export default function PublicDashboard() {
           }
         }
       });
-      const payload = {
-        form: mergedForm
-      };
-      
-      const res = await fetch(`/api/dashboards/${params.id}/trigger/${btn.id}`, { 
+      const payload: Record<string, any> = { form: mergedForm };
+      if (effectiveWorkflowId) payload.workflowId = effectiveWorkflowId;
+
+      const res = await fetch(`/api/dashboards/${params.id}/trigger/${btn.id}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
@@ -866,135 +866,15 @@ export default function PublicDashboard() {
                         return <InfographicWidget syntax={btn.infographicSyntax} editable={btn.infographicEditable} />;
                       }
 
-                      const state = () => executing()[btn.id] || "idle";
-                      const colorConfig = colorOptions.find(c => c.value === (btn.color || "blue"));
-                      const baseStyle = colorConfig ? colorConfig.class : "bg-blue-600 hover:bg-blue-500 ring-blue-500/50";
-
-                      const btnClass = () => {
-                        const base = "w-full h-full min-h-[36px] py-2 px-3 text-xs sm:text-sm font-bold text-white rounded-xl shadow-md transition-all duration-200 flex items-center justify-center gap-2 select-none truncate";
-                        if (state() === "running") return `${base} bg-slate-800 text-white/70 cursor-not-allowed`;
-                        if (state() === "success") return `${base} bg-emerald-600 ring-2 ring-emerald-500/50`;
-                        if (state() === "error")   return `${base} bg-red-600 ring-2 ring-red-500/50`;
-                        return `${base} active:scale-[0.98] focus:ring-2 focus:outline-none ${baseStyle}`;
-                      };
-
                       return (
-                        <Show when={btn.formConfig && btn.formConfig.length > 0} fallback={
-                          <button 
-                            onClick={() => triggerButton(btn)} 
-                            disabled={state() !== "idle"} 
-                            class={btnClass()}
-                          >
-                            <Show when={state() === "idle"}>
-                              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-                              <span>{btn.label}</span>
-                            </Show>
-                            <Show when={state() === "running"}>
-                              <svg class="animate-spin h-5 w-5 text-purple-400" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                              <span>Executing...</span>
-                            </Show>
-                            <Show when={state() === "success"}>
-                              <svg class="animate-bounce h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                              <span>Success!</span>
-                            </Show>
-                            <Show when={state() === "error"}>
-                              <svg class="animate-pulse h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>
-                              <span>Failed</span>
-                            </Show>
-                          </button>
-                        }>
-                          <div class="rounded-2xl border border-[#2a2a3a] bg-[#0e0e15] p-5 shadow-xl space-y-4 text-left">
-                            <div class="flex items-center gap-2 pb-2 border-b border-[#2a2a3a]">
-                              <span class="w-2.5 h-2.5 rounded-full bg-purple-500"></span>
-                              <h3 class="text-sm font-bold text-white">{btn.label}</h3>
-                            </div>
-                            
-                            <div class="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
-                              <For each={btn.formConfig}>
-                                {(field: any) => {
-                                  const val = () => {
-                                    const v = (formState()[btn.id] || {})[field.name];
-                                    if (v !== undefined) return v;
-                                    return field.value ?? field.defaultValue ?? "";
-                                  };
-                                  return (
-                                    <div class="col-span-1">
-                                      <label class="block text-xs font-bold text-[#8b8b9e] mb-1.5">{field.label}</label>
-                                      <Show when={field.type === "boolean"}>
-                                        <label class="flex items-center gap-3 cursor-pointer py-1.5">
-                                          <input
-                                            type="checkbox"
-                                            class="w-4 h-4 rounded border-[#2a2a3a] bg-[#1e1e2e] text-purple-500 focus:ring-purple-500/50"
-                                            checked={!!val()}
-                                            onChange={(e) => updateForm(btn.id, field.name, e.currentTarget.checked)}
-                                          />
-                                          <span class="text-sm text-white">Enable</span>
-                                        </label>
-                                      </Show>
-                                      <Show when={field.type === "select"}>
-                                        <select
-                                          class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500/50 transition-all"
-                                          value={val() || ""}
-                                          onChange={(e) => updateForm(btn.id, field.name, e.currentTarget.value)}
-                                        >
-                                          <option value="" disabled>Select an option...</option>
-                                          <For each={(field.options || "").split(",").map((o: string) => o.trim()).filter(Boolean)}>
-                                            {(opt) => <option value={opt}>{opt}</option>}
-                                          </For>
-                                        </select>
-                                      </Show>
-                                      <Show when={field.type === "textarea"}>
-                                        <textarea
-                                          rows={3}
-                                          required={field.required}
-                                          class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500/50 transition-all font-mono"
-                                          value={val() || ""}
-                                          onInput={(e) => updateForm(btn.id, field.name, e.currentTarget.value)}
-                                          placeholder={`Enter ${field.label}...`}
-                                        />
-                                      </Show>
-                                      <Show when={field.type !== "boolean" && field.type !== "select" && field.type !== "textarea"}>
-                                        <input
-                                          type={field.type === "number" ? "number" : "text"}
-                                          required={field.required}
-                                          class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500/50 transition-all"
-                                          value={val() || ""}
-                                          onInput={(e) => updateForm(btn.id, field.name, field.type === "number" ? Number(e.currentTarget.value) : e.currentTarget.value)}
-                                          placeholder={`Enter ${field.label}...`}
-                                        />
-                                      </Show>
-                                    </div>
-                                  );
-                                }}
-                              </For>
-                            </div>
-
-                            <div class="pt-2">
-                              <button
-                                onClick={() => triggerButton(btn)}
-                                disabled={state() !== "idle"}
-                                class={btnClass()}
-                              >
-                                <Show when={state() === "idle"}>
-                                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-                                  <span>Execute {btn.label}</span>
-                                </Show>
-                                <Show when={state() === "running"}>
-                                  <svg class="animate-spin h-4 w-4 text-purple-400" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                                  <span>Running...</span>
-                                </Show>
-                                <Show when={state() === "success"}>
-                                  <svg class="animate-bounce h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                                  <span>Success!</span>
-                                </Show>
-                                <Show when={state() === "error"}>
-                                  <svg class="animate-pulse h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>
-                                  <span>Failed</span>
-                                </Show>
-                              </button>
-                            </div>
-                          </div>
-                        </Show>
+                        <DashboardPublicButtonFormWidget
+                          btn={btn}
+                          dashboardId={params.id!}
+                          executing={executing()}
+                          formState={formState()}
+                          updateForm={updateForm}
+                          triggerButton={triggerButton}
+                        />
                       );
                     })()
                   }>

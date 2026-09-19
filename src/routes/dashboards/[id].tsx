@@ -19,6 +19,8 @@ if (!isServer) {
 
 import { extractFormVariables, checkWidgetVariablesConfigured } from "~/lib/workflowVariableChecker";
 import DashboardGrid, { getDefaultWidgetDimensions } from "~/components/dashboard/DashboardGrid";
+import { DashboardButtonFormWidget } from "~/components/dashboard/DashboardButtonFormWidget";
+import { defaultEffectiveConfig } from "~/lib/dashboard/widgetConditions";
 import { TabsList, TabsTrigger } from "~/components/ui/tabs";
 import { Badge } from "~/components/ui/badge";
 
@@ -152,7 +154,7 @@ export default function DashboardBuilder() {
     }));
   };
 
-  const triggerButton = async (btn: any) => {
+  const triggerButton = async (btn: any, effectiveWorkflowId?: string) => {
     if (isNew) {
       alert("Please save the dashboard first before executing button actions!");
       return;
@@ -160,11 +162,12 @@ export default function DashboardBuilder() {
     if (executing()[btn.id] === "running") return;
     setExecuting(prev => ({ ...prev, [btn.id]: "running" }));
     try {
-      const payload = {
+      const payload: Record<string, any> = {
         form: formState()[btn.id] || {}
       };
-      
-      const res = await fetch(`/api/dashboards/${params.id}/trigger/${btn.id}`, { 
+      if (effectiveWorkflowId) payload.workflowId = effectiveWorkflowId;
+
+      const res = await fetch(`/api/dashboards/${params.id}/trigger/${btn.id}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
@@ -273,128 +276,15 @@ export default function DashboardBuilder() {
       return <ToggleWidgetComponent btn={btn} dashboardId={params.id} formState={formState()} updateForm={updateForm} triggerButton={triggerButton} />;
     }
 
-    const state = () => executing()[btn.id] || "idle";
-    const btnClass = () => {
-      const base = "w-full h-full min-h-[36px] py-2 px-3 text-xs sm:text-sm font-bold text-white rounded-xl shadow-md transition-all duration-200 flex items-center justify-center gap-2 select-none truncate";
-      if (state() === "running") return `${base} bg-slate-800 text-white/70 cursor-not-allowed`;
-      if (state() === "success") return `${base} bg-emerald-600 ring-2 ring-emerald-500/50`;
-      if (state() === "error")   return `${base} bg-red-600 ring-2 ring-red-500/50`;
-      return `${base} active:scale-[0.98] focus:ring-2 focus:outline-none ${colorCls}`;
-    };
-
     return (
-      <Show when={btn.formConfig && btn.formConfig.length > 0} fallback={
-        <button 
-          onClick={() => triggerButton(btn)} 
-          disabled={state() !== "idle"} 
-          class={btnClass()}
-        >
-          <Show when={state() === "idle"}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-            <span>{btn.label}</span>
-          </Show>
-          <Show when={state() === "running"}>
-            <svg class="animate-spin h-5 w-5 text-purple-400" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-            <span>Executing...</span>
-          </Show>
-          <Show when={state() === "success"}>
-            <svg class="animate-bounce h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg>
-            <span>Success!</span>
-          </Show>
-          <Show when={state() === "error"}>
-            <svg class="animate-pulse h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>
-            <span>Failed</span>
-          </Show>
-        </button>
-      }>
-        <div class="rounded-2xl border border-[#2a2a3a] bg-[#0e0e15] p-5 shadow-xl space-y-4 text-left">
-          <div class="flex items-center gap-2 pb-2 border-b border-[#2a2a3a]">
-            <span class="w-2.5 h-2.5 rounded-full bg-purple-500"></span>
-            <h3 class="text-sm font-bold text-white">{btn.label}</h3>
-          </div>
-          
-          <div class="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
-            <For each={btn.formConfig}>
-              {(field: any) => {
-                const val = () => (formState()[btn.id] || {})[field.name];
-                return (
-                  <div class="col-span-1">
-                    <label class="block text-xs font-bold text-[#8b8b9e] mb-1.5">{field.label}</label>
-                    <Show when={field.type === "boolean"}>
-                      <label class="flex items-center gap-3 cursor-pointer py-1.5">
-                        <input
-                          type="checkbox"
-                          class="w-4 h-4 rounded border-[#2a2a3a] bg-[#1e1e2e] text-purple-500 focus:ring-purple-500/50"
-                          checked={val() !== undefined ? !!val() : !!field.defaultValue}
-                          onChange={(e) => updateForm(btn.id, field.name, e.currentTarget.checked)}
-                        />
-                        <span class="text-sm text-white">Enable</span>
-                      </label>
-                    </Show>
-                    <Show when={field.type === "select"}>
-                      <select
-                        class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500/50 transition-all"
-                        value={val() !== undefined ? val() : (field.defaultValue || "")}
-                        onChange={(e) => updateForm(btn.id, field.name, e.currentTarget.value)}
-                      >
-                        <option value="" disabled>Select an option...</option>
-                        <For each={(field.options || "").split(",").map((o: string) => o.trim()).filter(Boolean)}>
-                          {(opt) => <option value={opt}>{opt}</option>}
-                        </For>
-                      </select>
-                    </Show>
-                    <Show when={field.type === "textarea"}>
-                      <textarea
-                        rows={3}
-                        required={field.required}
-                        class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500/50 transition-all font-mono"
-                        value={val() !== undefined ? val() : (field.defaultValue || "")}
-                        onInput={(e) => updateForm(btn.id, field.name, e.currentTarget.value)}
-                        placeholder={`Enter ${field.label}...`}
-                      />
-                    </Show>
-                    <Show when={field.type !== "boolean" && field.type !== "select" && field.type !== "textarea"}>
-                      <input
-                        type={field.type === "number" ? "number" : "text"}
-                        required={field.required}
-                        class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500/50 transition-all"
-                        value={val() !== undefined ? val() : (field.defaultValue || "")}
-                        onInput={(e) => updateForm(btn.id, field.name, field.type === "number" ? Number(e.currentTarget.value) : e.currentTarget.value)}
-                        placeholder={`Enter ${field.label}...`}
-                      />
-                    </Show>
-                  </div>
-                );
-              }}
-            </For>
-          </div>
-
-          <div class="pt-2">
-            <button
-              onClick={() => triggerButton(btn)}
-              disabled={state() !== "idle"}
-              class={btnClass()}
-            >
-              <Show when={state() === "idle"}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-                <span>Execute {btn.label}</span>
-              </Show>
-              <Show when={state() === "running"}>
-                <svg class="animate-spin h-4 w-4 text-purple-400" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                <span>Running...</span>
-              </Show>
-              <Show when={state() === "success"}>
-                <svg class="animate-bounce h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                <span>Success!</span>
-              </Show>
-              <Show when={state() === "error"}>
-                <svg class="animate-pulse h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>
-                <span>Failed</span>
-              </Show>
-            </button>
-          </div>
-        </div>
-      </Show>
+      <DashboardButtonFormWidget
+        btn={btn}
+        effective={defaultEffectiveConfig(btn)}
+        state={executing()[btn.id] || "idle"}
+        formState={formState()}
+        updateForm={updateForm}
+        onTrigger={() => triggerButton(btn)}
+      />
     );
   };
 
@@ -748,6 +638,107 @@ export default function DashboardBuilder() {
                               </For>
                             </div>
                           </Show>
+                        </div>
+                      </Show>
+
+                      {/* ── Conditional Rules config ── */}
+                      <Show when={wt() === "button" || wt() === "form"}>
+                        <div class="col-span-2 pt-3 border-t border-[#2a2a3a]/50 space-y-3">
+                          <div class="flex items-center justify-between">
+                            <label class="text-xs font-bold text-cyan-400 flex items-center gap-1.5">
+                              🎛️ Conditional Rules (show/hide/label based on workflow outcome)
+                            </label>
+                            <button
+                              onClick={() => {
+                                const rules = [...(btn.conditionRules || [])];
+                                rules.push({ id: `cond_${Date.now()}`, path: "", operator: "equals", value: "", action: "showWidget" });
+                                updateButton(index(), "conditionRules", rules);
+                              }}
+                              class="text-[10px] px-2 py-0.5 rounded bg-cyan-600/20 text-cyan-300 hover:bg-cyan-600/40 border border-cyan-500/30"
+                            >
+                              + Add Condition
+                            </button>
+                          </div>
+
+                          <div class="space-y-2">
+                            <For each={btn.conditionRules || []}>
+                              {(rule: any, rIdx) => (
+                                <div class="bg-[#1e1e2e]/60 p-2 rounded-lg border border-[#2a2a3a] space-y-1.5">
+                                  <div class="grid grid-cols-12 gap-2 items-end">
+                                    <div class="col-span-3">
+                                      <label class="text-[10px] text-[#5b5b6e] block mb-0.5">Data Path</label>
+                                      <input
+                                        class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-1 text-xs font-mono text-white focus:outline-none focus:border-cyan-500"
+                                        value={rule.path || ""}
+                                        onInput={(e) => { updateButton(index(), "conditionRules", rIdx(), (r: any) => ({ ...r, path: e.currentTarget.value })); }}
+                                        placeholder="e.g. exists"
+                                      />
+                                    </div>
+                                    <div class="col-span-3">
+                                      <label class="text-[10px] text-[#5b5b6e] block mb-0.5">Operator</label>
+                                      <select
+                                        class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-cyan-500"
+                                        value={rule.operator || "equals"}
+                                        onChange={(e) => { updateButton(index(), "conditionRules", rIdx(), (r: any) => ({ ...r, operator: e.currentTarget.value })); }}
+                                      >
+                                        <option value="equals">equals</option>
+                                        <option value="notEquals">not equals</option>
+                                        <option value="contains">contains</option>
+                                        <option value="truthy">truthy</option>
+                                        <option value="falsy">falsy</option>
+                                        <option value="gt">&gt;</option>
+                                        <option value="lt">&lt;</option>
+                                        <option value="gte">&gt;=</option>
+                                        <option value="lte">&lt;=</option>
+                                      </select>
+                                    </div>
+                                    <div class="col-span-2">
+                                      <label class="text-[10px] text-[#5b5b6e] block mb-0.5">Compare Value</label>
+                                      <input
+                                        class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-cyan-500"
+                                        value={rule.value ?? ""}
+                                        onInput={(e) => { updateButton(index(), "conditionRules", rIdx(), (r: any) => ({ ...r, value: e.currentTarget.value })); }}
+                                        placeholder="value"
+                                      />
+                                    </div>
+                                    <div class="col-span-3">
+                                      <label class="text-[10px] text-[#5b5b6e] block mb-0.5">Action</label>
+                                      <select
+                                        class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-cyan-500"
+                                        value={rule.action || "showWidget"}
+                                        onChange={(e) => { updateButton(index(), "conditionRules", rIdx(), (r: any) => ({ ...r, action: e.currentTarget.value })); }}
+                                      >
+                                        <option value="showWidget">show widget</option>
+                                        <option value="hideWidget">hide widget</option>
+                                        <option value="showForm">show form</option>
+                                        <option value="hideForm">hide form</option>
+                                        <option value="setLabel">set label</option>
+                                        <option value="setWorkflow">set workflow</option>
+                                      </select>
+                                    </div>
+                                    <div class="col-span-1">
+                                      <button onClick={() => { const c=(btn.conditionRules||[]).filter((_:any,i:number)=>i!==rIdx()); updateButton(index(),"conditionRules",c); }} class="text-[#5b5b6e] hover:text-red-400 shrink-0">
+                                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                                      </button>
+                                    </div>
+                                  </div>
+                                  <Show when={rule.action === "setLabel" || rule.action === "setWorkflow"}>
+                                    <div>
+                                      <label class="text-[10px] text-[#5b5b6e] block mb-0.5">
+                                        {rule.action === "setLabel" ? "New Label" : "Target Workflow ID"}
+                                      </label>
+                                      <input
+                                        class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-cyan-500"
+                                        value={rule.targetValue ?? ""}
+                                        onInput={(e) => { updateButton(index(), "conditionRules", rIdx(), (r: any) => ({ ...r, targetValue: e.currentTarget.value })); }}
+                                        placeholder={rule.action === "setLabel" ? "e.g. Delete" : "e.g. workflow:delete-mail"}
+                                      />
+                                    </div>
+                                  </Show>
+                                </div>
+                              )}
+                            </For>
+                          </div>
                         </div>
                       </Show>
 
