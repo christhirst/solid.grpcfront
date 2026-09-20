@@ -63,6 +63,7 @@ export default function Nav() {
   const [mobileOpen, setMobileOpen] = createSignal(false);
   const [dbStatus, setDbStatus] = createSignal<"checking" | "connected" | "disconnected">("checking");
   const [dbError, setDbError] = createSignal<string | null>(null);
+  const [currentPath, setCurrentPath] = createSignal("");
 
   const checkDbHealth = async () => {
     if (isServer) return;
@@ -83,6 +84,11 @@ export default function Nav() {
   };
 
   onMount(async () => {
+    setCurrentPath(window.location.pathname);
+    const onPopState = () => setCurrentPath(window.location.pathname);
+    window.addEventListener("popstate", onPopState);
+    onCleanup(() => window.removeEventListener("popstate", onPopState));
+
     setSession(await fetchSession());
     checkDbHealth();
     const interval = setInterval(checkDbHealth, 30000);
@@ -93,10 +99,15 @@ export default function Nav() {
 
   // Use a simpler active check that doesn't rely on useLocation to avoid router context issues
   const active = (path: string) => {
-    if (isServer) return "text-zinc-400 hover:text-white hover:bg-zinc-800/50";
-    return window.location.pathname === path
+    return currentPath() === path
       ? "text-white bg-zinc-800/80 font-semibold shadow-sm"
       : "text-zinc-400 hover:text-white hover:bg-zinc-800/50";
+  };
+
+  const activeMobile = (path: string) => {
+    return currentPath() === path
+      ? "text-purple-400 font-semibold"
+      : "text-zinc-500 hover:text-zinc-300";
   };
 
   return (
@@ -273,24 +284,34 @@ export default function Nav() {
       </Show>
     </nav>
       {/* Mobile bottom navigation - smartphones only */}
-      <Show when={!isServer}>
-        <div class="fixed bottom-0 left-0 right-0 z-50 bg-zinc-950/95 backdrop-blur-xl border-t border-zinc-800/80 sm:hidden">
-          <div class="flex items-center justify-around py-2 px-2">
-            <a href="/library" rel="external" class={`flex flex-col items-center gap-0.5 px-3 py-1 rounded-lg text-[10px] font-medium transition-colors ${!isServer && window.location.pathname === '/library' ? 'text-purple-400' : 'text-zinc-500 hover:text-zinc-300'}`}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
-              Library
-            </a>
-            <a href="/" rel="external" class={`flex flex-col items-center gap-0.5 px-3 py-1 rounded-lg text-[10px] font-medium transition-colors ${!isServer && window.location.pathname === '/' ? 'text-purple-400' : 'text-zinc-500 hover:text-zinc-300'}`}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
-              Home
-            </a>
-            <a href="/about" rel="external" class={`flex flex-col items-center gap-0.5 px-3 py-1 rounded-lg text-[10px] font-medium transition-colors ${!isServer && window.location.pathname === '/about' ? 'text-purple-400' : 'text-zinc-500 hover:text-zinc-300'}`}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
-              About
-            </a>
-          </div>
+      <div class="fixed bottom-0 left-0 right-0 z-50 bg-zinc-950/95 backdrop-blur-xl border-t border-zinc-800/80 sm:hidden">
+        <div class="flex items-center justify-around py-2 px-2">
+          <a
+            href="/library"
+            rel="external"
+            class={`flex flex-col items-center gap-0.5 px-3 py-1 rounded-lg text-[10px] font-medium transition-colors ${activeMobile('/library')}`}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+            Library
+          </a>
+          <a
+            href="/"
+            rel="external"
+            class={`flex flex-col items-center gap-0.5 px-3 py-1 rounded-lg text-[10px] font-medium transition-colors ${activeMobile('/')}`}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
+            Home
+          </a>
+          <a
+            href="/about"
+            rel="external"
+            class={`flex flex-col items-center gap-0.5 px-3 py-1 rounded-lg text-[10px] font-medium transition-colors ${activeMobile('/about')}`}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+            About
+          </a>
         </div>
-      </Show>
+      </div>
     </>
   );
 }
