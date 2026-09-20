@@ -7,6 +7,7 @@ import { checkWorkflowConfiguredInDashboards } from "~/lib/workflowVariableCheck
 export default function Workflows() {
   const [searchQuery, setSearchQuery] = createSignal("");
   const [isDeleting, setIsDeleting] = createSignal<string | null>(null);
+  const [error, setError] = createSignal<string | null>(null);
   let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 
   const [dashboards] = createResource(async () => {
@@ -23,14 +24,18 @@ export default function Workflows() {
 
   const fetchWorkflows = async (q: string) => {
     if (isServer) return [];
+    setError(null);
     try {
       const params = q ? `?q=${encodeURIComponent(q)}` : "";
       const res = await fetch(`/api/workflows${params}`);
-      if (!res.ok) return [];
-      const json = await res.json();
-      return json.success && Array.isArray(json.data) ? json.data : [];
-    } catch (e) {
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json.success) {
+        throw new Error(json.error || `Failed to load workflows (${res.status})`);
+      }
+      return Array.isArray(json.data) ? json.data : [];
+    } catch (e: any) {
       console.error("fetchWorkflows error:", e);
+      setError(e?.message || "Failed to load workflows from SurrealDB");
       return [];
     }
   };
@@ -89,29 +94,54 @@ export default function Workflows() {
         </div>
       </div>
 
+      {/* Error state with retry */}
+      <Show when={error()}>
+        <div class="mb-6 p-4 rounded-xl border border-rose-500/40 bg-rose-950/30 text-rose-200 flex items-center justify-between shadow-lg">
+          <div class="flex items-center gap-3">
+            <span class="text-2xl">⚠️</span>
+            <div>
+              <div class="font-bold text-sm text-white">Database Connection Error</div>
+              <div class="text-xs text-rose-300/90 font-mono mt-0.5">{error()}</div>
+              <div class="text-[11px] text-[#8b8b9e] mt-1">
+                Please check your <code class="text-rose-300">SURREALDB_URL</code> in <code class="text-zinc-300">.env</code>.
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => refetch()}
+            class="px-3.5 py-1.5 rounded-lg bg-rose-600/30 hover:bg-rose-600/50 text-rose-100 border border-rose-500/40 text-xs font-semibold transition-colors shrink-0"
+          >
+            Retry
+          </button>
+        </div>
+      </Show>
+
       <Show
         when={workflows() && workflows().length > 0}
         fallback={
-          <div class="card flex flex-col items-center justify-center p-16 text-center border-dashed border-[#2a2a3a]">
-            <div class="mb-6 rounded-full bg-[#1e1e2e] p-6 text-[#5b5b6e]">
-              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-                <circle cx="8.5" cy="8.5" r="1.5"></circle>
-                <polyline points="21 15 16 10 5 21"></polyline>
-              </svg>
+          <Show when={!error()}>
+            <div class="card flex flex-col items-center justify-center p-16 text-center border-dashed border-[#2a2a3a]">
+              <div class="mb-6 rounded-full bg-[#1e1e2e] p-6 text-[#5b5b6e]">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                  <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                  <polyline points="21 15 16 10 5 21"></polyline>
+                </svg>
+              </div>
+              <h3 class="mb-2 text-xl font-bold text-white">
+                {searchQuery() ? "No matching workflows" : "No workflows found"}
+              </h3>
+              <p class="mb-6 max-w-md text-[#8b8b9e]">
+                {searchQuery()
+                  ? "Try a different search term."
+                  : "You haven't created any automated gRPC workflows yet. Start building your first flow!"}
+              </p>
+              <Show when={!searchQuery()}>
+                <a href="/workflows/new" target="_self" class="btn-primary">Create Your First Workflow</a>
+              </Show>
             </div>
-            <h3 class="mb-2 text-xl font-bold text-white">
-              {searchQuery() ? "No matching workflows" : "No workflows found"}
-            </h3>
-            <p class="mb-6 max-w-md text-[#8b8b9e]">
-              {searchQuery()
-                ? "Try a different search term."
-                : "You haven't created any automated gRPC workflows yet. Start building your first flow!"}
-            </p>
-            <Show when={!searchQuery()}>
-              <a href="/workflows/new" target="_self" class="btn-primary">Create Your First Workflow</a>
-            </Show>
-          </div>
+          </Show>
         }
       >
         <div class="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">

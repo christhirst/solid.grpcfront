@@ -1,0 +1,341 @@
+{
+  "workflows": [
+    {
+      "graph": {
+        "connections": [
+          {
+            "id": "33800a1decb60b50",
+            "source": "32b77c1a189850ba",
+            "sourceOutput": "data",
+            "target": "af0ef56a83a7d6f8",
+            "targetInput": "source_1"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "32b77c1a189850ba",
+            "position": {
+              "x": 80,
+              "y": 80
+            },
+            "stepId": "step_90dv9b5xb"
+          },
+          {
+            "id": "af0ef56a83a7d6f8",
+            "position": {
+              "x": 800,
+              "y": 300
+            },
+            "stepId": "step_23v9zzoey"
+          }
+        ],
+        "position": [
+          97.94335021972688,
+          65.17333068847634
+        ],
+        "zoom": 1.0613948806959446
+      },
+      "id": "workflow:92a5d7b0-a4f7-47f5-ad6a-525c481f16b5",
+      "name": "incident_source_from_DB",
+      "schedule": "",
+      "serverAddress": "localhost:50051",
+      "steps": [
+        {
+          "category": "source",
+          "connectionId": "connection:47349d35-5b16-4acc-b527-e980b81339f4",
+          "connectionMode": "saved",
+          "databasePass": "T#0g#0sh#1G#1nza",
+          "databaseUser": "ai",
+          "headersTemplate": "{}",
+          "id": "step_90dv9b5xb",
+          "requestBodyTemplate": "SELECT \n    time::format(incident_date, \"%Y-%m\") AS month,\n    count() AS total\nFROM incident_source\nGROUP BY month\nORDER BY month ASC;",
+          "sourceStepIds": [],
+          "transformExpression": "$",
+          "transformType": "jsonata",
+          "type": "database"
+        },
+        {
+          "caId": "",
+          "category": "target",
+          "chartType": "bar",
+          "dataPath": "",
+          "headersTemplate": "{}",
+          "id": "step_23v9zzoey",
+          "methodName": "",
+          "requestBodyTemplate": "{{ steps.step_90dv9b5xb.response }}",
+          "serverAddress": "",
+          "serviceName": "",
+          "sourceStepIds": [
+            "step_90dv9b5xb"
+          ],
+          "transformExpression": "$",
+          "transformType": "jsonata",
+          "type": "chart",
+          "xKey": "",
+          "yKey": ""
+        }
+      ],
+      "updated_at": "2026-09-12T08:50:20.118Z",
+      "useTls": false
+    },
+    {
+      "graph": {
+        "connections": [],
+        "nodes": [
+          {
+            "id": "d8d9572dca093fcf",
+            "position": {
+              "x": 80,
+              "y": 80
+            },
+            "stepId": "step_p4sazu6u7"
+          }
+        ],
+        "position": [
+          414,
+          129
+        ],
+        "zoom": 1
+      },
+      "id": "workflow:d53f7639-3f9c-4aad-9c63-8e6dacca58e0",
+      "name": "Bool",
+      "schedule": "",
+      "serverAddress": "localhost:50051",
+      "steps": [
+        {
+          "caId": "",
+          "category": "source",
+          "connectionId": "connection:47349d35-5b16-4acc-b527-e980b81339f4",
+          "connectionMode": "saved",
+          "dataPath": "",
+          "headersTemplate": "{}",
+          "id": "step_p4sazu6u7",
+          "methodName": "",
+          "requestBodyTemplate": "{{count((SELECT id FROM incident_source)) > 0;}}",
+          "serverAddress": "",
+          "serviceName": "",
+          "sourceStepIds": [],
+          "transformExpression": "$",
+          "transformType": "jsonata",
+          "type": "database",
+          "xKey": "",
+          "yKey": ""
+        }
+      ],
+      "updated_at": "2026-09-20T18:19:38.724Z",
+      "useTls": false
+    }
+  ],
+  "dashboards": [
+    {
+      "buttons": [
+        {
+          "chartType": "bar",
+          "color": "blue",
+          "columns": "",
+          "dataPath": "",
+          "defaultChecked": false,
+          "formConfig": [
+            {
+              "label": "New Field",
+              "name": "field_1789902871499",
+              "required": false,
+              "type": "boolean"
+            }
+          ],
+          "formVarName": "toggle_state",
+          "id": "btn_8vh5wrf6w",
+          "infographicEditable": false,
+          "infographicSyntax": "",
+          "infographicTemplate": "list-row-simple-horizontal-arrow",
+          "label": "New Form",
+          "lastFormPayload": {},
+          "newsRules": [
+            {
+              "color": "red",
+              "id": "rule_1",
+              "operator": "contains",
+              "textTemplate": "CRITICAL: {{ value }}",
+              "value": "error"
+            },
+            {
+              "color": "emerald",
+              "id": "rule_2",
+              "operator": "contains",
+              "textTemplate": "NORMAL: {{ value }}",
+              "value": "ok"
+            },
+            {
+              "color": "blue",
+              "id": "rule_3",
+              "operator": "default",
+              "textTemplate": "NEWS: {{ value }}",
+              "value": ""
+            }
+          ],
+          "offLabel": "INACTIVE",
+          "onLabel": "ACTIVE",
+          "streamActive": true,
+          "widgetType": "form",
+          "workflowId": "workflow:d53f7639-3f9c-4aad-9c63-8e6dacca58e0",
+          "xKey": "",
+          "yKey": ""
+        }
+      ],
+      "id": "dashboard:79834a82-a4d6-4430-9bf7-690421e383e0",
+      "isPublic": true,
+      "name": "New Bool",
+      "updated_at": "2026-09-20T18:21:01.827Z"
+    },
+    {
+      "buttons": [
+        {
+          "chartType": "bar",
+          "color": "blue",
+          "columns": "",
+          "dataPath": "",
+          "defaultChecked": false,
+          "formConfig": [],
+          "formVarName": "toggle_state",
+          "h": 3,
+          "id": "btn_k7qlpj8lt",
+          "infographicEditable": false,
+          "infographicSyntax": "",
+          "infographicTemplate": "list-row-simple-horizontal-arrow",
+          "label": "homicides",
+          "lastFormPayload": {},
+          "newsRules": [
+            {
+              "color": "red",
+              "id": "rule_1",
+              "operator": "contains",
+              "textTemplate": "CRITICAL: {{ value }}",
+              "value": "error"
+            },
+            {
+              "color": "emerald",
+              "id": "rule_2",
+              "operator": "contains",
+              "textTemplate": "NORMAL: {{ value }}",
+              "value": "ok"
+            },
+            {
+              "color": "blue",
+              "id": "rule_3",
+              "operator": "default",
+              "textTemplate": "NEWS: {{ value }}",
+              "value": ""
+            }
+          ],
+          "offLabel": "INACTIVE",
+          "onLabel": "ACTIVE",
+          "streamActive": true,
+          "w": 6,
+          "widgetType": "chart",
+          "workflowId": "workflow:92a5d7b0-a4f7-47f5-ad6a-525c481f16b5",
+          "x": 0,
+          "xKey": "",
+          "y": 0,
+          "yKey": ""
+        },
+        {
+          "chartType": "bar",
+          "color": "blue",
+          "columns": "",
+          "dataPath": "",
+          "defaultChecked": false,
+          "formConfig": [],
+          "formVarName": "toggle_state",
+          "id": "btn_6kwbnh0df",
+          "infographicEditable": false,
+          "infographicSyntax": "",
+          "infographicTemplate": "list-row-simple-horizontal-arrow",
+          "label": "New Button",
+          "newsRules": [
+            {
+              "color": "red",
+              "id": "rule_1",
+              "operator": "contains",
+              "textTemplate": "CRITICAL: {{ value }}",
+              "value": "error"
+            },
+            {
+              "color": "emerald",
+              "id": "rule_2",
+              "operator": "contains",
+              "textTemplate": "NORMAL: {{ value }}",
+              "value": "ok"
+            },
+            {
+              "color": "blue",
+              "id": "rule_3",
+              "operator": "default",
+              "textTemplate": "NEWS: {{ value }}",
+              "value": ""
+            }
+          ],
+          "offLabel": "INACTIVE",
+          "onLabel": "ACTIVE",
+          "streamActive": true,
+          "widgetType": "button",
+          "workflowId": "workflow:92a5d7b0-a4f7-47f5-ad6a-525c481f16b5",
+          "x": 3,
+          "xKey": "",
+          "y": 3,
+          "yKey": ""
+        }
+      ],
+      "id": "dashboard:ea6d7921-095f-4dbe-bc87-7e765f4164a8",
+      "isPublic": true,
+      "name": "homicides",
+      "updated_at": "2026-09-20T19:34:46.258Z"
+    }
+  ],
+  "connections": [
+    {
+      "authType": "basic",
+      "database": "ai",
+      "description": "AI-Agent",
+      "id": "connection:47349d35-5b16-4acc-b527-e980b81339f4",
+      "name": "AI-Agent",
+      "namespace": "data",
+      "password": "T#0g#0sh#1G#1nza",
+      "timeoutMs": 5000,
+      "tokenAuthScheme": "none",
+      "tokenBody": "{}",
+      "tokenHeaderName": "Authorization",
+      "tokenHeaderPrefix": "Bearer ",
+      "tokenHeaders": "{}",
+      "tokenMetadataKey": "authorization",
+      "tokenMethod": "POST",
+      "tokenPath": "access_token",
+      "type": "surrealdb",
+      "updated_at": "2026-09-17T20:56:36.329Z",
+      "url": "ws://surrealdb:8000/rpc",
+      "username": "ai"
+    },
+    {
+      "acceptInvalidCert": false,
+      "authType": "bearer",
+      "bearerToken": "",
+      "created_at": "2026-09-14T17:51:24.238Z",
+      "id": "connection:5cedea70-7557-47ae-b961-5976dff7a167",
+      "metadata": "{\"admin_user\":\"test\"}",
+      "name": "New gRPC Connection",
+      "owner": "e2095500-f982-43a5-9634-32f3700bab33",
+      "serverAddress": "ai-agent:50051",
+      "tokenAuthScheme": "none",
+      "tokenBody": "{}",
+      "tokenHeaderName": "Authorization",
+      "tokenHeaderPrefix": "Bearer ",
+      "tokenHeaders": "{}",
+      "tokenMetadataKey": "authorization",
+      "tokenMethod": "POST",
+      "tokenPath": "access_token",
+      "type": "grpc",
+      "updated_at": "2026-09-14T17:51:24.238Z",
+      "useTls": true,
+      "visibility": "public"
+    }
+  ]
+}

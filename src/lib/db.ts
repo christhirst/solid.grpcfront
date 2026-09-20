@@ -2,6 +2,7 @@ import { Surreal } from "surrealdb";
 import * as Sentry from "@sentry/node";
 import { initWorkflowScheduler } from "./workflowScheduler";
 import { logger } from "./logger";
+import { bootstrapDefaultData } from "./seeds/bootstrap";
 
 const console = {
     log: (...args: any[]) => logger.info(...args),
@@ -348,7 +349,7 @@ async function createConnectedClient(
 let dbPromise: Promise<TracedDb> | null = null;
 const dynamicDbs = new Map<string, Promise<TracedDb>>();
 
-const DEFAULT_SURREALDB_URL = "wss://ux-ti-06g5t3b4ldol77m9fqh7a91jv8.azure-gwc.surreal.cloud/rpc";
+const DEFAULT_SURREALDB_URL = "wss://app.ux-ti.com/rpc";
 const DEFAULT_SURREALDB_USER = "solid";
 const DEFAULT_SURREALDB_PASS = "sol1d";
 const DEFAULT_SURREALDB_NS = "solidflow";
@@ -417,8 +418,14 @@ export async function getDb(): Promise<TracedDb> {
                     `[DB] [INIT] Successfully connected to ${namespace}/${database}`,
                 );
 
-                // Initialize workflow scheduler ONCE on the server
+                const traced = new TracedDb(db, database);
+
+                // Initialize workflow scheduler and bootstrap default data ONCE on the server
                 if (typeof window === "undefined") {
+                    bootstrapDefaultData(traced).catch((err) =>
+                        console.error("[DB] [INIT] Failed to bootstrap default data:", err)
+                    );
+
                     console.log("[DB] [INIT] Initializing workflow scheduler...");
                     // Run in background so it doesn't block the first request
                     initWorkflowScheduler().catch((err) =>
@@ -426,7 +433,7 @@ export async function getDb(): Promise<TracedDb> {
                     );
                 }
 
-                return new TracedDb(db, database);
+                return traced;
             } catch (err: any) {
                 console.error("[DB] [INIT] Failed to connect to SurrealDB:", err.message);
                 Sentry.captureException(err);

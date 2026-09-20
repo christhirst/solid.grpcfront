@@ -1,4 +1,4 @@
-import { createSignal, createMemo, onMount, Show, For } from "solid-js";
+import { createSignal, createMemo, onMount, onCleanup, Show, For } from "solid-js";
 import { isServer } from "solid-js/web";
 import { signIn, signOut } from "@auth/solid-start/client";
 import { Badge } from "~/components/ui/badge";
@@ -61,9 +61,32 @@ export default function Nav() {
   // browser session after every native navigation. Keep this state client-only.
   const [session, setSession] = createSignal<any | null | undefined>(undefined);
   const [mobileOpen, setMobileOpen] = createSignal(false);
+  const [dbStatus, setDbStatus] = createSignal<"checking" | "connected" | "disconnected">("checking");
+  const [dbError, setDbError] = createSignal<string | null>(null);
+
+  const checkDbHealth = async () => {
+    if (isServer) return;
+    try {
+      const res = await fetch("/api/health");
+      const json = await res.json().catch(() => ({}));
+      if (res.ok && json.status === "ok") {
+        setDbStatus("connected");
+        setDbError(null);
+      } else {
+        setDbStatus("disconnected");
+        setDbError(json.error || json.message || "Database unreachable");
+      }
+    } catch (err: any) {
+      setDbStatus("disconnected");
+      setDbError(err?.message || "Health check failed");
+    }
+  };
 
   onMount(async () => {
     setSession(await fetchSession());
+    checkDbHealth();
+    const interval = setInterval(checkDbHealth, 30000);
+    onCleanup(() => clearInterval(interval));
   });
 
   const visibleLinks = createMemo(() => (session() ? authenticatedLinks : publicLinks));
@@ -112,13 +135,40 @@ export default function Nav() {
 
         {/* Right Corner (Status + Auth) */}
         <div class="flex items-center gap-3">
-          <Badge variant="success" class="gap-1.5 px-3 py-1 hidden sm:inline-flex">
-            <span class="relative flex h-2 w-2">
-              <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
-              <span class="relative inline-flex h-2 w-2 rounded-full bg-emerald-500"></span>
-            </span>
-            <span>Live</span>
-          </Badge>
+          <Show
+            when={dbStatus() === "connected"}
+            fallback={
+              <Show
+                when={dbStatus() === "disconnected"}
+                fallback={
+                  <Badge variant="secondary" class="gap-1.5 px-3 py-1 hidden sm:inline-flex text-zinc-400">
+                    <span class="h-2 w-2 rounded-full bg-zinc-500 animate-pulse"></span>
+                    <span>Checking DB</span>
+                  </Badge>
+                }
+              >
+                <Badge
+                  variant="destructive"
+                  class="gap-1.5 px-3 py-1 hidden sm:inline-flex cursor-pointer bg-rose-500/10 text-rose-400 border border-rose-500/30"
+                  title={dbError() || "SurrealDB is unreachable. Check SURREALDB_URL in .env"}
+                  onClick={() => checkDbHealth()}
+                >
+                  <span class="relative flex h-2 w-2">
+                    <span class="h-2 w-2 rounded-full bg-rose-500"></span>
+                  </span>
+                  <span>DB Disconnected</span>
+                </Badge>
+              </Show>
+            }
+          >
+            <Badge variant="success" class="gap-1.5 px-3 py-1 hidden sm:inline-flex">
+              <span class="relative flex h-2 w-2">
+                <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
+                <span class="relative inline-flex h-2 w-2 rounded-full bg-emerald-500"></span>
+              </span>
+              <span>Live</span>
+            </Badge>
+          </Show>
 
           <div class="hidden sm:block">
             <Show

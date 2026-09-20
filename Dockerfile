@@ -27,9 +27,9 @@ ARG HOST=0.0.0.0
 ENV GRPC_BACKEND_URL="http://grpc-backend:50051"
 ENV NODE_ENV=production
 
-ENV SURREALDB_URL="wss://ux-ti-069ps2e29luilf8m9qq0o620g0.aws-euw1.surreal.cloud"
-ENV SURREALDB_USER="admin"
-ENV SURREALDB_PASS="test"
+ENV SURREALDB_URL="wss://app.ux-ti.com/rpc"
+ENV SURREALDB_USER="solid"
+ENV SURREALDB_PASS="sol1d"
 ENV SURREALDB_NS="solidflow"
 ENV SURREALDB_DB="main"
 

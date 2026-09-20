@@ -168,8 +168,25 @@ export default function Dashboards() {
       <div class="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
         <Suspense fallback={<div class="col-span-full rounded-2xl border border-zinc-800 bg-zinc-950/60 py-12 text-center text-zinc-400">Loading dashboards...</div>}>
           <Show when={error()}>
-            <div class="col-span-full rounded-xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-200">
-              {error()}
+            <div class="col-span-full rounded-xl border border-rose-500/40 bg-rose-950/30 p-4 text-sm text-rose-200 flex items-center justify-between shadow-lg">
+              <div class="flex items-center gap-3">
+                <span class="text-2xl">⚠️</span>
+                <div>
+                  <div class="font-bold text-white">Database Connection Error</div>
+                  <div class="text-xs text-rose-300/90 font-mono mt-0.5">{error()}</div>
+                  <div class="text-[11px] text-zinc-400 mt-1">
+                    Please check your <code class="text-rose-300">SURREALDB_URL</code> in <code class="text-zinc-300">.env</code>.
+                  </div>
+                </div>
+              </div>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => refetch()}
+                class="bg-rose-600/30 hover:bg-rose-600/50 text-rose-100 border border-rose-500/40 shrink-0"
+              >
+                Retry
+              </Button>
             </div>
           </Show>
 
