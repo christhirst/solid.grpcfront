@@ -1,4 +1,4 @@
-import { createSignal, createResource, For, Show } from "solid-js";
+import { createSignal, createResource, onMount, For, Show } from "solid-js";
 import { isServer } from "solid-js/web";
 import { A } from "@solidjs/router";
 
@@ -10,10 +10,12 @@ export default function Workflows() {
   const [error, setError] = createSignal<string | null>(null);
   let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 
-  const [dashboards] = createResource(async () => {
-    if (isServer) return [];
+  const [dashboards, { refetch: refetchDashboards }] = createResource(async () => {
     try {
-      const res = await fetch("/api/dashboards");
+      const url = isServer
+        ? `http://127.0.0.1:${process.env.PORT || 3000}/api/dashboards`
+        : "/api/dashboards";
+      const res = await fetch(url);
       const json = await res.json();
       return json.success ? json.data : [];
     } catch {
@@ -23,11 +25,13 @@ export default function Workflows() {
 
 
   const fetchWorkflows = async (q: string) => {
-    if (isServer) return [];
     setError(null);
     try {
       const params = q ? `?q=${encodeURIComponent(q)}` : "";
-      const res = await fetch(`/api/workflows${params}`);
+      const url = isServer
+        ? `http://127.0.0.1:${process.env.PORT || 3000}/api/workflows${params}`
+        : `/api/workflows${params}`;
+      const res = await fetch(url);
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json.success) {
         throw new Error(json.error || `Failed to load workflows (${res.status})`);
@@ -35,12 +39,19 @@ export default function Workflows() {
       return Array.isArray(json.data) ? json.data : [];
     } catch (e: any) {
       console.error("fetchWorkflows error:", e);
-      setError(e?.message || "Failed to load workflows from SurrealDB");
+      if (!isServer) {
+        setError(e?.message || "Failed to load workflows from SurrealDB");
+      }
       return [];
     }
   };
 
   const [workflows, { refetch }] = createResource(() => searchQuery(), fetchWorkflows);
+
+  onMount(() => {
+    refetch();
+    refetchDashboards();
+  });
 
   const handleSearch = (value: string) => {
     clearTimeout(debounceTimer);

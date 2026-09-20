@@ -1,4 +1,4 @@
-import { createMemo, createResource, createSignal, For, Show, Suspense } from "solid-js";
+import { createMemo, createResource, createSignal, onMount, For, Show, Suspense } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { isServer } from "solid-js/web";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "~/components/ui/card";
@@ -38,10 +38,12 @@ export default function Dashboards() {
 
   const [dashboards, { refetch }] = createResource<DashboardSummary[], string>(() => query(), async (q) => {
     setError("");
-    if (isServer) return [];
     try {
       const params = q ? `?q=${encodeURIComponent(q)}` : "";
-      const res = await fetch(`/api/dashboards${params}`);
+      const url = isServer
+        ? `http://127.0.0.1:${process.env.PORT || 3000}/api/dashboards${params}`
+        : `/api/dashboards${params}`;
+      const res = await fetch(url);
       const text = await res.text();
       const json = JSON.parse(text);
       if (!res.ok || !json.success) {
@@ -50,9 +52,15 @@ export default function Dashboards() {
       return json.success ? json.data : [];
     } catch (e: any) {
       console.error("Dashboards fetch failed:", e);
-      setError(e?.message || "Unable to load dashboards");
+      if (!isServer) {
+        setError(e?.message || "Unable to load dashboards");
+      }
       return [];
     }
+  });
+
+  onMount(() => {
+    refetch();
   });
 
   const handleSearch = (value: string) => {
