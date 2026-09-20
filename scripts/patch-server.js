@@ -51,8 +51,8 @@ const patchNodeModules = () => {
                 const fp = path.join(d, f);
                 if (fs.existsSync(fp)) {
                     let code = fs.readFileSync(fp, "utf8");
-                    if (code.includes("writer.releaseLock();") && code.includes("w.close();")) {
-                        code = code.replace(/writer\.releaseLock\(\);\s*w\.close\(\);/g, "try { writer.releaseLock(); } catch(e) {} try { w.close(); } catch(e) {}");
+                    if (code.includes("writer.releaseLock();") && code.includes("w.close()")) {
+                        code = code.replace(/writer\.releaseLock\(\);(\s*try\s*\{\s*)?w\.close\(\);(\s*\}\s*catch\(e\)\s*\{\})?/g, "try { writer.releaseLock(); } catch(e) {} try { const _p = w.close(); if (_p && typeof _p.catch === 'function') _p.catch(() => {}); } catch(e) {}");
                         fs.writeFileSync(fp, code);
                         console.log(`Patched solid-js/web stream close safety: ${fp}`);
                     }
@@ -351,6 +351,15 @@ globalThis.fetch = function(input, init) {
 
 // Safeguard against strict varlock throw behavior in unmanaged container runtime
 globalThis.__varlockThrowOnMissingKeys = false;
+
+if (typeof process !== 'undefined' && process.on) {
+  process.on('unhandledRejection', (err) => {
+    if (err && (err.code === 'ERR_INVALID_STATE' || (err.message && err.message.includes('WritableStream')))) {
+      return;
+    }
+    console.error('Unhandled Rejection:', err);
+  });
+}
 `;
 
 if (fs.existsSync(serverDir)) {

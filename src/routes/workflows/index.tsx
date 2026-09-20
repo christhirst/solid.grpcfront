@@ -10,11 +10,9 @@ export default function Workflows() {
   let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 
   const [dashboards] = createResource(async () => {
-    const url = isServer
-      ? `http://127.0.0.1:${process.env.PORT || 3000}/api/dashboards`
-      : "/api/dashboards";
+    if (isServer) return [];
     try {
-      const res = await fetch(url);
+      const res = await fetch("/api/dashboards");
       const json = await res.json();
       return json.success ? json.data : [];
     } catch {
@@ -24,12 +22,10 @@ export default function Workflows() {
 
 
   const fetchWorkflows = async (q: string) => {
+    if (isServer) return [];
     try {
       const params = q ? `?q=${encodeURIComponent(q)}` : "";
-      const url = isServer
-        ? `http://127.0.0.1:${process.env.PORT || 3000}/api/workflows${params}`
-        : `/api/workflows${params}`;
-      const res = await fetch(url);
+      const res = await fetch(`/api/workflows${params}`);
       if (!res.ok) return [];
       const json = await res.json();
       return json.success && Array.isArray(json.data) ? json.data : [];
