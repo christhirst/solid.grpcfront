@@ -1,7 +1,7 @@
-import { getStepCategory, type StepCategory } from "~/lib/stepCategories";
+import { getStepCategory, type StepCategory, type StepVariable } from "~/lib/stepCategories";
 import ReteWorkflowEditor from "~/components/workflow/ReteWorkflowEditor";
 import { createSignal, createEffect, onMount, For, Show, createResource, createMemo, Index } from "solid-js";
-import { extractFormVariables, checkWorkflowConfiguredInDashboards } from "~/lib/workflowVariableChecker";
+import { extractFormVariables, checkWorkflowConfiguredInDashboards, detectStepVariables } from "~/lib/workflowVariableChecker";
 
 
 import { createStore, reconcile, produce } from "solid-js/store";
@@ -1172,28 +1172,58 @@ export default function WorkflowBuilder() {
       {/* Translucent Dashboard Variable Status Banner */}
       <Show when={varConfigStatus().hasVariables}>
         <div
-          class={`mb-6 p-4 rounded-xl border flex items-center justify-between backdrop-blur-sm transition-colors ${
+          class={`mb-6 p-4 rounded-xl border flex flex-col gap-3 backdrop-blur-sm transition-colors ${
             varConfigStatus().allConfigured
               ? "bg-emerald-500/20 border-emerald-500/30 text-emerald-300"
               : "bg-red-500/20 border-red-500/30 text-red-300"
           }`}
         >
-          <div class="flex items-center gap-3">
-            <span class="text-xl">{varConfigStatus().allConfigured ? "✓" : "⚠️"}</span>
-            <div>
-              <div class="text-xs font-bold uppercase tracking-wider">
-                {varConfigStatus().allConfigured
-                  ? "Dashboard Variables Configured"
-                  : "Dashboard Variables Pending Configuration"}
-              </div>
-              <div class="text-[11px] text-slate-300 font-mono mt-0.5">
-                Required Variables: {varConfigStatus().reqVars.map(v => `{{ form.${v} }}`).join(", ")}
+          <div class="flex items-center justify-between flex-wrap gap-2">
+            <div class="flex items-center gap-3">
+              <span class="text-xl">{varConfigStatus().allConfigured ? "✓" : "⚠️"}</span>
+              <div>
+                <div class="text-xs font-bold uppercase tracking-wider">
+                  {varConfigStatus().allConfigured
+                    ? "Dashboard Variables Configured"
+                    : "Dashboard Variables Pending Configuration"}
+                </div>
+                <div class="text-[11px] text-slate-300 font-mono mt-0.5">
+                  {varConfigStatus().allConfigured
+                    ? "All required downstream variables are supplied by a linked dashboard."
+                    : "This workflow expects downstream parameters from a linked dashboard button/form."}
+                </div>
               </div>
             </div>
+            <span class="text-[10px] font-semibold uppercase px-2.5 py-1 rounded-full border bg-black/40 border-current opacity-80">
+              {varConfigStatus().allConfigured ? "Translucent Light Green" : "Translucent Light Red"}
+            </span>
           </div>
-          <span class="text-[10px] font-semibold uppercase px-2.5 py-1 rounded-full border bg-black/40 border-current opacity-80">
-            {varConfigStatus().allConfigured ? "Translucent Light Green" : "Translucent Light Red"}
-          </span>
+
+          {/* Itemized downstream variable list: Red if missing, Green if set */}
+          <div class="flex flex-wrap gap-2 pt-1 border-t border-current/20">
+            <For each={varConfigStatus().varsWithStatus}>
+              {(v) => (
+                <div
+                  class={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono border transition-all ${
+                    v.isConfigured
+                      ? "bg-emerald-950/50 border-emerald-500/50 text-emerald-200"
+                      : "bg-rose-950/60 border-rose-500/60 text-rose-200"
+                  }`}
+                >
+                  <span>{v.isConfigured ? "🟢" : "🔴"}</span>
+                  <span class="font-bold">{`{{ ${v.name} }}`}</span>
+                  <Show when={v.alias}>
+                    <span class="text-[10px] opacity-80">({v.alias})</span>
+                  </Show>
+                  <span class={`text-[9px] font-sans font-semibold px-1.5 py-0.5 rounded ${
+                    v.isConfigured ? "bg-emerald-500/30 text-emerald-300" : "bg-rose-500/30 text-rose-300"
+                  }`}>
+                    {v.isConfigured ? "Configured" : "Missing in Dashboards"}
+                  </span>
+                </div>
+              )}
+            </For>
+          </div>
         </div>
       </Show>
 
@@ -1410,6 +1440,50 @@ export default function WorkflowBuilder() {
                   const resp = currentLog.response;
                   return Array.isArray(resp) ? resp : (resp ? [resp] : []);
                 });
+
+                const stepVars = createMemo(() => detectStepVariables(step));
+                const upVars = createMemo(() => stepVars().filter((v) => v.direction === "up"));
+                const downVars = createMemo(() => stepVars().filter((v) => v.direction === "down"));
+
+                const updateVar = (varName: string, patch: Partial<StepVariable>) => {
+                  const current = stepVars();
+                  const next = current.map((v) => {
+                    if (v.name === varName) {
+                      return { ...v, ...patch };
+                    }
+                    return v;
+                  });
+                  updateStep(index(), "variables", next);
+                };
+
+                const toggleVarDirection = (varName: string) => {
+                  const v = stepVars().find((x) => x.name === varName);
+                  if (!v) return;
+                  const nextDir = v.direction === "up" ? "down" : "up";
+                  updateVar(varName, { direction: nextDir });
+                };
+
+                const addManualVar = () => {
+                  const name = prompt("Enter variable name or expression (e.g. DB_Table or count((SELECT ...)) > 0):");
+                  if (!name || !name.trim()) return;
+                  const trimmed = name.trim().replace(/^\{\{\s*|\s*\}\}$/g, "");
+                  const current = step.variables || [];
+                  if (current.some((v: any) => v.name === trimmed)) return;
+                  const isUp = /\b(SELECT|FROM|count\(|WHERE)\b/i.test(trimmed) || /[><=]/.test(trimmed);
+                  const newVar: StepVariable = {
+                    id: `var_${Date.now()}`,
+                    name: trimmed,
+                    direction: isUp ? "up" : "down",
+                    alias: "",
+                  };
+                  updateStep(index(), "variables", [...current, newVar]);
+                };
+
+                const removeVar = (varName: string) => {
+                  const current = step.variables || [];
+                  updateStep(index(), "variables", current.filter((v: any) => v.name !== varName));
+                };
+
                 return (
                   (() => {
                     const stepCat = () => getStepCategory(step.type);
@@ -1440,9 +1514,9 @@ export default function WorkflowBuilder() {
                         </span>
                       </Show>
                     </div>
-                    <div class={`grid grid-cols-1 ${runData() ? "lg:grid-cols-2" : ""} gap-6`}>
+                    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
                       {/* Left Column: Configuration */}
-                      <div class="space-y-4">
+                      <div class="col-span-1 lg:col-span-7 space-y-4">
                   
                   {/* Interactive Connected Input Sources Widget */}
                   <Show when={stepCat() !== "source"}>
@@ -2623,122 +2697,314 @@ export default function WorkflowBuilder() {
 
                       </div> {/* Close Configuration Left Column */}
 
-                      {/* Right Column: Execution Result */}
-                      <Show when={runData()}>
-                        <div class="border-t lg:border-t-0 lg:border-l border-[#2a2a3a]/50 pt-4 lg:pt-0 lg:pl-6 flex flex-col h-full min-h-[220px]">
-                          <Show when={log()} fallback={
-                            <div class="flex flex-col items-center justify-center h-full py-8 text-center text-[#5b5b6e]">
-                              <Show when={isRunning() && !(runData()?.logs || []).some((l: any) => l.stepId === "auth" || l.status === "error")} fallback={
-                                <div class="flex flex-col items-center">
-                                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mb-2 text-[#3a3a4e]"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
-                                  <span class="text-xs italic">Step not executed</span>
-                                </div>
-                              }>
-                                <svg class="animate-spin h-5 w-5 text-blue-500 mb-2" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                                <span class="text-xs text-blue-400 animate-pulse font-medium">Waiting to execute...</span>
-                              </Show>
+                      {/* Right Column: Variables Box (Top) & Response Window (Bottom) */}
+                      <div class="col-span-1 lg:col-span-5 border-t lg:border-t-0 lg:border-l border-[#2a2a3a]/50 pt-4 lg:pt-0 lg:pl-5 flex flex-col gap-4">
+                        {/* ── Top Box: Step Variables (Upstream Green / Downstream Red) ── */}
+                        <div class="rounded-xl border border-[#2a2a3a] bg-[#101018] p-3.5 space-y-3 shadow-lg">
+                          <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-2">
+                              <span class="text-xs font-bold text-white flex items-center gap-1.5">
+                                <span>📦</span>
+                                <span>Step Variables</span>
+                              </span>
+                              <span class="text-[10px] font-mono text-[#8b8b9e] bg-[#1a1a26] px-1.5 py-0.5 rounded border border-[#2a2a3a]">
+                                {stepVars().length}
+                              </span>
                             </div>
-                          }>
-                            <div class="flex items-center justify-between mb-3 border-b border-[#2a2a3a]/30 pb-2">
-                              <div class="flex items-center gap-2">
-                                <span class={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
-                                  log()!.status === "success" ? "bg-emerald-500/20 text-emerald-400" : "bg-red-500/20 text-red-400"
-                                }`}>
-                                  {log()!.status}
-                                </span>
-                                <Show when={log()!.latencyMs}>
-                                  <span class="text-[10px] text-[#5b5b6e] font-mono">{log()!.latencyMs}ms</span>
-                                </Show>
-                              </div>
-                              
-                              <Show when={!step.type || step.type === "grpc" || step.type === "rest" || step.type === "database" || step.type === "transform"}>
-                                <div class="flex p-0.5 bg-[#12121a] border border-[#2a2a3a] rounded-lg shadow-sm">
-                                  <button
-                                    type="button"
-                                    onClick={() => setResultTab("response")}
-                                    class={`px-2.5 py-1 text-[10px] font-bold rounded-md transition-all ${
-                                      resultTab() === "response" ? "bg-emerald-500/10 text-emerald-400" : "text-[#5b5b6e] hover:text-[#8b8b9e]"
-                                    }`}
-                                  >
-                                    Response
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => setResultTab("payload")}
-                                    class={`px-2.5 py-1 text-[10px] font-bold rounded-md transition-all ${
-                                      resultTab() === "payload" ? "bg-blue-500/10 text-blue-400" : "text-[#5b5b6e] hover:text-[#8b8b9e]"
-                                    }`}
-                                  >
-                                    Payload
-                                  </button>
-                                </div>
-                              </Show>
-                              
-                              <Show when={step.type === "table" || step.type === "chart"}>
-                                <span class="text-[10px] text-[#5b5b6e] font-mono">
-                                  {stepData().length} rows
+                            <div class="flex items-center gap-1.5">
+                              <Show when={upVars().length > 0}>
+                                <span class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                                  ↑ {upVars().length} Up
                                 </span>
                               </Show>
-                            </div>
-                            
-                            <div class="flex-1 flex flex-col justify-start overflow-hidden">
-                              <Show when={!step.type || step.type === "grpc" || step.type === "rest" || step.type === "database" || step.type === "transform"}>
-                                <Show when={resultTab() === "payload"}>
-                                  <p class="text-[10px] text-[#5b5b6e] uppercase mb-1 font-semibold">Rendered Request Payload</p>
-                                  <pre class="text-[11px] text-blue-300 font-mono overflow-auto max-h-[220px] bg-[#0a0a0f] p-3 rounded-lg border border-[#2a2a3a]/40 custom-scrollbar whitespace-pre-wrap break-all flex-1">
-                                    {JSON.stringify(log()!.request, null, 2)}
-                                  </pre>
-                                </Show>
-                                <Show when={resultTab() === "response"}>
-                                  <p class="text-[10px] text-[#5b5b6e] uppercase mb-1 font-semibold">Response Content</p>
-                                  <pre class={`text-[11px] font-mono overflow-auto max-h-[220px] bg-[#0a0a0f] p-3 rounded-lg border border-[#2a2a3a]/40 custom-scrollbar whitespace-pre-wrap break-all flex-1 ${
-                                    log()!.error ? "text-red-300 border-red-500/20 bg-red-950/5" : "text-emerald-300"
-                                  }`}>
-                                    {log()!.error || JSON.stringify(log()!.response, null, 2)}
-                                  </pre>
-                                </Show>
+                              <Show when={downVars().length > 0}>
+                                <span class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/30">
+                                  ↓ {downVars().length} Down
+                                </span>
                               </Show>
-                              
-                              <Show when={step.type === "table"}>
-                                <div class="flex-1 overflow-hidden flex flex-col">
-                                  <Show when={stepData().length > 0} fallback={
-                                    <div class="text-[11px] text-[#5b5b6e] italic py-8 text-center border border-dashed border-[#2a2a3a] rounded-lg flex-1 flex items-center justify-center">
-                                      No table rows found
-                                    </div>
-                                  }>
-                                    <LogTable data={stepData()} columns={log()!.meta?.columns} />
-                                  </Show>
+                              <button
+                                type="button"
+                                onClick={addManualVar}
+                                class="text-[10px] px-2 py-0.5 rounded bg-purple-600/20 text-purple-300 hover:bg-purple-600/40 border border-purple-500/30 transition-colors"
+                                title="Add variable manually"
+                              >
+                                + Add
+                              </button>
+                            </div>
+                          </div>
+
+                          <Show when={stepVars().length === 0}>
+                            <div class="rounded-lg border border-dashed border-[#2a2a3a] bg-[#0a0a0f]/60 p-3 text-center">
+                              <p class="text-[11px] text-[#8b8b9e]">No variables in brackets <code class="text-purple-400">{"{{ ... }}"}</code> detected.</p>
+                              <p class="text-[10px] text-[#5b5b6e] mt-1">
+                                Type <span class="text-emerald-400 font-mono">{"{{ count(...) > 0 }}"}</span> for Upstream (Upload) or <span class="text-rose-400 font-mono">{"{{ DB_Table }}"}</span> for Downstream (Download).
+                              </p>
+                            </div>
+                          </Show>
+
+                          <Show when={stepVars().length > 0}>
+                            <div class="space-y-2.5 max-h-[220px] overflow-y-auto custom-scrollbar pr-1">
+                              {/* 🟢 UPSTREAM (Upload / Outgoing to Dashboard) */}
+                              <Show when={upVars().length > 0}>
+                                <div class="space-y-1.5">
+                                  <div class="flex items-center gap-1.5 text-[10px] font-bold text-emerald-400 uppercase tracking-wider">
+                                    <span class="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                                    <span>🟢 Upstream (Upload to Dashboard)</span>
+                                  </div>
+                                  <For each={upVars()}>
+                                    {(v) => (
+                                      <div class="p-2 rounded-lg border border-emerald-500/30 bg-emerald-950/15 space-y-1.5">
+                                        <div class="flex items-center justify-between gap-2">
+                                          <div class="flex items-center gap-1.5 overflow-hidden flex-1">
+                                            <button
+                                              type="button"
+                                              onClick={() => toggleVarDirection(v.name)}
+                                              class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 hover:bg-rose-500/20 hover:text-rose-300 transition-colors shrink-0"
+                                              title="Click to toggle to Downstream (Red)"
+                                            >
+                                              ↑ UP
+                                            </button>
+                                            <span class="text-[11px] font-mono text-emerald-200 truncate" title={v.name}>
+                                              {`{{ ${v.name} }}`}
+                                            </span>
+                                          </div>
+                                          <button
+                                            type="button"
+                                            onClick={() => removeVar(v.name)}
+                                            class="text-[#5b5b6e] hover:text-red-400 text-xs shrink-0 px-1"
+                                            title="Remove"
+                                          >
+                                            ✕
+                                          </button>
+                                        </div>
+                                        <div class="flex items-center gap-2">
+                                          <label class="text-[10px] text-emerald-400/80 font-semibold shrink-0">Alias:</label>
+                                          <input
+                                            type="text"
+                                            class="flex-1 bg-[#0a0a0f] border border-emerald-500/30 rounded px-2 py-0.5 text-xs text-white placeholder-[#5b5b6e] focus:border-emerald-400 outline-none"
+                                            placeholder="e.g. has_incidents"
+                                            value={v.alias || ""}
+                                            onInput={(e) => updateVar(v.name, { alias: e.currentTarget.value })}
+                                          />
+                                        </div>
+                                      </div>
+                                    )}
+                                  </For>
                                 </div>
                               </Show>
-                              
-                              <Show when={step.type === "chart"}>
-                                <div class="flex-1 overflow-hidden flex flex-col justify-center">
-                                  <Show when={stepData().length > 0} fallback={
-                                    <div class="text-[11px] text-[#5b5b6e] italic py-8 text-center border border-dashed border-[#2a2a3a] rounded-lg flex-1 flex items-center justify-center">
-                                      No chart points found
-                                    </div>
-                                  }>
-                                    <Show when={step.chartType === "timeline"} fallback={
-                                      <LogChart
-                                        data={stepData()}
-                                        xKey={log()!.meta?.xKey || step.xKey}
-                                        yKey={log()!.meta?.yKey || step.yKey}
-                                        chartType={log()!.meta?.chartType || step.chartType || "bar"}
-                                      />
-                                    }>
-                                      <LogTimeline
-                                        data={stepData()}
-                                        xKey={log()!.meta?.xKey || step.xKey}
-                                        yKey={log()!.meta?.yKey || step.yKey}
-                                      />
-                                    </Show>
-                                  </Show>
+
+                              {/* 🔴 DOWNSTREAM (Download / Incoming from Dashboard) */}
+                              <Show when={downVars().length > 0}>
+                                <div class="space-y-1.5 pt-1">
+                                  <div class="flex items-center gap-1.5 text-[10px] font-bold text-rose-400 uppercase tracking-wider">
+                                    <span class="h-1.5 w-1.5 rounded-full bg-rose-400"></span>
+                                    <span>🔴 Downstream (Download from Dashboard)</span>
+                                  </div>
+                                  <For each={downVars()}>
+                                    {(v) => {
+                                      const isSetInDash = () => {
+                                        let clean = v.name;
+                                        if (clean.startsWith("form.")) clean = clean.slice(5);
+                                        if (clean.startsWith("dashboard_form.")) clean = clean.slice(15);
+                                        return varConfigStatus().configuredVars.includes(clean);
+                                      };
+
+                                      return (
+                                        <div
+                                          class={`p-2 rounded-lg border space-y-1.5 transition-all ${
+                                            isSetInDash()
+                                              ? "border-emerald-500/40 bg-emerald-950/20"
+                                              : "border-rose-500/30 bg-rose-950/15"
+                                          }`}
+                                        >
+                                          <div class="flex items-center justify-between gap-2">
+                                            <div class="flex items-center gap-1.5 overflow-hidden flex-1">
+                                              <button
+                                                type="button"
+                                                onClick={() => toggleVarDirection(v.name)}
+                                                class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 hover:bg-emerald-500/20 hover:text-emerald-300 transition-colors shrink-0"
+                                                title="Click to toggle to Upstream (Green)"
+                                              >
+                                                ↓ DOWN
+                                              </button>
+                                              <span
+                                                class={`text-[11px] font-mono truncate ${
+                                                  isSetInDash() ? "text-emerald-200" : "text-rose-200"
+                                                }`}
+                                                title={v.name}
+                                              >
+                                                {`{{ ${v.name} }}`}
+                                              </span>
+                                            </div>
+                                            <div class="flex items-center gap-1.5 shrink-0">
+                                              <Show
+                                                when={isSetInDash()}
+                                                fallback={
+                                                  <span class="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                                                    🔴 Needs Dash
+                                                  </span>
+                                                }
+                                              >
+                                                <span class="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                                                  🟢 Set in Dash
+                                                </span>
+                                              </Show>
+                                              <button
+                                                type="button"
+                                                onClick={() => removeVar(v.name)}
+                                                class="text-[#5b5b6e] hover:text-red-400 text-xs shrink-0 px-1"
+                                                title="Remove"
+                                              >
+                                                ✕
+                                              </button>
+                                            </div>
+                                          </div>
+                                          <div class="flex items-center gap-2">
+                                            <label class={`text-[10px] font-semibold shrink-0 ${isSetInDash() ? "text-emerald-400/80" : "text-rose-400/80"}`}>Alias:</label>
+                                            <input
+                                              type="text"
+                                              class={`flex-1 bg-[#0a0a0f] border rounded px-2 py-0.5 text-xs text-white placeholder-[#5b5b6e] outline-none ${
+                                                isSetInDash()
+                                                  ? "border-emerald-500/30 focus:border-emerald-400"
+                                                  : "border-rose-500/30 focus:border-rose-400"
+                                              }`}
+                                              placeholder="e.g. Target Table"
+                                              value={v.alias || ""}
+                                              onInput={(e) => updateVar(v.name, { alias: e.currentTarget.value })}
+                                            />
+                                          </div>
+                                        </div>
+                                      );
+                                    }}
+                                  </For>
                                 </div>
                               </Show>
                             </div>
                           </Show>
                         </div>
-                      </Show>
+
+                        {/* ── Bottom Box: Compact Response Window ── */}
+                        <div class="rounded-xl border border-[#2a2a3a] bg-[#101018] p-3 flex flex-col flex-1 min-h-[160px] shadow-lg">
+                          <Show when={runData()} fallback={
+                            <div class="flex-1 flex flex-col items-center justify-center py-6 text-center text-[#5b5b6e]">
+                              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="mb-1 text-[#3a3a4e]">
+                                <circle cx="12" cy="12" r="10"></circle>
+                                <line x1="12" y1="16" x2="12" y2="12"></line>
+                                <line x1="12" y1="8" x2="12.01" y2="8"></line>
+                              </svg>
+                              <span class="text-[11px] font-medium text-[#7a7a8e]">Response Window</span>
+                              <span class="text-[10px] text-[#4a4a5e] mt-0.5">Click "Run" or "Stream Run" above to execute</span>
+                            </div>
+                          }>
+                            <Show when={log()} fallback={
+                              <div class="flex flex-col items-center justify-center flex-1 py-4 text-center text-[#5b5b6e]">
+                                <Show when={isRunning()} fallback={
+                                  <span class="text-xs italic">Step not executed in this run</span>
+                                }>
+                                  <svg class="animate-spin h-5 w-5 text-blue-500 mb-1" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                  <span class="text-xs text-blue-400 animate-pulse font-medium">Executing step...</span>
+                                </Show>
+                              </div>
+                            }>
+                              <div class="flex items-center justify-between mb-2 border-b border-[#2a2a3a]/30 pb-1.5">
+                                <div class="flex items-center gap-2">
+                                  <span class={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                                    log()!.status === "success" ? "bg-emerald-500/20 text-emerald-400" : "bg-red-500/20 text-red-400"
+                                  }`}>
+                                    {log()!.status}
+                                  </span>
+                                  <Show when={log()!.latencyMs}>
+                                    <span class="text-[10px] text-[#5b5b6e] font-mono">{log()!.latencyMs}ms</span>
+                                  </Show>
+                                </div>
+                                
+                                <Show when={!step.type || step.type === "grpc" || step.type === "rest" || step.type === "database" || step.type === "transform"}>
+                                  <div class="flex p-0.5 bg-[#12121a] border border-[#2a2a3a] rounded-lg shadow-sm">
+                                    <button
+                                      type="button"
+                                      onClick={() => setResultTab("response")}
+                                      class={`px-2 py-0.5 text-[10px] font-bold rounded-md transition-all ${
+                                        resultTab() === "response" ? "bg-emerald-500/10 text-emerald-400" : "text-[#5b5b6e] hover:text-[#8b8b9e]"
+                                      }`}
+                                    >
+                                      Response
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setResultTab("payload")}
+                                      class={`px-2 py-0.5 text-[10px] font-bold rounded-md transition-all ${
+                                        resultTab() === "payload" ? "bg-blue-500/10 text-blue-400" : "text-[#5b5b6e] hover:text-[#8b8b9e]"
+                                      }`}
+                                    >
+                                      Payload
+                                    </button>
+                                  </div>
+                                </Show>
+                                
+                                <Show when={step.type === "table" || step.type === "chart"}>
+                                  <span class="text-[10px] text-[#5b5b6e] font-mono">
+                                    {stepData().length} rows
+                                  </span>
+                                </Show>
+                              </div>
+                              
+                              <div class="flex-1 flex flex-col justify-start overflow-hidden">
+                                <Show when={!step.type || step.type === "grpc" || step.type === "rest" || step.type === "database" || step.type === "transform"}>
+                                  <Show when={resultTab() === "payload"}>
+                                    <pre class="text-[11px] text-blue-300 font-mono overflow-auto max-h-[140px] bg-[#0a0a0f] p-2.5 rounded-lg border border-[#2a2a3a]/40 custom-scrollbar whitespace-pre-wrap break-all flex-1">
+                                      {JSON.stringify(log()!.request, null, 2)}
+                                    </pre>
+                                  </Show>
+                                  <Show when={resultTab() === "response"}>
+                                    <pre class={`text-[11px] font-mono overflow-auto max-h-[140px] bg-[#0a0a0f] p-2.5 rounded-lg border border-[#2a2a3a]/40 custom-scrollbar whitespace-pre-wrap break-all flex-1 ${
+                                      log()!.error ? "text-red-300 border-red-500/20 bg-red-950/5" : "text-emerald-300"
+                                    }`}>
+                                      {log()!.error || JSON.stringify(log()!.response, null, 2)}
+                                    </pre>
+                                  </Show>
+                                </Show>
+                                
+                                <Show when={step.type === "table"}>
+                                  <div class="flex-1 overflow-hidden flex flex-col max-h-[140px]">
+                                    <Show when={stepData().length > 0} fallback={
+                                      <div class="text-[11px] text-[#5b5b6e] italic py-4 text-center border border-dashed border-[#2a2a3a] rounded-lg flex-1 flex items-center justify-center">
+                                        No table rows found
+                                      </div>
+                                    }>
+                                      <LogTable data={stepData()} columns={log()!.meta?.columns} />
+                                    </Show>
+                                  </div>
+                                </Show>
+                                
+                                <Show when={step.type === "chart"}>
+                                  <div class="flex-1 overflow-hidden flex flex-col justify-center max-h-[140px]">
+                                    <Show when={stepData().length > 0} fallback={
+                                      <div class="text-[11px] text-[#5b5b6e] italic py-4 text-center border border-dashed border-[#2a2a3a] rounded-lg flex-1 flex items-center justify-center">
+                                        No chart points found
+                                      </div>
+                                    }>
+                                      <Show when={step.chartType === "timeline"} fallback={
+                                        <LogChart
+                                          data={stepData()}
+                                          xKey={log()!.meta?.xKey || step.xKey}
+                                          yKey={log()!.meta?.yKey || step.yKey}
+                                          chartType={log()!.meta?.chartType || step.chartType || "bar"}
+                                        />
+                                      }>
+                                        <LogTimeline
+                                          data={stepData()}
+                                          xKey={log()!.meta?.xKey || step.xKey}
+                                          yKey={log()!.meta?.yKey || step.yKey}
+                                        />
+                                      </Show>
+                                    </Show>
+                                  </div>
+                                </Show>
+                              </div>
+                            </Show>
+                          </Show>
+                        </div>
+                      </div>
                     </div>
                   </div>
                     );

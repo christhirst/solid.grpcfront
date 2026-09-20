@@ -8,8 +8,8 @@ import { RecordId } from "surrealdb";
 import * as Sentry from "@sentry/node";
 import { EventEmitter } from "events";
 import { normalizeConnection, fetchPreRequestToken } from "~/lib/connections";
-import { getStepCategory, type StepCategory, type WorkflowStep } from "./stepCategories";
-export { getStepCategory, type StepCategory, type WorkflowStep };
+import { getStepCategory, type StepCategory, type WorkflowStep, type StepVariable } from "./stepCategories";
+export { getStepCategory, type StepCategory, type WorkflowStep, type StepVariable };
 
 
 export const workflowStreamManager = new EventEmitter();
@@ -120,6 +120,8 @@ export interface WorkflowDefinition {
   serverAddress: string;
   useTls: boolean;
   steps: WorkflowStep[];
+  /** Exported upstream/downstream variables across workflow steps. */
+  variables?: StepVariable[];
 
   schedule?: string; // cron expression
   authConfig?: AuthConfig;
@@ -152,18 +154,25 @@ export interface WorkflowRun {
 
 /**
  * Replace {{ path.to.variable }} in a string using the context object.
+ * Supports direct paths (e.g. steps.step_1.response, auth.token) and falls back
+ * to bare downstream form variables (e.g. {{ DB_Table }} -> context.form.DB_Table).
  */
-function interpolateTemplate(template: string, context: Record<string, any>): string {
-  return template.replace(/\{\{\s*([^{}]+?)\s*\}\}/g, (_, path) => {
-    const val = get(context, String(path).trim());
+export function interpolateTemplate(template: string, context: Record<string, any>): string {
+  return template.replace(/\{\{\s*([^{}]+?)\s*\}\}/g, (_, rawPath) => {
+    const path = String(rawPath).trim();
+    let val = get(context, path);
+    if (val === undefined && context.form) {
+      val = get(context.form, path);
+    }
+    if (val === undefined && context.dashboard_form) {
+      val = get(context.dashboard_form, path);
+    }
+    if (val === undefined && context.variables) {
+      val = get(context.variables, path);
+    }
     if (val === undefined) {
       return ``; // Or throw? For now empty string
     }
-    // If it's an object/array being put into a JSON string, we should JSON stringify it.
-    // However, if the template itself is JSON, stringifying an object might result in invalid JSON 
-    // `{"field": "{"nested":"obj"}"}` vs `{"field": {"nested":"obj"}}`.
-    // It's safer to parse the template into an object first and map values, but since we store it as a string
-    // we'll do simple replacement. If a user maps an object, they shouldn't wrap the placeholder in quotes.
     if (typeof val === "object") {
       return JSON.stringify(val);
     }
@@ -172,16 +181,20 @@ function interpolateTemplate(template: string, context: Record<string, any>): st
 }
 
 /**
- * Better approach: recursively evaluate templates in an object, but we start from a JSON string.
- * Let's convert the template string with quotes removed if it's an object replacement.
- * Actually, the easiest way is to parse the template, then deep walk it and replace strings.
+ * Recursively evaluate templates in an object or string.
+ * Resolves exact-match placeholders to raw data structures and mixed strings via interpolateTemplate.
  */
 function evaluatePayload(templateObj: any, context: Record<string, any>): any {
   if (typeof templateObj === "string") {
     // Check if the entire string is exactly a template e.g. "{{ steps.foo.response }}"
     const exactMatch = templateObj.match(/^\{\{\s*([^{}]+?)\s*\}\}$/);
     if (exactMatch) {
-      return get(context, exactMatch[1].trim());
+      const path = exactMatch[1].trim();
+      let val = get(context, path);
+      if (val === undefined && context.form) val = get(context.form, path);
+      if (val === undefined && context.dashboard_form) val = get(context.dashboard_form, path);
+      if (val === undefined && context.variables) val = get(context.variables, path);
+      return val;
     }
     // Otherwise it's a mixed string "bearer {{ token }}"
     return interpolateTemplate(templateObj, context);

@@ -73,6 +73,17 @@ Workflows (`/workflows`, `src/lib/workflowEngine.ts`) coordinate distributed exe
   - Consume submitted form parameters (`{{ form.fieldName }}` or `{{ dashboard_form.fieldName }}`) from interactive dashboard form/button widgets.
   - Send mutations to target systems (Database `CREATE`/`UPDATE`/`INSERT`, REST `POST`/`PUT`/`DELETE`, gRPC mutating RPCs).
 
+### Variables Contract ("Upstream" vs "Downstream" & Aliases)
+- **Bracket Notation**: Variables and expressions are wrapped in double curly brackets `{{ ... }}` across request bodies, URLs, headers, and queries.
+- **Categorization**:
+  - **🟢 Upstream (Upload / Outgoing / Green)**: Expressions, queries, or step responses produced by the workflow to be uploaded to dashboard widgets or condition rules (e.g. `Bool: {{ count((SELECT id FROM incident_source)) > 0; }}`).
+  - **🔴 Downstream (Download / Incoming / Red)**: Parameters required by the workflow that flow down from linked dashboards or user forms (e.g. `count((SELECT id FROM {{ DB_Table }} > 0;`).
+- **Variable Aliases**:
+  - Users can assign human-friendly aliases to bracketed variables (e.g. `count(...) > 0` $\rightarrow$ `has_incidents`, `DB_Table` $\rightarrow$ `Target Table`).
+  - Aliases are persisted on step configurations and used by dashboard form field builders and condition rules.
+- **Bare Variable Fallback**:
+  - The workflow engine automatically resolves bare parameter names (e.g. `{{ DB_Table }}`) from incoming `form` and `dashboard_form` payloads without strictly requiring `{{ form.DB_Table }}`.
+
 ---
 
 ## 4. Dashboards, Forms & Access Control

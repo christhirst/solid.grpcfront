@@ -509,9 +509,14 @@ export default function DashboardBuilder() {
                               if (wf) {
                                 const vars = extractFormVariables(wf);
                                 const existing = btn.formConfig || [];
-                                const updated = vars.map((v: string) =>
-                                  existing.find((e: any) => e.name === v) || { name: v, label: v, type: "string", required: true }
-                                );
+                                const stepVars = (wf.steps || []).flatMap((s: any) => s.variables || []);
+                                const updated = vars.map((v: string) => {
+                                  const existingField = existing.find((e: any) => e.name === v);
+                                  if (existingField) return existingField;
+                                  const matchingVar = stepVars.find((sv: any) => sv.name === v || sv.name === `form.${v}` || sv.name === `dashboard_form.${v}`);
+                                  const label = matchingVar?.alias?.trim() || v;
+                                  return { name: v, label, type: "string", required: true };
+                                });
                                 updateButton(index(), "formConfig", updated);
                               }
                             }
@@ -522,6 +527,125 @@ export default function DashboardBuilder() {
                           </Show>
                         </select>
                       </div>
+
+                      {/* Workflow Downstream Variables Status & Checklist */}
+                      <Show when={varStatus().hasVariables}>
+                        <div class="col-span-2 pt-2 border-t border-[#2a2a3a]/50">
+                          <div class="p-3 rounded-xl border bg-[#12121c] space-y-2.5 shadow-md border-[#2a2a3a]">
+                            <div class="flex items-center justify-between flex-wrap gap-2">
+                              <div class="flex items-center gap-2">
+                                <span class="text-xs font-bold text-white flex items-center gap-1.5">
+                                  <span>{varStatus().allConfigured ? "🟢" : "🔴"}</span>
+                                  <span>Workflow Downstream Variables</span>
+                                </span>
+                                <span
+                                  class={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                                    varStatus().allConfigured
+                                      ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
+                                      : "bg-rose-500/20 text-rose-300 border-rose-500/40"
+                                  }`}
+                                >
+                                  {varStatus().allConfigured
+                                    ? "✓ All Variables Set"
+                                    : `${varStatus().missingVars.length} of ${varStatus().reqVars.length} Need Values`}
+                                </span>
+                              </div>
+                              <Show when={!varStatus().allConfigured && (wt() === "button" || wt() === "form")}>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const copy = [...(btn.formConfig || [])];
+                                    for (const item of varStatus().varsWithStatus) {
+                                      if (!item.isConfigured) {
+                                        copy.push({
+                                          name: item.name,
+                                          label: item.alias || item.name,
+                                          type: item.type || "string",
+                                          required: true,
+                                        });
+                                      }
+                                    }
+                                    updateButton(index(), "formConfig", copy);
+                                  }}
+                                  class="text-[10px] font-semibold px-2 py-1 rounded bg-rose-600/20 text-rose-300 hover:bg-rose-600/40 border border-rose-500/30 transition-colors"
+                                  title="Add all missing variables to form fields"
+                                >
+                                  + Add All Missing to Form
+                                </button>
+                              </Show>
+                            </div>
+
+                            <p class="text-[11px] text-[#8b8b9e]">
+                              Downstream variables required by the workflow. Unset variables appear in <strong class="text-rose-400">red</strong>; once configured they turn <strong class="text-emerald-400">green</strong>.
+                            </p>
+
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                              <For each={varStatus().varsWithStatus}>
+                                {(item) => (
+                                  <div
+                                    class={`p-2 rounded-lg border flex items-center justify-between gap-2 transition-all ${
+                                      item.isConfigured
+                                        ? "bg-emerald-950/20 border-emerald-500/40 text-emerald-200"
+                                        : "bg-rose-950/25 border-rose-500/50 text-rose-200 shadow-sm shadow-rose-950/50"
+                                    }`}
+                                  >
+                                    <div class="flex items-center gap-2 overflow-hidden min-w-0">
+                                      <span class="text-xs shrink-0">{item.isConfigured ? "🟢" : "🔴"}</span>
+                                      <div class="truncate">
+                                        <div class="font-mono text-xs font-semibold truncate">
+                                          {`{{ ${item.name} }}`}
+                                        </div>
+                                        <Show when={item.alias}>
+                                          <div class="text-[10px] text-[#8b8b9e] truncate">
+                                            Alias: <span class="text-white">{item.alias}</span>
+                                          </div>
+                                        </Show>
+                                      </div>
+                                    </div>
+
+                                    <div class="flex items-center gap-1.5 shrink-0">
+                                      <Show
+                                        when={item.isConfigured}
+                                        fallback={
+                                          <Show
+                                            when={wt() === "button" || wt() === "form"}
+                                            fallback={
+                                              <span class="text-[10px] font-semibold px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                                                Needs Value
+                                              </span>
+                                            }
+                                          >
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                const copy = [...(btn.formConfig || [])];
+                                                copy.push({
+                                                  name: item.name,
+                                                  label: item.alias || item.name,
+                                                  type: item.type || "string",
+                                                  required: true,
+                                                });
+                                                updateButton(index(), "formConfig", copy);
+                                              }}
+                                              class="text-[10px] font-bold px-2 py-1 rounded bg-rose-600/30 hover:bg-rose-600/50 text-rose-200 border border-rose-500/40 transition-colors flex items-center gap-1"
+                                            >
+                                              <span>+ Add to Form</span>
+                                            </button>
+                                          </Show>
+                                        }
+                                      >
+                                        <span class="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                                          ✓ Set in Form
+                                        </span>
+                                      </Show>
+                                    </div>
+                                  </div>
+                                )}
+                              </For>
+                            </div>
+                          </div>
+                        </div>
+                      </Show>
 
                       {/* ── Chart config ── */}
                       <Show when={wt() === "chart"}>
@@ -581,13 +705,13 @@ export default function DashboardBuilder() {
                           <Show when={btn.workflowId && btn.formConfig?.length > 0}>
                             <div class="mb-2 px-2 py-1.5 rounded-lg bg-blue-500/10 border border-blue-500/20 text-[10px] text-blue-300 flex items-center gap-1.5">
                               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
-                              Fields auto-detected from <code class="font-mono text-blue-200">{`{{ form.* }}`}</code> variables in the workflow. You can edit or add more.
+                              Fields auto-detected from workflow variables (<code class="font-mono text-blue-200">{`{{ form.* }}`}</code> and downstream <code class="font-mono text-blue-200">{`{{ parameters }}`}</code>). You can edit or add more.
                             </div>
                           </Show>
                           <Show when={btn.workflowId && (!btn.formConfig || btn.formConfig.length === 0)}>
                             <div class="mb-2 px-2 py-1.5 rounded-lg bg-[#1e1e2e] border border-dashed border-[#2a2a3a] text-[10px] text-[#5b5b6e] flex items-center gap-1.5">
-                              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
-                              No <code class="font-mono">{`{{ form.* }}`}</code> variables found — no required fields. Add fields manually if needed.
+                              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="16"></line></svg>
+                              No workflow input variables found — no required fields. Add fields manually if needed.
                             </div>
                           </Show>
 
