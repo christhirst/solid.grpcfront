@@ -22,6 +22,7 @@
   --color-accent-amber-glow: rgba(245, 158, 11, 0.15);
   --color-accent-rose: #f43f5e;
   --color-accent-rose-glow: rgba(244, 63, 94, 0.15);
+  --breakpoint-3xl: 2560px;
 }
 
 * {
@@ -54,6 +55,28 @@ body {
 @media (min-width: 1920px) {
   html {
     font-size: 18px;
+  }
+}
+
+@media (min-width: 2560px) {
+  html {
+    font-size: 19px;
+  }
+}
+
+/* ─── Mobile Dashboard Optimizations ──────────────────────── */
+@media (max-width: 640px) {
+  .grid-stack {
+    min-height: 120px;
+  }
+
+  .grid-stack-item > .grid-stack-item-content {
+    border-radius: 0.75rem;
+  }
+
+  /* Larger touch targets for mobile */
+  .btn-primary, .btn-secondary {
+    min-height: 44px;
   }
 }
 

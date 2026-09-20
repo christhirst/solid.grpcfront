@@ -107,6 +107,12 @@ export function applyAction(
       return targetValue === undefined ? effective : { ...effective, label: targetValue };
     case "setWorkflow":
       return targetValue === undefined ? effective : { ...effective, workflowId: targetValue };
+    case "setColor":
+      return targetValue === undefined ? effective : { ...effective, color: targetValue };
+    case "setDisabled":
+      return { ...effective, disabled: true };
+    case "setEnabled":
+      return { ...effective, disabled: false };
     default:
       return effective;
   }
@@ -125,6 +131,7 @@ export function defaultEffectiveConfig(widget: WidgetConfig): EffectiveWidgetCon
 /**
  * Evaluate a widget's condition rules against a workflow outcome.
  * Rules are applied in order; later rules may override earlier ones.
+ * Each rule supports an optional `elseAction` for the negative case.
  */
 export function applyWidgetConditions(
   widget: WidgetConfig,
@@ -136,7 +143,13 @@ export function applyWidgetConditions(
 
   return rules.reduce((acc, rule) => {
     const matched = evaluateCondition(outcome, rule);
-    return matched ? applyAction(acc, rule.action, rule.targetValue) : acc;
+    if (matched) {
+      return applyAction(acc, rule.action, rule.targetValue);
+    }
+    if (rule.elseAction) {
+      return applyAction(acc, rule.elseAction, rule.elseTargetValue);
+    }
+    return acc;
   }, effective);
 }
 

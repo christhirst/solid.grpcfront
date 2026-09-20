@@ -64,6 +64,15 @@ Workflows (`/workflows`, `src/lib/workflowEngine.ts`) coordinate distributed exe
 - Dynamic interpolation: Templates support variable syntax (e.g. `{{ steps.step_1.response.items }}` or `{{ form.inputField }}`).
 - Streaming: Workflow runs can emit Server-Sent Events (SSE) via `/api/workflows/:id/stream` for real-time widget updates.
 
+### Data Flow Direction ("Read from Source" vs "Write to Source")
+- **Direction Toggle**: Workflows and individual source/network steps (`grpc`, `rest`, `database`, streams) support an explicit `direction` toggle (`"read" | "write"`).
+- **Read Workflows ("Read from Source")**:
+  - Ingest and fetch data from external sources (DB query, REST GET, gRPC unary/stream).
+  - Feed output data into dashboard visualization widgets (Tables, Charts, Infographics, News) and provide outcome states for conditional rules.
+- **Write Workflows ("Write to Source")**:
+  - Consume submitted form parameters (`{{ form.fieldName }}` or `{{ dashboard_form.fieldName }}`) from interactive dashboard form/button widgets.
+  - Send mutations to target systems (Database `CREATE`/`UPDATE`/`INSERT`, REST `POST`/`PUT`/`DELETE`, gRPC mutating RPCs).
+
 ---
 
 ## 4. Dashboards, Forms & Access Control
@@ -74,6 +83,14 @@ Dashboards (`/dashboards`) provide the presentation layer for users.
 - **Workflow Wiring**: Dashboard buttons can trigger specific workflows.
 - **Form Inputs**: Provide modal/inline input forms allowing users to supply parameters before triggering a workflow.
 - **Live Widgets**: Cards and charts display real-time results, query outputs, or streaming news/metrics.
+
+### Conditional If/Else Rules
+- **Data-Driven UI Manipulation**: When data is fetched from a source (e.g. DB query outcome), dashboard widgets evaluate if/else rules to dynamically manipulate presentation:
+  - **Show / Hide**: Conditionally show or hide a button or widget (e.g. only show "Approve" button if `status === "pending"`).
+  - **Labels & Styling**: Dynamically update button labels (`setLabel`), theme colors (`setColor`: `blue`, `red`, `emerald`, `purple`, `slate`), or interactability (`setDisabled`, `setEnabled`).
+  - **Workflow Redirection**: Dynamically switch the target workflow executed on trigger (`setWorkflow`).
+  - **Else Actions**: Every condition rule supports an optional `elseAction` and `elseTargetValue` applied when the condition evaluates to false.
+  - **Condition Data Source**: Widgets can designate a `conditionWorkflowId` to evaluate rules against a dedicated read workflow outcome while triggering a write workflow upon execution.
 
 ### Permissions & Security Boundaries
 - **Privileged Users**:
@@ -136,3 +153,15 @@ When assisting on this repository:
 1. **Use solid-ui components for UI development.**
 ## 8. Git-Workflow
 1. **Always increase the "solid.grpcfront:TAG" by just +1 to the TAG.**
+
+## 9. Responsive Layout Guidelines
+1. **Smartphone Focus**:
+   - The primary focus for smartphones is the **Dashboard Library** (`/library`) and public dashboards (`/p/[id]`).
+   - Navigation on mobile includes a dedicated bottom navigation bar for quick access to Library, Home, and About.
+   - GridStack layout operates with responsive column breakpoints (`columnOpts`), adapting 12-column desktop grids into a single-column layout on phones (`<640px`), 4 columns on tablets (`<768px`), and 6 columns on small laptops (`<1024px`).
+   - Touch elements on smartphones maintain minimum touch target heights (`min-height: 44px`).
+2. **Widescreen Optimizations**:
+   - Proportional root font scaling (`16px` default -> `17px` at `>=1536px` -> `18px` at `>=1920px` -> `19px` at `>=2560px`).
+   - Containers expand across ultra-wide viewports (`2xl:max-w-[90rem]`, `3xl:max-w-[110rem]`).
+   - Dashboard galleries display up to 4 columns on `2xl` and `3xl` displays.
+

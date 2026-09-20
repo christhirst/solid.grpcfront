@@ -16,7 +16,8 @@ export function useWidgetOutcome(dashboardId: string | undefined, btn: WidgetCon
   const [outcome, setOutcome] = createSignal<WidgetOutcome>({ data: undefined, status: "loading", error: "" });
 
   onMount(async () => {
-    if (!dashboardId || !btn.workflowId) {
+    const targetWfId = btn.conditionWorkflowId || btn.workflowId;
+    if (!dashboardId || !targetWfId) {
       setOutcome({ data: undefined, status: "ready", error: "" });
       return;
     }
@@ -28,7 +29,7 @@ export function useWidgetOutcome(dashboardId: string | undefined, btn: WidgetCon
     }
 
     try {
-      const runId = await triggerWidgetRun(dashboardId, btn.id);
+      const runId = await triggerWidgetRun(dashboardId, btn.id, {}, btn.conditionWorkflowId);
       pollRun(
         runId,
         {

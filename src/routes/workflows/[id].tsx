@@ -1103,6 +1103,32 @@ export default function WorkflowBuilder() {
             onInput={(e) => setName(e.currentTarget.value)}
             placeholder="Workflow Name"
           />
+          {/* Direction Toggle */}
+          <div class="flex items-center gap-3 mt-2 ml-1">
+            <span class="text-[10px] font-bold text-[#8b8b9e] uppercase tracking-wider">Direction</span>
+            <div class="flex rounded-lg border border-[#2a2a3a] bg-[#0e0e15] overflow-hidden">
+              <button
+                class={`px-3 py-1 text-[11px] font-bold transition-all ${
+                  (workflow().direction || "read") === "read"
+                    ? "bg-blue-600 text-white shadow-lg"
+                    : "text-[#8b8b9e] hover:text-white"
+                }`}
+                onClick={() => setWorkflow((w: any) => ({ ...w, direction: "read" }))}
+              >
+                📥 Read from Source
+              </button>
+              <button
+                class={`px-3 py-1 text-[11px] font-bold transition-all ${
+                  workflow().direction === "write"
+                    ? "bg-amber-600 text-white shadow-lg"
+                    : "text-[#8b8b9e] hover:text-white"
+                }`}
+                onClick={() => setWorkflow((w: any) => ({ ...w, direction: "write" }))}
+              >
+                📤 Write to Source
+              </button>
+            </div>
+          </div>
         </div>
         <div class="flex items-center gap-4">
           <button 
@@ -1561,6 +1587,44 @@ export default function WorkflowBuilder() {
                       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
                     </button>
                   </div>
+
+                  {/* Step Direction Override (for source/network steps) */}
+                  <Show when={!step.type || step.type === "grpc" || step.type === "rest" || step.type === "database" || step.type === "grpc_stream" || step.type === "rest_stream" || step.type === "surreal_live"}>
+                    <div class="flex items-center gap-3 mt-2 mb-3">
+                      <label class="text-[10px] font-bold text-[#8b8b9e] uppercase tracking-wider">Step Direction</label>
+                      <div class="flex rounded-md border border-[#2a2a3a] bg-[#0e0e15] overflow-hidden">
+                        <button
+                          class={`px-2.5 py-1 text-[10px] font-bold transition-all ${
+                            (step.direction || workflow().direction || "read") === "read"
+                              ? "bg-blue-600/80 text-white"
+                              : "text-[#8b8b9e] hover:text-white"
+                          }`}
+                          onClick={() => updateStep(index(), "direction", "read")}
+                        >
+                          📥 Read
+                        </button>
+                        <button
+                          class={`px-2.5 py-1 text-[10px] font-bold transition-all ${
+                            (step.direction || workflow().direction) === "write"
+                              ? "bg-amber-600/80 text-white"
+                              : "text-[#8b8b9e] hover:text-white"
+                          }`}
+                          onClick={() => updateStep(index(), "direction", "write")}
+                        >
+                          📤 Write
+                        </button>
+                      </div>
+                      <Show when={step.direction}>
+                        <button
+                          onClick={() => updateStep(index(), "direction", undefined)}
+                          class="text-[9px] text-[#5b5b6e] hover:text-white transition-colors"
+                          title="Reset to workflow default"
+                        >
+                          ✕ Reset
+                        </button>
+                      </Show>
+                    </div>
+                  </Show>
 
                   <Show when={!step.type || step.type === "grpc"}>
                     {(() => {

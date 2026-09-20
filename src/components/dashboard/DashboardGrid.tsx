@@ -51,6 +51,14 @@ export default function DashboardGrid(props: DashboardGridProps) {
         column: 12,
         cellHeight: 70,
         margin: 10,
+        columnOpts: {
+          breakpoints: [
+            { w: 640, c: 1 },
+            { w: 768, c: 4 },
+            { w: 1024, c: 6 },
+            { w: Infinity, c: 12 }
+          ]
+        },
         animate: true,
         float: true,
         staticGrid: props.isStatic,

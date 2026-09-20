@@ -92,6 +92,80 @@ describe("applyWidgetConditions", () => {
     expect(existsFalse.label).toBe("Add");
     expect(existsFalse.workflowId).toBe("wf-add");
   });
+
+  it("applies setColor, setDisabled, and setEnabled actions", () => {
+    const widget: WidgetConfig = {
+      ...base,
+      conditionRules: [
+        { id: "r1", path: "status", operator: "equals", value: "danger", action: "setColor", targetValue: "red" },
+        { id: "r2", path: "status", operator: "equals", value: "danger", action: "setDisabled" },
+      ],
+    };
+
+    const res = applyWidgetConditions(widget, { status: "danger" });
+    expect(res.color).toBe("red");
+    expect(res.disabled).toBe(true);
+
+    const normal = applyWidgetConditions(widget, { status: "ok" });
+    expect(normal.color).toBeUndefined();
+    expect(normal.disabled).toBeUndefined();
+  });
+
+  it("applies elseAction when condition is not matched", () => {
+    const widget: WidgetConfig = {
+      ...base,
+      conditionRules: [
+        {
+          id: "r1",
+          path: "is_admin",
+          operator: "equals",
+          value: true,
+          action: "showWidget",
+          elseAction: "hideWidget",
+        },
+      ],
+    };
+
+    const admin = applyWidgetConditions(widget, { is_admin: true });
+    expect(admin.hidden).toBe(false);
+
+    const guest = applyWidgetConditions(widget, { is_admin: false });
+    expect(guest.hidden).toBe(true);
+  });
+
+  it("applies elseAction with elseTargetValue for labels and colors", () => {
+    const widget: WidgetConfig = {
+      ...base,
+      conditionRules: [
+        {
+          id: "r1",
+          path: "active",
+          operator: "truthy",
+          action: "setLabel",
+          targetValue: "Deactivate",
+          elseAction: "setLabel",
+          elseTargetValue: "Activate",
+        },
+        {
+          id: "r2",
+          path: "active",
+          operator: "truthy",
+          action: "setColor",
+          targetValue: "red",
+          elseAction: "setColor",
+          elseTargetValue: "emerald",
+        },
+      ],
+    };
+
+    const activeRes = applyWidgetConditions(widget, { active: true });
+    expect(activeRes.label).toBe("Deactivate");
+    expect(activeRes.color).toBe("red");
+
+    const inactiveRes = applyWidgetConditions(widget, { active: false });
+    expect(inactiveRes.label).toBe("Activate");
+    expect(inactiveRes.color).toBe("emerald");
+  });
 });
 
 describe("extractRunOutcome", () => {

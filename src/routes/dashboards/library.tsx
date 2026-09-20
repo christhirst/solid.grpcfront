@@ -231,7 +231,7 @@ export default function DashboardLibrary() {
   };
 
   return (
-    <main class="mx-auto max-w-7xl 2xl:max-w-[90rem] px-4 py-8 sm:px-6 lg:py-10">
+    <main class="mx-auto max-w-7xl 2xl:max-w-[90rem] 3xl:max-w-[110rem] px-4 py-8 sm:px-6 lg:py-10 pb-24 sm:pb-10">
       {/* Hero Header & Filter Bar on Top (Always Stays) */}
       <Card class="mb-8 overflow-hidden bg-zinc-950/80 border-zinc-800/80">
         <div class="flex flex-col gap-6 border-b border-zinc-800/80 p-6 lg:flex-row lg:items-center lg:justify-between">
@@ -397,7 +397,7 @@ export default function DashboardLibrary() {
               </span>
             </div>
 
-            <div class="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3 transition-all duration-300">
+            <div class="grid grid-cols-1 gap-4 sm:gap-6 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 transition-all duration-300">
               <Suspense fallback={<div class="col-span-full py-12 text-center text-zinc-400">Loading published library...</div>}>
                 <Show when={error()}>
                   <div class="col-span-full rounded-xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-300">

@@ -94,10 +94,12 @@ function FormFieldInput(props: {
 
 /** Shared button/form widget renderer. Hides the whole widget or the form based on the effective config. */
 export function DashboardButtonFormWidget(props: DashboardButtonFormWidgetProps) {
+  const effectiveColor = () => props.effective?.color || props.btn.color;
+  const isDisabled = () => props.effective?.disabled || props.state !== "idle";
   const formValues = () => props.formState[props.btn.id] || {};
   const fields = () => props.btn.formConfig || [];
   const hasFields = () => fields().length > 0;
-  const btnClass = () => buildButtonClass(props.state, props.btn.color);
+  const btnClass = () => buildButtonClass(props.state, effectiveColor());
 
   return (
     <Show when={!props.effective?.hidden}>
@@ -106,7 +108,7 @@ export function DashboardButtonFormWidget(props: DashboardButtonFormWidgetProps)
         fallback={
           <button
             onClick={props.onTrigger}
-            disabled={props.state !== "idle"}
+            disabled={isDisabled()}
             class={btnClass()}
           >
             <ButtonContent state={props.state} label={props.effective?.label || props.btn.label || "Run"} />
@@ -140,7 +142,7 @@ export function DashboardButtonFormWidget(props: DashboardButtonFormWidgetProps)
           <div class="pt-2">
             <button
               onClick={props.onTrigger}
-              disabled={props.state !== "idle"}
+              disabled={isDisabled()}
               class={btnClass()}
             >
               <ButtonContent state={props.state} label={`Execute ${props.effective?.label || props.btn.label}`} />

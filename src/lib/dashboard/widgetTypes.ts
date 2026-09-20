@@ -26,7 +26,10 @@ export type ConditionAction =
   | "showForm"
   | "hideForm"
   | "setLabel"
-  | "setWorkflow";
+  | "setWorkflow"
+  | "setColor"
+  | "setDisabled"
+  | "setEnabled";
 
 export interface ConditionRule {
   id: string;
@@ -38,6 +41,10 @@ export interface ConditionRule {
   action: ConditionAction;
   /** New label or workflowId, depending on action. */
   targetValue?: string;
+  /** Action to apply when the condition does NOT match. */
+  elseAction?: ConditionAction;
+  /** Target value for the else action (e.g. alternate label, color). */
+  elseTargetValue?: string;
 }
 
 export interface FormField {
@@ -71,6 +78,8 @@ export interface WidgetConfig {
   infographicSyntax?: string;
   infographicTemplate?: string;
   infographicEditable?: boolean;
+  /** Optional alternate workflow to evaluate conditions against (e.g. read source query). Defaults to workflowId. */
+  conditionWorkflowId?: string;
   /** Conditional rules evaluated against the bound workflow's outcome. */
   conditionRules?: ConditionRule[];
 }
@@ -80,4 +89,6 @@ export interface EffectiveWidgetConfig {
   formHidden: boolean;
   label: string;
   workflowId: string;
+  color?: string;
+  disabled?: boolean;
 }

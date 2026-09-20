@@ -111,6 +111,8 @@ export interface AuthConfig {
 export interface WorkflowDefinition {
   id?: string;
   name: string;
+  /** Overall workflow direction hint: "read" = fetch/display data, "write" = submit/mutate data. */
+  direction?: "read" | "write";
   protoContent: string;
   protoId?: string;
   /** ID of a saved ca_cert record to use for TLS (overrides system root CAs). */

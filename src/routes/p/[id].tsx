@@ -19,6 +19,9 @@ import { evaluateNewsRules, newsColorClasses, type NewsRule } from "~/lib/newsRu
 import { checkWidgetVariablesConfigured } from "~/lib/workflowVariableChecker";
 import DashboardGrid from "~/components/dashboard/DashboardGrid";
 import { DashboardPublicButtonFormWidget } from "~/components/dashboard/DashboardPublicWidget";
+import { useWidgetOutcome } from "~/components/dashboard/useWidgetOutcome";
+import { applyWidgetConditions } from "~/lib/dashboard/widgetConditions";
+import type { WidgetConfig } from "~/lib/dashboard/widgetTypes";
 
 
 
@@ -683,6 +686,20 @@ function AutoWidget(props: { dashboardId: string; btn: any; workflow: any }) {
   );
 }
 
+// ─── Conditional Widget Wrapper ──────────────────────────────────────────────
+
+function ConditionalWidgetWrapper(props: { btn: any; dashboardId?: string; children: any }) {
+  const hasRules = () => (props.btn?.conditionRules || []).length > 0;
+  const outcome = useWidgetOutcome(props.dashboardId, props.btn);
+  const effective = () => (hasRules() ? applyWidgetConditions(props.btn, outcome().data) : { hidden: false });
+
+  return (
+    <Show when={!effective().hidden}>
+      {props.children}
+    </Show>
+  );
+}
+
 // ─── Main public dashboard page ───────────────────────────────────────────────
 
 export default function PublicDashboard() {
@@ -803,7 +820,7 @@ export default function PublicDashboard() {
   ];
 
   return (
-    <main class="min-h-screen bg-[#050508] p-4 sm:p-6 lg:p-16 font-sans">
+    <main class="min-h-screen bg-[#050508] p-3 sm:p-6 lg:p-16 pb-24 sm:pb-6 font-sans">
       <Show when={dashboard() === null}>
         <div class="text-center mt-32">
           <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="mx-auto mb-4 text-[#8b8b9e]"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
@@ -857,13 +874,25 @@ export default function PublicDashboard() {
                   <Show when={kind() === "chart" || kind() === "table" || kind() === "infographic"} fallback={
                     (() => {
                       if (kind() === "news") {
-                        return <NewsWidgetComponent btn={btn} dashboardId={params.id} />;
+                        return (
+                          <ConditionalWidgetWrapper btn={btn} dashboardId={params.id}>
+                            <NewsWidgetComponent btn={btn} dashboardId={params.id} />
+                          </ConditionalWidgetWrapper>
+                        );
                       }
                       if (kind() === "toggle") {
-                        return <ToggleWidgetComponent btn={btn} dashboardId={params.id} formState={formState()} updateForm={updateForm} triggerButton={triggerButton} />;
+                        return (
+                          <ConditionalWidgetWrapper btn={btn} dashboardId={params.id}>
+                            <ToggleWidgetComponent btn={btn} dashboardId={params.id} formState={formState()} updateForm={updateForm} triggerButton={triggerButton} />
+                          </ConditionalWidgetWrapper>
+                        );
                       }
                       if (kind() === "infographic") {
-                        return <InfographicWidget syntax={btn.infographicSyntax} editable={btn.infographicEditable} />;
+                        return (
+                          <ConditionalWidgetWrapper btn={btn} dashboardId={params.id}>
+                            <InfographicWidget syntax={btn.infographicSyntax} editable={btn.infographicEditable} />
+                          </ConditionalWidgetWrapper>
+                        );
                       }
 
                       return (
@@ -879,17 +908,19 @@ export default function PublicDashboard() {
                     })()
                   }>
                     {/* ── Table / Chart widget ── */}
-                    <Show when={kind() === "infographic"} fallback={
-                      <div class={`rounded-2xl border p-5 shadow-xl ${kind() === "table" ? "border-emerald-500/20 bg-[#0a120d]" : "border-purple-500/20 bg-[#100a14]"}`}>
-                        <Show when={wf()} fallback={
-                          <div class="text-[#5b5b6e] text-sm italic">Loading workflow info...</div>
-                        }>
-                          <AutoWidget dashboardId={params.id!} btn={btn} workflow={wf()} />
-                        </Show>
-                      </div>
-                    }>
-                      <InfographicWidget syntax={btn.infographicSyntax} editable={btn.infographicEditable} />
-                    </Show>
+                    <ConditionalWidgetWrapper btn={btn} dashboardId={params.id}>
+                      <Show when={kind() === "infographic"} fallback={
+                        <div class={`rounded-2xl border p-5 shadow-xl ${kind() === "table" ? "border-emerald-500/20 bg-[#0a120d]" : "border-purple-500/20 bg-[#100a14]"}`}>
+                          <Show when={wf()} fallback={
+                            <div class="text-[#5b5b6e] text-sm italic">Loading workflow info...</div>
+                          }>
+                            <AutoWidget dashboardId={params.id!} btn={btn} workflow={wf()} />
+                          </Show>
+                        </div>
+                      }>
+                        <InfographicWidget syntax={btn.infographicSyntax} editable={btn.infographicEditable} />
+                      </Show>
+                    </ConditionalWidgetWrapper>
                   </Show>
                 );
               }}

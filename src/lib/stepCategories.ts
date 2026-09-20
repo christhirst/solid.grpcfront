@@ -31,6 +31,8 @@ export interface WorkflowStep {
   id: string;
   type?: "grpc" | "table" | "chart" | "database" | "rest" | "grpc_stream" | "rest_stream" | "surreal_live" | "infographic" | "transform";
   category?: StepCategory;
+  /** Data flow direction: "read" fetches data FROM the source, "write" sends data TO the source. */
+  direction?: "read" | "write";
   transformExpression?: string;
   transformType?: "jsonata" | "filter" | "map" | "merge";
   sourceStepIds?: string[];

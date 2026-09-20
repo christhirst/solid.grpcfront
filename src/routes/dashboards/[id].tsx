@@ -518,7 +518,7 @@ export default function DashboardBuilder() {
                           }}>
                           <option value="" disabled>Select a workflow...</option>
                           <Show when={!workflows.loading}>
-                            <For each={workflows()}>{(w) => <option value={w.id} selected={w.id === btn.workflowId}>{w.name}</option>}</For>
+                            <For each={workflows()}>{(w: any) => <option value={w.id} selected={w.id === btn.workflowId}>{w.direction === "write" ? "📤 (Write) " : "📥 (Read) "}{w.name}</option>}</For>
                           </Show>
                         </select>
                       </div>
@@ -642,12 +642,27 @@ export default function DashboardBuilder() {
                       </Show>
 
                       {/* ── Conditional Rules config ── */}
-                      <Show when={wt() === "button" || wt() === "form"}>
-                        <div class="col-span-2 pt-3 border-t border-[#2a2a3a]/50 space-y-3">
-                          <div class="flex items-center justify-between">
-                            <label class="text-xs font-bold text-cyan-400 flex items-center gap-1.5">
-                              🎛️ Conditional Rules (show/hide/label based on workflow outcome)
-                            </label>
+                      <div class="col-span-2 pt-3 border-t border-[#2a2a3a]/50 space-y-3">
+                        <div class="flex items-center justify-between flex-wrap gap-2">
+                          <label class="text-xs font-bold text-cyan-400 flex items-center gap-1.5">
+                            🎛️ Conditional Rules (show/hide/style based on workflow outcome)
+                          </label>
+                          <div class="flex items-center gap-2">
+                            <select
+                              class="bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-cyan-500 max-w-xs"
+                              value={btn.conditionWorkflowId || ""}
+                              onChange={(e) => updateButton(index(), "conditionWorkflowId", e.currentTarget.value || undefined)}
+                              title="Select workflow that provides data for condition rules (defaults to bound workflow)"
+                            >
+                              <option value="">Source: Bound Workflow</option>
+                              <For each={workflows()}>
+                                {(w: any) => (
+                                  <option value={w.id}>
+                                    Source: {w.direction === "write" ? "📤 " : "📥 "}{w.name}
+                                  </option>
+                                )}
+                              </For>
+                            </select>
                             <button
                               onClick={() => {
                                 const rules = [...(btn.conditionRules || [])];
@@ -659,6 +674,7 @@ export default function DashboardBuilder() {
                               + Add Condition
                             </button>
                           </div>
+                        </div>
 
                           <div class="space-y-2">
                             <For each={btn.conditionRules || []}>
@@ -714,6 +730,9 @@ export default function DashboardBuilder() {
                                         <option value="hideForm">hide form</option>
                                         <option value="setLabel">set label</option>
                                         <option value="setWorkflow">set workflow</option>
+                                        <option value="setColor">set color</option>
+                                        <option value="setDisabled">disable widget</option>
+                                        <option value="setEnabled">enable widget</option>
                                       </select>
                                     </div>
                                     <div class="col-span-1">
@@ -722,25 +741,76 @@ export default function DashboardBuilder() {
                                       </button>
                                     </div>
                                   </div>
-                                  <Show when={rule.action === "setLabel" || rule.action === "setWorkflow"}>
+                                  <Show when={rule.action === "setLabel" || rule.action === "setWorkflow" || rule.action === "setColor"}>
                                     <div>
                                       <label class="text-xs text-[#5b5b6e] block mb-0.5">
-                                        {rule.action === "setLabel" ? "New Label" : "Target Workflow ID"}
+                                        {rule.action === "setLabel" ? "New Label" : rule.action === "setColor" ? "Color Name" : "Target Workflow ID"}
                                       </label>
-                                      <input
-                                        class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-cyan-500"
-                                        value={rule.targetValue ?? ""}
-                                        onInput={(e) => { updateButton(index(), "conditionRules", rIdx(), (r: any) => ({ ...r, targetValue: e.currentTarget.value })); }}
-                                        placeholder={rule.action === "setLabel" ? "e.g. Delete" : "e.g. workflow:delete-mail"}
-                                      />
+                                      <Show when={rule.action === "setColor"} fallback={
+                                        <input
+                                          class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-cyan-500"
+                                          value={rule.targetValue ?? ""}
+                                          onInput={(e) => { updateButton(index(), "conditionRules", rIdx(), (r: any) => ({ ...r, targetValue: e.currentTarget.value })); }}
+                                          placeholder={rule.action === "setLabel" ? "e.g. Delete" : "e.g. workflow:delete-mail"}
+                                        />
+                                      }>
+                                        <select
+                                          class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-cyan-500"
+                                          value={rule.targetValue ?? "blue"}
+                                          onChange={(e) => { updateButton(index(), "conditionRules", rIdx(), (r: any) => ({ ...r, targetValue: e.currentTarget.value })); }}
+                                        >
+                                          <option value="blue">🔵 Blue</option>
+                                          <option value="red">🔴 Red</option>
+                                          <option value="emerald">🟢 Emerald</option>
+                                          <option value="purple">🟣 Purple</option>
+                                          <option value="slate">⚫ Slate</option>
+                                        </select>
+                                      </Show>
                                     </div>
                                   </Show>
+
+                                  {/* Else Action (if/else) */}
+                                  <div class="mt-1.5 pl-3 border-l-2 border-amber-500/30">
+                                    <div class="grid grid-cols-12 gap-2 items-end">
+                                      <div class="col-span-4">
+                                        <label class="text-[10px] font-bold text-amber-400/80 block mb-0.5">Else Action (when NOT matched)</label>
+                                        <select
+                                          class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-amber-500"
+                                          value={rule.elseAction || ""}
+                                          onChange={(e) => { updateButton(index(), "conditionRules", rIdx(), (r: any) => ({ ...r, elseAction: e.currentTarget.value || undefined })); }}
+                                        >
+                                          <option value="">— no else action —</option>
+                                          <option value="showWidget">show widget</option>
+                                          <option value="hideWidget">hide widget</option>
+                                          <option value="showForm">show form</option>
+                                          <option value="hideForm">hide form</option>
+                                          <option value="setLabel">set label</option>
+                                          <option value="setWorkflow">set workflow</option>
+                                          <option value="setColor">set color</option>
+                                          <option value="setDisabled">disable widget</option>
+                                          <option value="setEnabled">enable widget</option>
+                                        </select>
+                                      </div>
+                                      <Show when={rule.elseAction === "setLabel" || rule.elseAction === "setWorkflow" || rule.elseAction === "setColor"}>
+                                        <div class="col-span-4">
+                                          <label class="text-[10px] text-[#5b5b6e] block mb-0.5">
+                                            {rule.elseAction === "setLabel" ? "Else Label" : rule.elseAction === "setColor" ? "Else Color" : "Else Workflow ID"}
+                                          </label>
+                                          <input
+                                            class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-amber-500"
+                                            value={rule.elseTargetValue ?? ""}
+                                            onInput={(e) => { updateButton(index(), "conditionRules", rIdx(), (r: any) => ({ ...r, elseTargetValue: e.currentTarget.value })); }}
+                                            placeholder={rule.elseAction === "setLabel" ? "e.g. Default Label" : rule.elseAction === "setColor" ? "e.g. blue" : "e.g. workflow:default"}
+                                          />
+                                        </div>
+                                      </Show>
+                                    </div>
+                                  </div>
                                 </div>
                               )}
                             </For>
                           </div>
                         </div>
-                      </Show>
 
                       {/* ── News Widget config ── */}
                       <Show when={wt() === "news"}>

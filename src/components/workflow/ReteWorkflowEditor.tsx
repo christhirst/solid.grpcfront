@@ -21,8 +21,9 @@ export class StepNode extends ClassicPreset.Node {
   constructor(step: WorkflowStep) {
     const cat = getStepCategory(step.type, step.category, step.sourceStepIds);
     const typeInfo = getStepDisplayInfo(step.type || "grpc", cat);
+    const directionTag = step.direction === "write" ? " [📤 Write]" : step.direction === "read" ? " [📥 Read]" : "";
     const categoryTag = cat === "target" ? " (Target)" : cat === "transform" ? " (Transform)" : " (Source)";
-    super(`${typeInfo.icon} ${step.id || "Step"}${categoryTag}`);
+    super(`${typeInfo.icon} ${step.id || "Step"}${directionTag}${categoryTag}`);
     this.stepId = step.id;
     this.stepType = step.type || "grpc";
     this.category = cat;

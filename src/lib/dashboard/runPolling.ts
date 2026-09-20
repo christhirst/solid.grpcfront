@@ -64,11 +64,19 @@ export function extractLastStep(logs: any[]): { data: any[]; meta: any } {
 }
 
 /** Trigger a dashboard widget and return the runId. */
-export async function triggerWidgetRun(dashboardId: string, buttonId: string, form: Record<string, unknown> = {}) {
+export async function triggerWidgetRun(
+  dashboardId: string,
+  buttonId: string,
+  form: Record<string, unknown> = {},
+  workflowId?: string
+) {
+  const payload: Record<string, unknown> = { form };
+  if (workflowId) payload.workflowId = workflowId;
+
   const res = await fetch(`/api/dashboards/${dashboardId}/trigger/${buttonId}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ form }),
+    body: JSON.stringify(payload),
   });
   const json = await res.json();
   if (!json.success) throw new Error(json.error || "Trigger failed");
