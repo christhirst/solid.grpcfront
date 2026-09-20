@@ -377,18 +377,18 @@ export default function ReteWorkflowEditor(props: ReteWorkflowEditorProps) {
 
     editor = new NodeEditor<Schemes>();
     area = new AreaPlugin<Schemes, AreaExtra>(containerRef);
-    const connection = new ConnectionPlugin<Schemes, AreaExtra>();
+    const connection = new ConnectionPlugin<any, AreaExtra>();
     const render = new SolidPlugin<Schemes, AreaExtra>();
     arrange = new AutoArrangePlugin<Schemes>();
 
     // Configure presets
-    render.addPreset(SolidPresets.classic.setup());
-    connection.addPreset(ConnectionPresets.classic.setup());
-    arrange.addPreset(ArrangePresets.classic.setup());
+    render.addPreset(SolidPresets.classic.setup() as any);
+    connection.addPreset(ConnectionPresets.classic.setup() as any);
+    arrange.addPreset(ArrangePresets.classic.setup() as any);
 
     editor.use(area);
     area.use(connection);
-    area.use(render);
+    area.use(render as any);
     area.use(arrange);
 
     // Event listeners

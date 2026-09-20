@@ -12,8 +12,11 @@
     "strict": true,
     "types": ["vite/client", "bun-types"],
     "isolatedModules": true,
+    "skipLibCheck": true,
     "paths": {
       "~/*": ["./src/*"]
     }
-  }
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", ".output", ".solid-start", "tests/manual"]
 }

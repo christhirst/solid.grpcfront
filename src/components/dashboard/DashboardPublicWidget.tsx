@@ -19,21 +19,20 @@ export interface DashboardPublicWidgetProps {
 
 /** Renders a button/form widget with conditional rules applied from the workflow outcome. */
 export function DashboardPublicButtonFormWidget(props: DashboardPublicWidgetProps) {
-  const { btn, dashboardId, executing, formState, updateForm, triggerButton } = props;
-  const outcome = useWidgetOutcome(dashboardId, btn);
-  const effective = () => applyWidgetConditions(btn, outcome().data);
+  const outcome = useWidgetOutcome(props.dashboardId, props.btn);
+  const effective = () => applyWidgetConditions(props.btn, outcome().data);
 
   const handleTrigger = async () => {
-    await triggerButton(btn, effective().workflowId);
+    await props.triggerButton(props.btn, effective().workflowId);
   };
 
   return (
     <DashboardButtonFormWidget
-      btn={btn}
+      btn={props.btn}
       effective={effective()}
-      state={executing[btn.id] || "idle"}
-      formState={formState}
-      updateForm={updateForm}
+      state={props.executing[props.btn.id] || "idle"}
+      formState={props.formState}
+      updateForm={props.updateForm}
       onTrigger={handleTrigger}
     />
   );

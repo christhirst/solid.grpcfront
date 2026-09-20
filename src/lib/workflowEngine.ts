@@ -8,7 +8,8 @@ import { RecordId } from "surrealdb";
 import * as Sentry from "@sentry/node";
 import { EventEmitter } from "events";
 import { normalizeConnection, fetchPreRequestToken } from "~/lib/connections";
-export { getStepCategory, type StepCategory, type WorkflowStep } from "./stepCategories";
+import { getStepCategory, type StepCategory, type WorkflowStep } from "./stepCategories";
+export { getStepCategory, type StepCategory, type WorkflowStep };
 
 
 export const workflowStreamManager = new EventEmitter();
@@ -44,35 +45,36 @@ async function getStepAuthHeader(step: any, db: any): Promise<string | undefined
       
       if (rawConnection) {
         const connection = normalizeConnection(rawConnection);
+        const conn = connection as any;
         console.log(`[STEP AUTH] Resolving auth for connection: ${connection.name} (type: ${connection.type})`);
 
-        if (connection.authType === "basic" && (connection.username || connection.password)) {
-          const auth = Buffer.from(`${connection.username || ""}:${connection.password || ""}`).toString("base64");
+        if (conn.authType === "basic" && (conn.username || conn.password)) {
+          const auth = Buffer.from(`${conn.username || ""}:${conn.password || ""}`).toString("base64");
           return `Basic ${auth}`;
         }
 
-        if (connection.authType === "bearer" && connection.bearerToken) {
-          return `Bearer ${connection.bearerToken}`;
+        if (conn.authType === "bearer" && conn.bearerToken) {
+          return `Bearer ${conn.bearerToken}`;
         }
 
-        if (connection.authType === "oauth" || connection.tokenUrl) {
+        if (conn.authType === "oauth" || conn.tokenUrl) {
           const tokenRes = await fetchPreRequestToken({
-            tokenUrl: connection.tokenUrl,
-            tokenMethod: connection.tokenMethod,
-            tokenAuthScheme: connection.tokenAuthScheme,
-            tokenUsername: connection.tokenUsername,
-            tokenPassword: connection.tokenPassword,
-            tokenBearerToken: connection.tokenBearerToken,
-            tokenBody: connection.tokenBody,
-            tokenHeaders: connection.tokenHeaders,
-            tokenPath: connection.tokenPath,
+            tokenUrl: conn.tokenUrl,
+            tokenMethod: conn.tokenMethod,
+            tokenAuthScheme: conn.tokenAuthScheme,
+            tokenUsername: conn.tokenUsername,
+            tokenPassword: conn.tokenPassword,
+            tokenBearerToken: conn.tokenBearerToken,
+            tokenBody: conn.tokenBody,
+            tokenHeaders: conn.tokenHeaders,
+            tokenPath: conn.tokenPath,
           });
 
           if (!tokenRes.success) {
             throw new Error(tokenRes.error);
           }
 
-          const prefix = connection.tokenHeaderPrefix !== undefined ? connection.tokenHeaderPrefix : "Bearer ";
+          const prefix = conn.tokenHeaderPrefix !== undefined ? conn.tokenHeaderPrefix : "Bearer ";
           return `${prefix}${tokenRes.token}`;
         }
       } else {
@@ -126,7 +128,7 @@ export interface WorkflowDefinition {
 
 export interface WorkflowRunLog {
   stepId: string;
-  stepType?: "grpc" | "table" | "chart" | "database" | "rest" | "grpc_stream" | "rest_stream" | "surreal_live";
+  stepType?: "grpc" | "table" | "chart" | "database" | "rest" | "grpc_stream" | "rest_stream" | "surreal_live" | "transform" | "infographic";
   status: "success" | "error";
   request: any;
   response?: any;
@@ -386,25 +388,26 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
         
         if (rawConnection) {
           const connection = normalizeConnection(rawConnection);
+          const conn = connection as any;
           console.log(`[AUTH] Resolving workflow connection auth: ${connection.name}`);
 
-          if (connection.authType === "bearer" && connection.bearerToken) {
-            authToken = connection.bearerToken;
+          if (conn.authType === "bearer" && conn.bearerToken) {
+            authToken = conn.bearerToken;
             context.auth = { token: authToken };
-          } else if (connection.authType === "basic" && (connection.username || connection.password)) {
-            authToken = Buffer.from(`${connection.username || ""}:${connection.password || ""}`).toString("base64");
+          } else if (conn.authType === "basic" && (conn.username || conn.password)) {
+            authToken = Buffer.from(`${conn.username || ""}:${conn.password || ""}`).toString("base64");
             context.auth = { token: authToken };
-          } else if (connection.authType === "oauth" || connection.tokenUrl) {
+          } else if (conn.authType === "oauth" || conn.tokenUrl) {
             const tokenRes = await fetchPreRequestToken({
-              tokenUrl: connection.tokenUrl,
-              tokenMethod: connection.tokenMethod,
-              tokenAuthScheme: connection.tokenAuthScheme,
-              tokenUsername: connection.tokenUsername,
-              tokenPassword: connection.tokenPassword,
-              tokenBearerToken: connection.tokenBearerToken,
-              tokenBody: connection.tokenBody,
-              tokenHeaders: connection.tokenHeaders,
-              tokenPath: connection.tokenPath,
+              tokenUrl: conn.tokenUrl,
+              tokenMethod: conn.tokenMethod,
+              tokenAuthScheme: conn.tokenAuthScheme,
+              tokenUsername: conn.tokenUsername,
+              tokenPassword: conn.tokenPassword,
+              tokenBearerToken: conn.tokenBearerToken,
+              tokenBody: conn.tokenBody,
+              tokenHeaders: conn.tokenHeaders,
+              tokenPath: conn.tokenPath,
             });
 
             if (!tokenRes.success) {

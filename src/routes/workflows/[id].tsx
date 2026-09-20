@@ -1,4 +1,4 @@
-import { getStepCategory } from "~/lib/stepCategories";
+import { getStepCategory, type StepCategory } from "~/lib/stepCategories";
 import ReteWorkflowEditor from "~/components/workflow/ReteWorkflowEditor";
 import { createSignal, createEffect, onMount, For, Show, createResource, createMemo, Index } from "solid-js";
 import { extractFormVariables, checkWorkflowConfiguredInDashboards } from "~/lib/workflowVariableChecker";
@@ -346,8 +346,8 @@ function LogChart(props: { data: any[]; xKey?: string; yKey?: string; chartType?
       if (!topo) return { labels: [], datasets: [] };
 
       const features = isUS
-        ? ChartGeo.topojson.feature(topo, topo.objects.states).features
-        : ChartGeo.topojson.feature(topo, topo.objects.countries).features;
+        ? (ChartGeo.topojson.feature(topo, topo.objects.states) as any).features
+        : (ChartGeo.topojson.feature(topo, topo.objects.countries) as any).features;
 
       const inferred = inferChartKeys(data, props.xKey, props.yKey);
 
@@ -1358,7 +1358,7 @@ export default function WorkflowBuilder() {
                 onStepsChange={(newSteps) => setSteps(reconcile(newSteps))}
                 onGraphChange={(g) => setGraphData(g)}
                 onSelectStep={(stepId) => setSelectedStepId(stepId)}
-                selectedStepId={selectedStepId()}
+                selectedStepId={selectedStepId() ?? undefined}
                 isExecuting={isRunning()}
               />
             </div>
@@ -1441,7 +1441,7 @@ export default function WorkflowBuilder() {
                           const current = step.sourceStepIds || [];
                           let next: string[];
                           if (current.includes(sId)) {
-                            next = current.filter(id => id !== sId);
+                            next = current.filter((id: string) => id !== sId);
                           } else {
                             next = [...current, sId];
                           }

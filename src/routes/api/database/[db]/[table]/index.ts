@@ -1,4 +1,4 @@
-import { APIEvent } from "solid-start/api";
+import { APIEvent } from "@solidjs/start/server";
 import { getDynamicDb } from "~/lib/db";
 
 export async function GET({ params }: APIEvent) {

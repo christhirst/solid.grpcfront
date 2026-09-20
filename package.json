@@ -4,8 +4,9 @@
   "scripts": {
     "dev": "vite dev",
     "build": "bun scripts/patch-server.js && vite build && bun scripts/patch-server.js",
-    "start": "vite start",
-    "preview": "vite preview",
+    "start": "bun .output/server/index.mjs",
+    "preview": "bun .output/server/index.mjs",
+    "typecheck": "tsc --noEmit",
     "test": "bun test",
     "varlock:load": "varlock load",
     "varlock:scan": "varlock scan",

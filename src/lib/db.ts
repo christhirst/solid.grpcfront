@@ -279,7 +279,7 @@ async function connectWithTimeout(
     s: Surreal,
     url: string,
     opts?: any,
-    timeoutMs = 8000,
+    timeoutMs = 3000,
 ): Promise<void> {
     let timer: any;
     const timeoutPromise = new Promise<never>((_, reject) => {
@@ -312,7 +312,7 @@ async function createConnectedClient(
     pass: string,
     namespace?: string,
     database?: string,
-    connectTimeoutMs = 8000,
+    connectTimeoutMs = 3000,
 ): Promise<Surreal> {
     // Root user credentials in SurrealDB must use root-level auth (without namespace/database).
     // Scoped users authenticate with namespace and database.

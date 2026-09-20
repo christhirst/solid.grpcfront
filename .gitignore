@@ -1,6 +1,7 @@
 dist
 .wrangler
 .output
+.solid-start
 .vercel
 .netlify
 .vinxi

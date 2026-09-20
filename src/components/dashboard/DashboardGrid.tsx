@@ -1,6 +1,6 @@
 import { onMount, onCleanup, For, Show, JSX, createEffect } from "solid-js";
 import { isServer } from "solid-js/web";
-import { GridStack } from "gridstack";
+import type { GridStack as GridStackType } from "gridstack";
 
 export function getDefaultWidgetDimensions(widgetType?: string) {
   switch (widgetType) {
@@ -35,8 +35,10 @@ export default function DashboardGrid(props: DashboardGridProps) {
   let containerRef!: HTMLDivElement;
   let gridInstance: any = null;
 
-  const initGrid = () => {
+  const initGrid = async () => {
     if (isServer || !containerRef) return;
+    const { GridStack } = await import("gridstack");
+    if (!containerRef) return;
     if (gridInstance) {
       try {
         gridInstance.destroy(false);

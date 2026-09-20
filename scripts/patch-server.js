@@ -40,6 +40,27 @@ const patchNodeModules = () => {
         }
     }
 
+    const solidJsWebDistDirs = [
+        path.join(rootDir, "node_modules", "solid-js", "web", "dist"),
+        path.join(serverDir, "node_modules", "solid-js", "web", "dist"),
+    ];
+    for (const d of solidJsWebDistDirs) {
+        if (fs.existsSync(d)) {
+            const files = ["server.js", "server.cjs"];
+            for (const f of files) {
+                const fp = path.join(d, f);
+                if (fs.existsSync(fp)) {
+                    let code = fs.readFileSync(fp, "utf8");
+                    if (code.includes("writer.releaseLock();") && code.includes("w.close();")) {
+                        code = code.replace(/writer\.releaseLock\(\);\s*w\.close\(\);/g, "try { writer.releaseLock(); } catch(e) {} try { w.close(); } catch(e) {}");
+                        fs.writeFileSync(fp, code);
+                        console.log(`Patched solid-js/web stream close safety: ${fp}`);
+                    }
+                }
+            }
+        }
+    }
+
     // Also patch @auth/core in root node_modules
     const authWebPaths = [
         path.join(rootDir, "node_modules", "@auth", "core", "lib", "utils", "web.js"),
@@ -48,6 +69,27 @@ const patchNodeModules = () => {
     for (const p of authWebPaths) {
         if (fs.existsSync(p)) {
             patchAuthWebFile(p);
+        }
+    }
+
+    // Patch gridstack unextensioned relative imports for Node ESM resolution
+    const gridstackDirs = [
+        path.join(rootDir, "node_modules", "gridstack", "dist"),
+        path.join(serverDir, "node_modules", "gridstack", "dist"),
+    ];
+    for (const gDir of gridstackDirs) {
+        if (fs.existsSync(gDir)) {
+            const files = fs.readdirSync(gDir).filter(f => f.endsWith(".js") && !f.includes("-all"));
+            for (const f of files) {
+                const fp = path.join(gDir, f);
+                let code = fs.readFileSync(fp, "utf8");
+                const relImportRegex = /(from\s+['"]|export\s+\*\s+from\s+['"])(\.[^'"]*?)(?<!\.js)(['"])/g;
+                if (relImportRegex.test(code)) {
+                    code = code.replace(relImportRegex, "$1$2.js$3");
+                    fs.writeFileSync(fp, code);
+                    console.log(`Patched gridstack import extensions: ${fp}`);
+                }
+            }
         }
     }
 };
@@ -217,8 +259,8 @@ const patchMjsFiles = (dir) => {
                 changed = true;
             }
 
-            // Generic safety net for new URL(variable)
-            const genericURLRegex = /(=|\(|\s)new URL\(([a-zA-Z_$][a-zA-Z0-9_$]*)\)(?!,)/g;
+            // Generic safety net for new URL(variable or object.prop.url)
+            const genericURLRegex = /(=|\(|\s)new URL\(([a-zA-Z_$][a-zA-Z0-9_$.]*)\)(?!,)/g;
             if (genericURLRegex.test(code)) {
                 code = code.replace(genericURLRegex, `$1new URL($2 && typeof $2 === 'string' && $2.startsWith('/') ? 'http://localhost' + $2 : $2)`);
                 changed = true;
@@ -277,7 +319,7 @@ if (fs.existsSync(publicDir)) {
     patchClientAssets(publicDir);
 }
 
-// 5. Generate instrument.server.mjs
+// 5. Generate instrument.server.mjs and inject into server entry
 const instrumentPath = path.join(serverDir, "instrument.server.mjs");
 const instrumentCode = `
 const originalURL = globalThis.URL;
@@ -314,4 +356,14 @@ globalThis.__varlockThrowOnMissingKeys = false;
 if (fs.existsSync(serverDir)) {
     fs.writeFileSync(instrumentPath, instrumentCode);
     console.log("Generated instrument.server.mjs");
+
+    const indexMjsPath = path.join(serverDir, "index.mjs");
+    if (fs.existsSync(indexMjsPath)) {
+        let indexCode = fs.readFileSync(indexMjsPath, "utf8");
+        if (!indexCode.includes('import "./instrument.server.mjs"') && !indexCode.includes("import './instrument.server.mjs'")) {
+            indexCode = `import "./instrument.server.mjs";\n` + indexCode;
+            fs.writeFileSync(indexMjsPath, indexCode);
+            console.log("Injected instrument.server.mjs into .output/server/index.mjs");
+        }
+    }
 }

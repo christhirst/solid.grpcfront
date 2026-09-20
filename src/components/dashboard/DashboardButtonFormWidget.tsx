@@ -1,4 +1,4 @@
-import { For, Show } from "solid-js";
+import { For, Show, Switch, Match } from "solid-js";
 import type { EffectiveWidgetConfig, FormField, WidgetConfig } from "~/lib/dashboard/widgetTypes";
 
 export type WidgetExecutionState = "idle" | "running" | "success" | "error";
@@ -30,8 +30,9 @@ export function buildButtonClass(state: WidgetExecutionState, color?: string): s
   return `${base} active:scale-[0.98] focus:ring-2 focus:outline-none ${colorStyle}`;
 }
 
-function getFieldValue(field: FormField, formValues: Record<string, unknown> | undefined): unknown {
-  if (formValues && field.name in formValues) return formValues[field.name];
+/** Resolves the display value of a field, falling back to its default value. */
+export function getFieldValue(field: FormField, formValues: Record<string, unknown>): unknown {
+  if (formValues[field.name] !== undefined) return formValues[field.name];
   return field.value ?? field.defaultValue ?? "";
 }
 
@@ -41,121 +42,112 @@ function FormFieldInput(props: {
   value: unknown;
   onChange: (value: unknown) => void;
 }) {
-  const { field } = props;
-
-  if (field.type === "boolean") {
-    return (
-      <label class="flex items-center gap-3 cursor-pointer py-1.5">
-        <input
-          type="checkbox"
-          class="w-4 h-4 rounded border-[#2a2a3a] bg-[#1e1e2e] text-purple-500 focus:ring-purple-500/50"
-          checked={!!props.value}
-          onChange={(e) => props.onChange(e.currentTarget.checked)}
-        />
-        <span class="text-sm text-white">Enable</span>
-      </label>
-    );
-  }
-
-  if (field.type === "select") {
-    return (
-      <select
-        class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500/50 transition-all"
-        value={String(props.value ?? "")}
-        onChange={(e) => props.onChange(e.currentTarget.value)}
-      >
-        <option value="" disabled>Select an option...</option>
-        <For each={(field.options || "").split(",").map((o) => o.trim()).filter(Boolean)}>
-          {(opt) => <option value={opt}>{opt}</option>}
-        </For>
-      </select>
-    );
-  }
-
-  if (field.type === "textarea") {
-    return (
-      <textarea
-        rows={3}
-        required={field.required}
-        class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500/50 transition-all font-mono"
-        value={String(props.value ?? "")}
-        onInput={(e) => props.onChange(e.currentTarget.value)}
-        placeholder={`Enter ${field.label}...`}
-      />
-    );
-  }
-
-  const isNumber = field.type === "number";
   return (
-    <input
-      type={isNumber ? "number" : "text"}
-      required={field.required}
-      class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500/50 transition-all"
-      value={String(props.value ?? "")}
-      onInput={(e) => props.onChange(isNumber ? Number(e.currentTarget.value) : e.currentTarget.value)}
-      placeholder={`Enter ${field.label}...`}
-    />
+    <Switch
+      fallback={
+        <input
+          type={props.field.type === "number" ? "number" : "text"}
+          required={props.field.required}
+          class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500/50 transition-all"
+          value={String(props.value ?? "")}
+          onInput={(e) => props.onChange(props.field.type === "number" ? Number(e.currentTarget.value) : e.currentTarget.value)}
+          placeholder={`Enter ${props.field.label}...`}
+        />
+      }
+    >
+      <Match when={props.field.type === "boolean"}>
+        <label class="flex items-center gap-3 cursor-pointer py-1.5">
+          <input
+            type="checkbox"
+            class="w-4 h-4 rounded border-[#2a2a3a] bg-[#1e1e2e] text-purple-500 focus:ring-purple-500/50"
+            checked={!!props.value}
+            onChange={(e) => props.onChange(e.currentTarget.checked)}
+          />
+          <span class="text-sm text-white">Enable</span>
+        </label>
+      </Match>
+      <Match when={props.field.type === "select"}>
+        <select
+          class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500/50 transition-all"
+          value={String(props.value ?? "")}
+          onChange={(e) => props.onChange(e.currentTarget.value)}
+        >
+          <option value="" disabled>Select an option...</option>
+          <For each={(props.field.options || "").split(",").map((o) => o.trim()).filter(Boolean)}>
+            {(opt) => <option value={opt}>{opt}</option>}
+          </For>
+        </select>
+      </Match>
+      <Match when={props.field.type === "textarea"}>
+        <textarea
+          rows={3}
+          required={props.field.required}
+          class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500/50 transition-all font-mono"
+          value={String(props.value ?? "")}
+          onInput={(e) => props.onChange(e.currentTarget.value)}
+          placeholder={`Enter ${props.field.label}...`}
+        />
+      </Match>
+    </Switch>
   );
 }
 
 /** Shared button/form widget renderer. Hides the whole widget or the form based on the effective config. */
 export function DashboardButtonFormWidget(props: DashboardButtonFormWidgetProps) {
-  const { btn, effective, state, formState, updateForm, onTrigger } = props;
-
-  if (effective.hidden) return null;
-
-  const formValues = () => formState[btn.id] || {};
-  const fields = () => btn.formConfig || [];
+  const formValues = () => props.formState[props.btn.id] || {};
+  const fields = () => props.btn.formConfig || [];
   const hasFields = () => fields().length > 0;
-  const btnClass = () => buildButtonClass(state, btn.color);
+  const btnClass = () => buildButtonClass(props.state, props.btn.color);
 
   return (
-    <Show
-      when={!effective.formHidden && hasFields()}
-      fallback={
-        <button
-          onClick={onTrigger}
-          disabled={state !== "idle"}
-          class={btnClass()}
-        >
-          <ButtonContent state={state} label={effective.label} />
-        </button>
-      }
-    >
-      <div class="rounded-2xl border border-[#2a2a3a] bg-[#0e0e15] p-5 shadow-xl space-y-4 text-left">
-        <div class="flex items-center gap-2 pb-2 border-b border-[#2a2a3a]">
-          <span class="w-2.5 h-2.5 rounded-full bg-purple-500"></span>
-          <h3 class="text-sm font-bold text-white">{effective.label}</h3>
-        </div>
-
-        <div class="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
-          <For each={fields()}>
-            {(field) => {
-              const value = () => getFieldValue(field, formValues());
-              return (
-                <div class="col-span-1">
-                  <label class="block text-xs font-bold text-[#8b8b9e] mb-1.5">{field.label}</label>
-                  <FormFieldInput
-                    field={field}
-                    value={value()}
-                    onChange={(value) => updateForm(btn.id, field.name, value)}
-                  />
-                </div>
-              );
-            }}
-          </For>
-        </div>
-
-        <div class="pt-2">
+    <Show when={!props.effective?.hidden}>
+      <Show
+        when={!props.effective?.formHidden && hasFields()}
+        fallback={
           <button
-            onClick={onTrigger}
-            disabled={state !== "idle"}
+            onClick={props.onTrigger}
+            disabled={props.state !== "idle"}
             class={btnClass()}
           >
-            <ButtonContent state={state} label={`Execute ${effective.label}`} />
+            <ButtonContent state={props.state} label={props.effective?.label || props.btn.label || "Run"} />
           </button>
+        }
+      >
+        <div class="rounded-2xl border border-[#2a2a3a] bg-[#0e0e15] p-5 shadow-xl space-y-4 text-left">
+          <div class="flex items-center gap-2 pb-2 border-b border-[#2a2a3a]">
+            <span class="w-2.5 h-2.5 rounded-full bg-purple-500"></span>
+            <h3 class="text-sm font-bold text-white">{props.effective?.label || props.btn.label}</h3>
+          </div>
+
+          <div class="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
+            <For each={fields()}>
+              {(field) => {
+                const value = () => getFieldValue(field, formValues());
+                return (
+                  <div class="col-span-1">
+                    <label class="block text-xs font-bold text-[#8b8b9e] mb-1.5">{field.label}</label>
+                    <FormFieldInput
+                      field={field}
+                      value={value()}
+                      onChange={(value) => props.updateForm(props.btn.id, field.name, value)}
+                    />
+                  </div>
+                );
+              }}
+            </For>
+          </div>
+
+          <div class="pt-2">
+            <button
+              onClick={props.onTrigger}
+              disabled={props.state !== "idle"}
+              class={btnClass()}
+            >
+              <ButtonContent state={props.state} label={`Execute ${props.effective?.label || props.btn.label}`} />
+            </button>
+          </div>
         </div>
-      </div>
+      </Show>
     </Show>
   );
 }

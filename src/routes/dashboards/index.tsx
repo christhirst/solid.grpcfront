@@ -36,14 +36,12 @@ export default function Dashboards() {
   const [error, setError] = createSignal("");
   let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 
-  const [dashboards, { refetch }] = createResource<DashboardSummary[]>(() => query(), async (q) => {
+  const [dashboards, { refetch }] = createResource<DashboardSummary[], string>(() => query(), async (q) => {
     setError("");
+    if (isServer) return [];
     try {
       const params = q ? `?q=${encodeURIComponent(q)}` : "";
-      const url = isServer
-        ? `http://127.0.0.1:${process.env.PORT || 3000}/api/dashboards${params}`
-        : `/api/dashboards${params}`;
-      const res = await fetch(url);
+      const res = await fetch(`/api/dashboards${params}`);
       const text = await res.text();
       const json = JSON.parse(text);
       if (!res.ok || !json.success) {

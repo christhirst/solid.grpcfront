@@ -392,8 +392,8 @@ function DashChart(props: { data: any[]; xKey?: string; yKey?: string; chartType
       if (!topo) return { labels: [], datasets: [] };
 
       const features = isUS
-        ? ChartGeo.topojson.feature(topo, topo.objects.states).features
-        : ChartGeo.topojson.feature(topo, topo.objects.countries).features;
+        ? (ChartGeo.topojson.feature(topo, topo.objects.states) as any).features
+        : (ChartGeo.topojson.feature(topo, topo.objects.countries) as any).features;
 
       const inferred = inferChartKeys(data, props.xKey, props.yKey);
 
@@ -923,7 +923,7 @@ function InfographicWidget(props: { syntax?: string; data?: any; editable?: bool
   onMount(async () => {
     try {
       const mod = await import("@antv/infographic");
-      const Infographic = mod.Infographic || mod.default;
+      const Infographic = mod.Infographic || (mod as any).default;
       instance = new Infographic({
         container: containerRef,
         width: "100%",
