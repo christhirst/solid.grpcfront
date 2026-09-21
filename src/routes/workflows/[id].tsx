@@ -554,6 +554,7 @@ export default function WorkflowBuilder() {
 
   // Form state
   const [name, setName] = createSignal("New Workflow");
+  const [direction, setDirection] = createSignal<"read" | "write">("read");
   const [viewMode, setViewMode] = createSignal<"graph" | "steps">("graph");
   const [graphData, setGraphData] = createSignal<any>(null);
   const [selectedStepId, setSelectedStepId] = createSignal<string | null>(null);
@@ -772,6 +773,7 @@ export default function WorkflowBuilder() {
     const data = workflow();
     if (data) {
       setName(data.name || "Untitled");
+      setDirection((data.direction as "read" | "write") || "read");
       setProtoId(data.protoId || "");
       setCaId(data.caId || (data.useTls ? ACCEPT_ALL_CA : ""));
       if (data.protoContent) {
@@ -877,6 +879,7 @@ export default function WorkflowBuilder() {
     const payload = {
       id: isNew ? undefined : `workflow:${params.id}`,
       name: name(),
+      direction: direction(),
       protoId: protoId() || undefined,
       caId: caId() || undefined,
       serverAddress: serverAddress(),
@@ -1109,21 +1112,21 @@ export default function WorkflowBuilder() {
             <div class="flex rounded-lg border border-[#2a2a3a] bg-[#0e0e15] overflow-hidden">
               <button
                 class={`px-3 py-1 text-[11px] font-bold transition-all ${
-                  (workflow().direction || "read") === "read"
+                  direction() === "read"
                     ? "bg-blue-600 text-white shadow-lg"
                     : "text-[#8b8b9e] hover:text-white"
                 }`}
-                onClick={() => setWorkflow((w: any) => ({ ...w, direction: "read" }))}
+                onClick={() => setDirection("read")}
               >
                 📥 Read from Source
               </button>
               <button
                 class={`px-3 py-1 text-[11px] font-bold transition-all ${
-                  workflow().direction === "write"
+                  direction() === "write"
                     ? "bg-amber-600 text-white shadow-lg"
                     : "text-[#8b8b9e] hover:text-white"
                 }`}
-                onClick={() => setWorkflow((w: any) => ({ ...w, direction: "write" }))}
+                onClick={() => setDirection("write")}
               >
                 📤 Write to Source
               </button>
@@ -1669,7 +1672,7 @@ export default function WorkflowBuilder() {
                       <div class="flex rounded-md border border-[#2a2a3a] bg-[#0e0e15] overflow-hidden">
                         <button
                           class={`px-2.5 py-1 text-[10px] font-bold transition-all ${
-                            (step.direction || workflow().direction || "read") === "read"
+                            (step.direction || direction() || "read") === "read"
                               ? "bg-blue-600/80 text-white"
                               : "text-[#8b8b9e] hover:text-white"
                           }`}
@@ -1679,7 +1682,7 @@ export default function WorkflowBuilder() {
                         </button>
                         <button
                           class={`px-2.5 py-1 text-[10px] font-bold transition-all ${
-                            (step.direction || workflow().direction) === "write"
+                            (step.direction || direction()) === "write"
                               ? "bg-amber-600/80 text-white"
                               : "text-[#8b8b9e] hover:text-white"
                           }`}
