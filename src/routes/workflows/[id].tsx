@@ -2754,26 +2754,26 @@ export default function WorkflowBuilder() {
                                     <span class="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
                                     <span>🟢 Upstream (Upload to Dashboard)</span>
                                   </div>
-                                  <For each={upVars()}>
+                                  <Index each={upVars()}>
                                     {(v) => (
                                       <div class="p-2 rounded-lg border border-emerald-500/30 bg-emerald-950/15 space-y-1.5">
                                         <div class="flex items-center justify-between gap-2">
                                           <div class="flex items-center gap-1.5 overflow-hidden flex-1">
                                             <button
                                               type="button"
-                                              onClick={() => toggleVarDirection(v.name)}
+                                              onClick={() => toggleVarDirection(v().name)}
                                               class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 hover:bg-rose-500/20 hover:text-rose-300 transition-colors shrink-0"
                                               title="Click to toggle to Downstream (Red)"
                                             >
                                               ↑ UP
                                             </button>
-                                            <span class="text-[11px] font-mono text-emerald-200 truncate" title={v.name}>
-                                              {`{{ ${v.name} }}`}
+                                            <span class="text-[11px] font-mono text-emerald-200 truncate" title={v().name}>
+                                              {`{{ ${v().name} }}`}
                                             </span>
                                           </div>
                                           <button
                                             type="button"
-                                            onClick={() => removeVar(v.name)}
+                                            onClick={() => removeVar(v().name)}
                                             class="text-[#5b5b6e] hover:text-red-400 text-xs shrink-0 px-1"
                                             title="Remove"
                                           >
@@ -2786,13 +2786,13 @@ export default function WorkflowBuilder() {
                                             type="text"
                                             class="flex-1 bg-[#0a0a0f] border border-emerald-500/30 rounded px-2 py-0.5 text-xs text-white placeholder-[#5b5b6e] focus:border-emerald-400 outline-none"
                                             placeholder="e.g. has_incidents"
-                                            value={v.alias || ""}
-                                            onInput={(e) => updateVar(v.name, { alias: e.currentTarget.value })}
+                                            value={v().alias || ""}
+                                            onInput={(e) => updateVar(v().name, { alias: e.currentTarget.value })}
                                           />
                                         </div>
                                       </div>
                                     )}
-                                  </For>
+                                  </Index>
                                 </div>
                               </Show>
 
@@ -2803,10 +2803,10 @@ export default function WorkflowBuilder() {
                                     <span class="h-1.5 w-1.5 rounded-full bg-rose-400"></span>
                                     <span>🔴 Downstream (Download from Dashboard)</span>
                                   </div>
-                                  <For each={downVars()}>
+                                  <Index each={downVars()}>
                                     {(v) => {
                                       const isSetInDash = () => {
-                                        let clean = v.name;
+                                        let clean = v().name;
                                         if (clean.startsWith("form.")) clean = clean.slice(5);
                                         if (clean.startsWith("dashboard_form.")) clean = clean.slice(15);
                                         return varConfigStatus().configuredVars.includes(clean);
@@ -2824,7 +2824,7 @@ export default function WorkflowBuilder() {
                                             <div class="flex items-center gap-1.5 overflow-hidden flex-1">
                                               <button
                                                 type="button"
-                                                onClick={() => toggleVarDirection(v.name)}
+                                                onClick={() => toggleVarDirection(v().name)}
                                                 class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 hover:bg-emerald-500/20 hover:text-emerald-300 transition-colors shrink-0"
                                                 title="Click to toggle to Upstream (Green)"
                                               >
@@ -2834,9 +2834,9 @@ export default function WorkflowBuilder() {
                                                 class={`text-[11px] font-mono truncate ${
                                                   isSetInDash() ? "text-emerald-200" : "text-rose-200"
                                                 }`}
-                                                title={v.name}
+                                                title={v().name}
                                               >
-                                                {`{{ ${v.name} }}`}
+                                                {`{{ ${v().name} }}`}
                                               </span>
                                             </div>
                                             <div class="flex items-center gap-1.5 shrink-0">
@@ -2854,7 +2854,7 @@ export default function WorkflowBuilder() {
                                               </Show>
                                               <button
                                                 type="button"
-                                                onClick={() => removeVar(v.name)}
+                                                onClick={() => removeVar(v().name)}
                                                 class="text-[#5b5b6e] hover:text-red-400 text-xs shrink-0 px-1"
                                                 title="Remove"
                                               >
@@ -2872,14 +2872,14 @@ export default function WorkflowBuilder() {
                                                   : "border-rose-500/30 focus:border-rose-400"
                                               }`}
                                               placeholder="e.g. Target Table"
-                                              value={v.alias || ""}
-                                              onInput={(e) => updateVar(v.name, { alias: e.currentTarget.value })}
+                                              value={v().alias || ""}
+                                              onInput={(e) => updateVar(v().name, { alias: e.currentTarget.value })}
                                             />
                                           </div>
                                         </div>
                                       );
                                     }}
-                                  </For>
+                                  </Index>
                                 </div>
                               </Show>
                             </div>
