@@ -94,6 +94,7 @@ function FormFieldInput(props: {
 
 /** Shared button/form widget renderer. Hides the whole widget or the form based on the effective config. */
 export function DashboardButtonFormWidget(props: DashboardButtonFormWidgetProps) {
+  const isFormWidget = () => props.btn.widgetType === "form";
   const effectiveColor = () => props.effective?.color || props.btn.color;
   const isDisabled = () => props.effective?.disabled || props.state !== "idle";
   const formValues = () => props.formState[props.btn.id] || {};
@@ -104,51 +105,111 @@ export function DashboardButtonFormWidget(props: DashboardButtonFormWidgetProps)
   return (
     <Show when={!props.effective?.hidden}>
       <Show
-        when={!props.effective?.formHidden && hasFields()}
+        when={isFormWidget()}
         fallback={
-          <button
-            onClick={props.onTrigger}
-            disabled={isDisabled()}
-            class={btnClass()}
+          /* Button Widget with optional expandable form */
+          <Show
+            when={!props.effective?.formHidden && hasFields()}
+            fallback={
+              <button
+                onClick={props.onTrigger}
+                disabled={isDisabled()}
+                class={btnClass()}
+              >
+                <ButtonContent state={props.state} label={props.effective?.label || props.btn.label || "Run"} />
+              </button>
+            }
           >
-            <ButtonContent state={props.state} label={props.effective?.label || props.btn.label || "Run"} />
-          </button>
+            <div class="rounded-2xl border border-[#2a2a3a] bg-[#0e0e15] p-5 shadow-xl space-y-4 text-left">
+              <div class="flex items-center gap-2 pb-2 border-b border-[#2a2a3a]">
+                <span class="w-2.5 h-2.5 rounded-full bg-purple-500"></span>
+                <h3 class="text-sm font-bold text-white">{props.effective?.label || props.btn.label}</h3>
+              </div>
+
+              <div class="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
+                <For each={fields()}>
+                  {(field) => {
+                    const value = () => getFieldValue(field, formValues());
+                    return (
+                      <div class="col-span-1">
+                        <label class="block text-xs font-bold text-[#8b8b9e] mb-1.5">{field.label}</label>
+                        <FormFieldInput
+                          field={field}
+                          value={value()}
+                          onChange={(value) => props.updateForm(props.btn.id, field.name, value)}
+                        />
+                      </div>
+                    );
+                  }}
+                </For>
+              </div>
+
+              <div class="pt-2">
+                <button
+                  onClick={props.onTrigger}
+                  disabled={isDisabled()}
+                  class={btnClass()}
+                >
+                  <ButtonContent state={props.state} label={`Execute ${props.effective?.label || props.btn.label}`} />
+                </button>
+              </div>
+            </div>
+          </Show>
         }
       >
-        <div class="rounded-2xl border border-[#2a2a3a] bg-[#0e0e15] p-5 shadow-xl space-y-4 text-left">
-          <div class="flex items-center gap-2 pb-2 border-b border-[#2a2a3a]">
-            <span class="w-2.5 h-2.5 rounded-full bg-purple-500"></span>
-            <h3 class="text-sm font-bold text-white">{props.effective?.label || props.btn.label}</h3>
-          </div>
+        {/* Explicit Form Widget (widgetType === "form") */}
+        <Show when={!props.effective?.formHidden}>
+          <div class="rounded-2xl border border-purple-500/30 bg-[#0e0e15] p-5 shadow-xl space-y-4 text-left w-full h-full flex flex-col justify-between">
+            <div>
+              <div class="flex items-center justify-between pb-2 border-b border-[#2a2a3a]">
+                <div class="flex items-center gap-2">
+                  <span class="w-2.5 h-2.5 rounded-full bg-purple-500"></span>
+                  <h3 class="text-sm font-bold text-white">{props.effective?.label || props.btn.label}</h3>
+                </div>
+                <span class="text-[10px] uppercase font-bold text-purple-400 bg-purple-500/10 border border-purple-500/20 px-2 py-0.5 rounded">
+                  Form
+                </span>
+              </div>
 
-          <div class="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
-            <For each={fields()}>
-              {(field) => {
-                const value = () => getFieldValue(field, formValues());
-                return (
-                  <div class="col-span-1">
-                    <label class="block text-xs font-bold text-[#8b8b9e] mb-1.5">{field.label}</label>
-                    <FormFieldInput
-                      field={field}
-                      value={value()}
-                      onChange={(value) => props.updateForm(props.btn.id, field.name, value)}
-                    />
+              <Show
+                when={hasFields()}
+                fallback={
+                  <div class="py-6 px-4 my-2 text-center rounded-xl border border-dashed border-[#2a2a3a] bg-[#14141e] text-xs text-[#8b8b9e]">
+                    No form fields configured yet. Add fields in configuration.
                   </div>
-                );
-              }}
-            </For>
-          </div>
+                }
+              >
+                <div class="grid grid-cols-1 gap-3.5 sm:grid-cols-2 pt-3">
+                  <For each={fields()}>
+                    {(field) => {
+                      const value = () => getFieldValue(field, formValues());
+                      return (
+                        <div class="col-span-1">
+                          <label class="block text-xs font-bold text-[#8b8b9e] mb-1.5">{field.label}</label>
+                          <FormFieldInput
+                            field={field}
+                            value={value()}
+                            onChange={(value) => props.updateForm(props.btn.id, field.name, value)}
+                          />
+                        </div>
+                      );
+                    }}
+                  </For>
+                </div>
+              </Show>
+            </div>
 
-          <div class="pt-2">
-            <button
-              onClick={props.onTrigger}
-              disabled={isDisabled()}
-              class={btnClass()}
-            >
-              <ButtonContent state={props.state} label={`Execute ${props.effective?.label || props.btn.label}`} />
-            </button>
+            <div class="pt-2">
+              <button
+                onClick={props.onTrigger}
+                disabled={isDisabled()}
+                class={btnClass()}
+              >
+                <ButtonContent state={props.state} label={`Submit ${props.effective?.label || props.btn.label}`} />
+              </button>
+            </div>
           </div>
-        </div>
+        </Show>
       </Show>
     </Show>
   );

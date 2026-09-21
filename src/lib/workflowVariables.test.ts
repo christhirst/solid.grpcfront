@@ -212,4 +212,50 @@ describe("checkWorkflowConfiguredInDashboards", () => {
   });
 });
 
+describe("extractUpstreamVariables", () => {
+  it("extracts all upstream variables and aliases from workflow steps", async () => {
+    const { extractUpstreamVariables } = await import("./workflowVariableChecker");
+    const workflow = {
+      id: "workflow:wf_bool",
+      name: "Bool",
+      steps: [
+        {
+          id: "step_1",
+          name: "Check Incidents",
+          type: "database",
+          requestBodyTemplate: "{{count((SELECT id FROM incident_source)) > 0;}}",
+          variables: [
+            {
+              id: "v1",
+              name: "count((SELECT id FROM incident_source)) > 0;",
+              alias: "has_it",
+              direction: "up",
+              type: "query",
+            },
+          ],
+        },
+      ],
+    };
+
+    const upstream = extractUpstreamVariables(workflow);
+    expect(upstream.length).toBe(1);
+    expect(upstream[0].name).toBe("count((SELECT id FROM incident_source)) > 0;");
+    expect(upstream[0].alias).toBe("has_it");
+    expect(upstream[0].type).toBe("query");
+    expect(upstream[0].stepId).toBe("step_1");
+  });
+});
+
+describe("interpolateTemplate with upstream query expressions", () => {
+  it("preserves/unwraps query calculation expressions when unbound so SurrealDB can execute them", async () => {
+    const { interpolateTemplate } = await import("./workflowEngine");
+    const template = "{{count((SELECT id FROM incident_source)) > 0;}}";
+    const context = { steps: {}, form: {} };
+
+    const result = interpolateTemplate(template, context);
+    expect(result).toBe("count((SELECT id FROM incident_source)) > 0;");
+  });
+});
+
+
 

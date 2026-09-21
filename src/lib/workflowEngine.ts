@@ -171,6 +171,12 @@ export function interpolateTemplate(template: string, context: Record<string, an
       val = get(context.variables, path);
     }
     if (val === undefined) {
+      // If the token is an upstream query/calculation expression (not a variable lookup),
+      // unwrap it instead of wiping to empty string so queries can execute
+      const isCalculation = /\b(SELECT|FROM|WHERE|count\(|LET|RETURN|IF)\b/i.test(path) || /[><=]/.test(path);
+      if (isCalculation) {
+        return path;
+      }
       return ``; // Or throw? For now empty string
     }
     if (typeof val === "object") {
@@ -194,7 +200,9 @@ function evaluatePayload(templateObj: any, context: Record<string, any>): any {
       if (val === undefined && context.form) val = get(context.form, path);
       if (val === undefined && context.dashboard_form) val = get(context.dashboard_form, path);
       if (val === undefined && context.variables) val = get(context.variables, path);
-      return val;
+      if (val !== undefined) return val;
+      const isCalculation = /\b(SELECT|FROM|WHERE|count\(|LET|RETURN|IF)\b/i.test(path) || /[><=]/.test(path);
+      if (isCalculation) return path;
     }
     // Otherwise it's a mixed string "bearer {{ token }}"
     return interpolateTemplate(templateObj, context);
@@ -1047,16 +1055,15 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
         }
 
         // Auto-unwrap accidental wrapping braces around SurrealQL statements
-        // e.g. "{SELECT * FROM incident_source}" or "{\n  SELECT * FROM incident_source;\n}"
+        // e.g. "{{count(...) > 0;}}" or "{SELECT * FROM incident_source}" or "{\n  SELECT * FROM incident_source;\n}"
         if (typeof queryPayload === "string") {
-          const trimmed = queryPayload.trim();
-          if (
-            trimmed.startsWith("{") && 
-            trimmed.endsWith("}") && 
-            /^\{\s*(SELECT|CREATE|UPDATE|DELETE|INSERT|RELATE|DEFINE|REMOVE|INFO|LET|IF|FOR|RETURN|BEGIN|COMMIT|CANCEL)\b/i.test(trimmed)
-          ) {
-            queryPayload = trimmed.slice(1, -1).trim();
+          let trimmed = queryPayload.trim();
+          if (trimmed.startsWith("{{") && trimmed.endsWith("}}")) {
+            trimmed = trimmed.slice(2, -2).trim();
+          } else if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+            trimmed = trimmed.slice(1, -1).trim();
           }
+          queryPayload = trimmed;
         }
         
         let execResult;
@@ -1482,6 +1489,26 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
       }); // end Sentry.startSpan for step
 
       if (stepResult === "abort") return;
+
+      // After each step executes successfully, map any upstream variables produced by this step into context.variables and the latest logRecord
+      const stepResponse = context.steps[step.id]?.response;
+      if (stepResponse !== undefined && Array.isArray(step.variables)) {
+        if (!context.variables) context.variables = {};
+        for (const v of step.variables) {
+          if (v.direction === "up") {
+            if (v.alias && v.alias.trim()) {
+              context.variables[v.alias.trim()] = stepResponse;
+            }
+            if (v.name && v.name.trim()) {
+              context.variables[v.name.trim()] = stepResponse;
+            }
+          }
+        }
+        const lastLog = runRecord.logs[runRecord.logs.length - 1];
+        if (lastLog) {
+          (lastLog as any).variables = { ...(context.variables || {}) };
+        }
+      }
     }
 
     // All steps successful

@@ -17,10 +17,12 @@ if (!isServer) {
   );
 }
 
-import { extractFormVariables, checkWidgetVariablesConfigured } from "~/lib/workflowVariableChecker";
+import { extractFormVariables, checkWidgetVariablesConfigured, extractUpstreamVariables } from "~/lib/workflowVariableChecker";
 import DashboardGrid, { getDefaultWidgetDimensions } from "~/components/dashboard/DashboardGrid";
 import { DashboardButtonFormWidget } from "~/components/dashboard/DashboardButtonFormWidget";
-import { defaultEffectiveConfig } from "~/lib/dashboard/widgetConditions";
+import { DashboardPublicButtonFormWidget } from "~/components/dashboard/DashboardPublicWidget";
+import { useWidgetOutcome } from "~/components/dashboard/useWidgetOutcome";
+import { applyWidgetConditions, defaultEffectiveConfig } from "~/lib/dashboard/widgetConditions";
 import { TabsList, TabsTrigger } from "~/components/ui/tabs";
 import { Badge } from "~/components/ui/badge";
 
@@ -209,7 +211,7 @@ export default function DashboardBuilder() {
       xKey: "",
       yKey: "",
       columns: "",
-      formConfig: [],
+      formConfig: widgetType === "form" ? [{ name: "input", label: "Input", type: "string", required: false }] : [],
       dataPath: "",
       streamActive: true,
       newsRules: [
@@ -258,32 +260,57 @@ export default function DashboardBuilder() {
     chart: "📈 Chart (visualizer)",
   };
 
+  function ConditionalPreviewWrapper(props: { btn: any; dashboardId?: string; children: any }) {
+    const hasRules = () => (props.btn?.conditionRules || []).length > 0;
+    const outcome = useWidgetOutcome(props.dashboardId, props.btn);
+    const effective = () => (hasRules() ? applyWidgetConditions(props.btn, outcome().data) : { hidden: false });
+
+    return (
+      <Show when={!effective().hidden}>
+        {props.children}
+      </Show>
+    );
+  }
+
   const renderLiveWidget = (btn: any) => {
     const wtype = btn.widgetType || widgetKind(btn);
-    const colorCls = colorOptions.find(c => c.value === (btn.color || "blue"))?.class || "bg-blue-600 hover:bg-blue-500";
     if (wtype === "table" || wtype === "chart") {
       return (
-        <PreviewWidget btn={btn} />
+        <ConditionalPreviewWrapper btn={btn} dashboardId={params.id}>
+          <PreviewWidget btn={btn} />
+        </ConditionalPreviewWrapper>
       );
     }
     if (wtype === "news") {
-      return <NewsWidgetComponent btn={btn} dashboardId={params.id} />;
+      return (
+        <ConditionalPreviewWrapper btn={btn} dashboardId={params.id}>
+          <NewsWidgetComponent btn={btn} dashboardId={params.id} />
+        </ConditionalPreviewWrapper>
+      );
     }
     if (wtype === "infographic") {
-      return <InfographicWidget syntax={btn.infographicSyntax} editable={btn.infographicEditable} />;
+      return (
+        <ConditionalPreviewWrapper btn={btn} dashboardId={params.id}>
+          <InfographicWidget syntax={btn.infographicSyntax} editable={btn.infographicEditable} />
+        </ConditionalPreviewWrapper>
+      );
     }
     if (wtype === "toggle") {
-      return <ToggleWidgetComponent btn={btn} dashboardId={params.id} formState={formState()} updateForm={updateForm} triggerButton={triggerButton} />;
+      return (
+        <ConditionalPreviewWrapper btn={btn} dashboardId={params.id}>
+          <ToggleWidgetComponent btn={btn} dashboardId={params.id} formState={formState()} updateForm={updateForm} triggerButton={triggerButton} />
+        </ConditionalPreviewWrapper>
+      );
     }
 
     return (
-      <DashboardButtonFormWidget
+      <DashboardPublicButtonFormWidget
         btn={btn}
-        effective={defaultEffectiveConfig(btn)}
-        state={executing()[btn.id] || "idle"}
+        dashboardId={params.id!}
+        executing={executing()}
         formState={formState()}
         updateForm={updateForm}
-        onTrigger={() => triggerButton(btn)}
+        triggerButton={triggerButton}
       />
     );
   };
@@ -444,6 +471,8 @@ export default function DashboardBuilder() {
                   "text-blue-400 bg-blue-500/10 border-blue-500/20";
 
                 const boundWf = createMemo(() => workflows()?.find((w: any) => w.id === btn.workflowId));
+                const condWf = createMemo(() => btn.conditionWorkflowId ? workflows()?.find((w: any) => w.id === btn.conditionWorkflowId) : boundWf());
+                const upstreamVars = createMemo(() => extractUpstreamVariables(condWf()));
                 const varStatus = createMemo(() => checkWidgetVariablesConfigured(boundWf(), btn.formConfig));
 
                 return (
@@ -647,6 +676,67 @@ export default function DashboardBuilder() {
                         </div>
                       </Show>
 
+                      {/* Workflow Upstream Variables (Produced by Workflow for Conditions & Widgets) */}
+                      <Show when={upstreamVars().length > 0}>
+                        <div class="col-span-2 pt-2 border-t border-[#2a2a3a]/50">
+                          <div class="p-3 rounded-xl border bg-[#12121c] space-y-2.5 shadow-md border-emerald-500/30">
+                            <div class="flex items-center justify-between flex-wrap gap-2">
+                              <div class="flex items-center gap-2">
+                                <span class="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
+                                  <span>🟢</span>
+                                  <span>Workflow Upstream Variables (Outputs from {condWf()?.name || "Workflow"})</span>
+                                </span>
+                                <span class="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-emerald-500/20 text-emerald-300 border-emerald-500/40">
+                                  {upstreamVars().length} Available
+                                </span>
+                              </div>
+                            </div>
+
+                            <p class="text-[11px] text-[#8b8b9e]">
+                              Variables and expressions produced by the workflow. Use these in <strong class="text-cyan-400">Conditional Rules</strong> to show/hide this widget or control its behavior.
+                            </p>
+
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                              <For each={upstreamVars()}>
+                                {(uv) => (
+                                  <div class="p-2 rounded-lg border bg-emerald-950/20 border-emerald-500/40 text-emerald-200 flex items-center justify-between gap-2">
+                                    <div class="truncate overflow-hidden min-w-0 flex-1">
+                                      <Show when={uv.alias} fallback={<div class="font-mono text-xs font-semibold truncate">{uv.name}</div>}>
+                                        <div class="font-bold text-xs text-white truncate flex items-center gap-1">
+                                          <span class="text-emerald-400 font-mono text-[10px]">Alias:</span> {uv.alias}
+                                        </div>
+                                        <div class="font-mono text-[10px] text-emerald-300/70 truncate" title={uv.name}>{uv.name}</div>
+                                      </Show>
+                                    </div>
+
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const path = uv.alias || uv.name;
+                                        const rules = [...(btn.conditionRules || [])];
+                                        rules.push({
+                                          id: `cond_${Date.now()}`,
+                                          path,
+                                          operator: "truthy",
+                                          value: "true",
+                                          action: wt() === "form" ? "showForm" : "showWidget",
+                                          elseAction: wt() === "form" ? "hideForm" : "hideWidget",
+                                        });
+                                        updateButton(index(), "conditionRules", rules);
+                                      }}
+                                      class="text-[10px] font-bold px-2 py-1 rounded bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-200 border border-emerald-500/40 transition-colors shrink-0 flex items-center gap-1"
+                                      title="Add a conditional rule using this variable"
+                                    >
+                                      <span>+ Use in Condition</span>
+                                    </button>
+                                  </div>
+                                )}
+                              </For>
+                            </div>
+                          </div>
+                        </div>
+                      </Show>
+
                       {/* ── Chart config ── */}
                       <Show when={wt() === "chart"}>
                         <div class="col-span-2 pt-3 border-t border-[#2a2a3a]/50 grid grid-cols-3 gap-3">
@@ -808,11 +898,47 @@ export default function DashboardBuilder() {
                                     <div class="col-span-3">
                                       <label class="text-xs text-[#5b5b6e] block mb-0.5">Data Path</label>
                                       <input
+                                        list={`cond_paths_${btn.id}_${rIdx()}`}
                                         class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-1 text-xs font-mono text-white focus:outline-none focus:border-cyan-500"
                                         value={rule.path || ""}
                                         onInput={(e) => { updateButton(index(), "conditionRules", rIdx(), (r: any) => ({ ...r, path: e.currentTarget.value })); }}
-                                        placeholder="e.g. exists"
+                                        placeholder="e.g. has_it or response"
                                       />
+                                      <datalist id={`cond_paths_${btn.id}_${rIdx()}`}>
+                                        <For each={upstreamVars()}>
+                                          {(uv) => (
+                                            <>
+                                              <Show when={uv.alias}>
+                                                <option value={uv.alias}>{uv.alias} (from {uv.stepName})</option>
+                                              </Show>
+                                              <option value={uv.name}>{uv.name}</option>
+                                            </>
+                                          )}
+                                        </For>
+                                        <option value="response">response (full response payload)</option>
+                                        <option value="data">data</option>
+                                        <option value="status">status</option>
+                                      </datalist>
+                                      <Show when={upstreamVars().length > 0}>
+                                        <div class="flex items-center gap-1 flex-wrap pt-1">
+                                          <span class="text-[9px] text-[#5b5b6e]">Picks:</span>
+                                          <For each={upstreamVars()}>
+                                            {(uv) => {
+                                              const pickVal = uv.alias || uv.name;
+                                              return (
+                                                <button
+                                                  type="button"
+                                                  onClick={() => updateButton(index(), "conditionRules", rIdx(), (r: any) => ({ ...r, path: pickVal }))}
+                                                  class="text-[9px] px-1 py-0.5 rounded bg-emerald-950/40 text-emerald-300 hover:bg-emerald-800/40 border border-emerald-500/30 transition-colors font-mono"
+                                                  title={`Set path to ${pickVal}`}
+                                                >
+                                                  {uv.alias || uv.name}
+                                                </button>
+                                              );
+                                            }}
+                                          </For>
+                                        </div>
+                                      </Show>
                                     </div>
                                     <div class="col-span-3">
                                       <label class="text-xs text-[#5b5b6e] block mb-0.5">Operator</label>

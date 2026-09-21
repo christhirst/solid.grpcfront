@@ -10,7 +10,21 @@ import type {
 /** Fetch a value from an object by dot-separated path. Empty path returns the root. */
 export function getValueAtPath(data: unknown, path?: string): unknown {
   if (!path || path.trim() === "") return data;
-  return get(data, path);
+  const trimmed = path.trim();
+  if (data === null || data === undefined) return undefined;
+  if (typeof data !== "object") {
+    if (trimmed === "response" || trimmed === "data" || trimmed === "value") return data;
+    return undefined;
+  }
+  const direct = get(data, trimmed);
+  if (direct !== undefined) return direct;
+  const inVars = get(data, `variables.${trimmed}`);
+  if (inVars !== undefined) return inVars;
+  const inResp = get(data, `response.${trimmed}`);
+  if (inResp !== undefined) return inResp;
+  const inData = get(data, `data.${trimmed}`);
+  if (inData !== undefined) return inData;
+  return undefined;
 }
 
 /** Coerce a value to a number, returning undefined when not possible. */
@@ -158,5 +172,13 @@ export function extractRunOutcome(logs: any[]): unknown {
   if (!Array.isArray(logs) || logs.length === 0) return undefined;
   const last = [...logs].reverse().find((log) => log.status === "success");
   if (!last) return undefined;
-  return last.response ?? last.meta ?? undefined;
+  const raw = last.response ?? last.meta ?? undefined;
+  const vars = (last as any).variables || {};
+  if (typeof raw === "object" && raw !== null && !Array.isArray(raw)) {
+    return { ...vars, ...raw };
+  }
+  if (Object.keys(vars).length > 0) {
+    return { ...vars, response: raw, data: raw, value: raw };
+  }
+  return raw;
 }

@@ -181,4 +181,46 @@ describe("extractRunOutcome", () => {
   it("returns undefined when no successful logs", () => {
     expect(extractRunOutcome([{ status: "failed" }])).toBeUndefined();
   });
+
+  it("merges variables from run logs into the outcome object", () => {
+    const logs = [
+      {
+        status: "success",
+        response: true,
+        variables: {
+          has_it: true,
+          "count((SELECT id FROM incident_source)) > 0;": true,
+        },
+      },
+    ];
+    const outcome: any = extractRunOutcome(logs);
+    expect(outcome.has_it).toBe(true);
+    expect(outcome.response).toBe(true);
+  });
+
+  it("evaluates condition matching an upstream variable alias", () => {
+    const widget: WidgetConfig = {
+      id: "w_form",
+      label: "New Form",
+      widgetType: "form",
+      workflowId: "workflow:wf_bool",
+      conditionRules: [
+        {
+          id: "r1",
+          path: "has_it",
+          operator: "truthy",
+          action: "showForm",
+          elseAction: "hideForm",
+        },
+      ],
+    };
+
+    const outcomeTrue = { has_it: true, response: true };
+    const resTrue = applyWidgetConditions(widget, outcomeTrue);
+    expect(resTrue.formHidden).toBe(false);
+
+    const outcomeFalse = { has_it: false, response: false };
+    const resFalse = applyWidgetConditions(widget, outcomeFalse);
+    expect(resFalse.formHidden).toBe(true);
+  });
 });
