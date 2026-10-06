@@ -15,16 +15,18 @@ export interface PollOptions {
 }
 
 /** Poll a run endpoint until the run reaches a terminal state. */
-export function pollRun(runId: string, callbacks: PollCallbacks, options: PollOptions = {}) {
+export function pollRun(runId: string, callbacks: PollCallbacks, options: PollOptions = {}): () => void {
   const rawId = (runId.includes(":") ? runId.split(":")[1] : runId).replace(/[⟨⟩]/g, "");
   const maxAttempts = options.maxAttempts ?? 60;
-  const intervalMs = options.intervalMs ?? 1500;
+  const baseMs = options.intervalMs ?? 800;
   let attempts = 0;
+  let cancelled = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
 
-  const interval = setInterval(async () => {
+  const tick = async () => {
+    if (cancelled) return;
     attempts++;
     if (attempts > maxAttempts) {
-      clearInterval(interval);
       callbacks.onError("Timed out waiting for workflow result.");
       return;
     }
@@ -32,21 +34,38 @@ export function pollRun(runId: string, callbacks: PollCallbacks, options: PollOp
     try {
       const res = await fetch(`/api/workflows/runs/${rawId}`);
       const json = await res.json();
-      if (!json.success) return;
+      if (!json.success) { scheduleNext(); return; }
 
       const run = json.data;
       if (run.status === "completed" || run.status === "failed") {
-        clearInterval(interval);
         if (run.status === "failed") {
           callbacks.onError("Workflow failed.");
         } else {
           callbacks.onDone(run.logs || []);
         }
+        return; // terminal — stop polling
       }
     } catch {
-      // keep polling
+      // keep polling on network errors
     }
-  }, intervalMs);
+    scheduleNext();
+  };
+
+  const scheduleNext = () => {
+    if (cancelled) return;
+    // Exponential backoff: baseMs, 1.2x, 1.44x … capped at 5s
+    const delay = Math.min(baseMs * Math.pow(1.2, attempts - 1), 5000);
+    timer = setTimeout(tick, delay);
+  };
+
+  // Start immediately
+  tick();
+
+  // Return a cancel function for cleanup
+  return () => {
+    cancelled = true;
+    if (timer !== undefined) clearTimeout(timer);
+  };
 }
 
 /** Extract the data payload and meta from the last successful table/chart log. */

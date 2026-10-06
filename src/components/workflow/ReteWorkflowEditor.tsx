@@ -425,7 +425,8 @@ export default function ReteWorkflowEditor(props: ReteWorkflowEditorProps) {
     }
   };
 
-  // Deep reactive effect: Synchronize Rete graph whenever props.steps changes or loads
+  // Deep reactive effect: Synchronize Rete graph whenever step topology changes
+  let lastTrackKey = "";
   createEffect(() => {
     const stepsSnapshot = (props.steps || []).map(s => ({
       id: s.id,
@@ -435,7 +436,8 @@ export default function ReteWorkflowEditor(props: ReteWorkflowEditorProps) {
     }));
     const trackKey = JSON.stringify(stepsSnapshot);
 
-    if (editor && area && trackKey) {
+    if (editor && area && trackKey && trackKey !== lastTrackKey) {
+      lastTrackKey = trackKey;
       syncFromExternalSteps(props.steps || []);
     }
   });

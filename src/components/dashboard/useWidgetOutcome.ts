@@ -1,4 +1,4 @@
-import { createSignal, onMount } from "solid-js";
+import { createSignal, onMount, onCleanup } from "solid-js";
 import { extractRunOutcome } from "~/lib/dashboard/widgetConditions";
 import { pollRun, triggerWidgetRun } from "~/lib/dashboard/runPolling";
 import type { WidgetConfig } from "~/lib/dashboard/widgetTypes";
@@ -30,7 +30,7 @@ export function useWidgetOutcome(dashboardId: string | undefined, btn: WidgetCon
 
     try {
       const runId = await triggerWidgetRun(dashboardId, btn.id, {}, btn.conditionWorkflowId);
-      pollRun(
+      const cancelPoll = pollRun(
         runId,
         {
           onDone: (logs) => {
@@ -42,6 +42,7 @@ export function useWidgetOutcome(dashboardId: string | undefined, btn: WidgetCon
         },
         { maxAttempts: 60, intervalMs: 1500 }
       );
+      onCleanup(() => cancelPoll());
     } catch (e: any) {
       setOutcome({ data: undefined, status: "error", error: e.message || "Failed to load widget state" });
     }

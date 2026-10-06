@@ -4,7 +4,7 @@ import { solidStart } from "@solidjs/start/config";
 import tailwindcss from "@tailwindcss/vite";
 import { fileURLToPath } from "node:url";
 
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ mode, isSsrBuild }) => {
   const env = loadEnv(mode, process.cwd(), "");
   Object.assign(process.env, env);
   return {
@@ -37,6 +37,24 @@ export default defineConfig(({ mode }) => {
         "rete-auto-arrange-plugin",
         "solid-rete-plugin",
       ],
+    },
+    build: {
+      target: "esnext",
+      rollupOptions: {
+        output: isSsrBuild
+          ? {}
+          : {
+              manualChunks(id) {
+                if (id.includes("node_modules")) {
+                  if (id.includes("rete") || id.includes("elkjs")) return "vendor-rete";
+                  if (id.includes("chart.js") || id.includes("chartjs") || id.includes("solid-chartjs")) return "vendor-charts";
+                  if (id.includes("@antv")) return "vendor-antv";
+                  if (id.includes("protobufjs")) return "vendor-proto";
+                  if (id.includes("jsonata")) return "vendor-jsonata";
+                }
+              },
+            },
+      },
     },
     server: {
       port: env.PORT ? parseInt(env.PORT, 10) : 3000,
