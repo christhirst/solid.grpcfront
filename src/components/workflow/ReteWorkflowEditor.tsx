@@ -691,7 +691,7 @@ export default function ReteWorkflowEditor(props: ReteWorkflowEditorProps) {
         ref={containerRef}
         class="w-full h-full cursor-grab active:cursor-grabbing select-none"
         style={{
-          "background-image": `radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.06) 1px, transparent 0)`,
+          "background-image": `radial-gradient(circle at 1px 1px, var(--theme-workflow-dot) 1px, transparent 0)`,
           "background-size": "24px 24px",
         }}
       />

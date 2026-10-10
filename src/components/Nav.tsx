@@ -3,6 +3,7 @@ import { isServer } from "solid-js/web";
 import { signIn, signOut } from "@auth/solid-start/client";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
+import { applyTheme, readStoredTheme, type ThemeMode } from "~/lib/theme";
 
 const fetchSession = async () => {
   try {
@@ -61,6 +62,7 @@ export default function Nav() {
   // browser session after every native navigation. Keep this state client-only.
   const [session, setSession] = createSignal<any | null | undefined>(undefined);
   const [mobileOpen, setMobileOpen] = createSignal(false);
+  const [theme, setTheme] = createSignal<ThemeMode>("dark");
   const [dbStatus, setDbStatus] = createSignal<"checking" | "connected" | "disconnected">("checking");
   const [dbError, setDbError] = createSignal<string | null>(null);
   const [currentPath, setCurrentPath] = createSignal("");
@@ -85,6 +87,9 @@ export default function Nav() {
 
   onMount(async () => {
     setCurrentPath(window.location.pathname);
+    const savedTheme = readStoredTheme();
+    setTheme(savedTheme);
+    applyTheme(savedTheme, false);
     const onPopState = () => setCurrentPath(window.location.pathname);
     window.addEventListener("popstate", onPopState);
     onCleanup(() => window.removeEventListener("popstate", onPopState));
@@ -96,6 +101,12 @@ export default function Nav() {
   });
 
   const visibleLinks = createMemo(() => (session() ? authenticatedLinks : publicLinks));
+
+  const toggleTheme = () => {
+    const nextTheme = theme() === "dark" ? "light" : "dark";
+    setTheme(nextTheme);
+    applyTheme(nextTheme);
+  };
 
   // Use a simpler active check that doesn't rely on useLocation to avoid router context issues
   const active = (path: string) => {
@@ -146,6 +157,21 @@ export default function Nav() {
 
         {/* Right Corner (Status + Auth) */}
         <div class="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={toggleTheme}
+            aria-label={`Switch to ${theme() === "dark" ? "light" : "dark"} theme`}
+            aria-pressed={theme() === "light"}
+            title={`Switch to ${theme() === "dark" ? "light" : "dark"} theme`}
+            class="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-zinc-700/70 bg-zinc-900/70 px-2.5 text-zinc-200 shadow-sm backdrop-blur-md transition-colors hover:bg-zinc-800/80 hover:text-white sm:px-3"
+          >
+            <Show when={theme() === "dark"} fallback={
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42"></path></svg>
+            }>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.9 13A9 9 0 0 1 11 3.1 9 9 0 1 0 20.9 13Z"></path></svg>
+            </Show>
+            <span class="hidden sm:inline text-xs font-medium">{theme() === "dark" ? "Light" : "Dark"}</span>
+          </button>
           <Show
             when={dbStatus() === "connected"}
             fallback={

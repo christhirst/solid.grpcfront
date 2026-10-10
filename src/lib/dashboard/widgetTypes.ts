@@ -57,6 +57,13 @@ export interface FormField {
   options?: string;
 }
 
+export interface ChartSeriesConfig {
+  label: string;
+  yKey: string;
+  type: "bar" | "line";
+  axis?: "left" | "right";
+}
+
 export interface WidgetConfig {
   id: string;
   label: string;
@@ -64,6 +71,7 @@ export interface WidgetConfig {
   workflowId: string;
   color?: string;
   chartType?: string;
+  chartSeries?: ChartSeriesConfig[];
   xKey?: string;
   yKey?: string;
   columns?: string;

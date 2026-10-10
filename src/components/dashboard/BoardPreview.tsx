@@ -66,7 +66,7 @@ export default function BoardPreview(props: BoardPreviewProps) {
   });
 
   return (
-    <Card ref={rootRef} class="scroll-mt-4 overflow-hidden border-purple-500/30 bg-zinc-950/80 shadow-2xl">
+    <Card ref={rootRef} class="scroll-mt-20 overflow-hidden border-purple-500/30 bg-zinc-950/80 shadow-2xl">
       <div class="relative border-b border-zinc-800 p-6 lg:p-8">
         <div class="absolute left-0 top-0 h-[2px] w-full bg-gradient-to-r from-transparent via-purple-500 to-transparent opacity-50"></div>
 

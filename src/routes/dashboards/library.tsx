@@ -175,7 +175,7 @@ export default function DashboardLibrary() {
         onPointerDown={swipe.onPointerDown}
         onPointerUp={swipe.onPointerUp}
         onPointerCancel={swipe.onPointerCancel}
-        class={`flex flex-col justify-between border bg-zinc-950/75 transition-all duration-200 scroll-mt-4 ${
+        class={`flex flex-col justify-between border bg-zinc-950/75 transition-all duration-200 scroll-mt-20 ${
           expanded()
             ? "col-span-full touch-pan-y border-purple-500/50 bg-zinc-950/90 shadow-2xl"
             : "h-full border-zinc-800/80 hover:border-purple-500/50 hover:bg-zinc-900/60"

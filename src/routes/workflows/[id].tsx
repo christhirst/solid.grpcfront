@@ -1,6 +1,6 @@
 import { getStepCategory, type StepCategory, type StepVariable } from "~/lib/stepCategories";
 import ReteWorkflowEditor from "~/components/workflow/ReteWorkflowEditor";
-import { createSignal, createEffect, onMount, For, Show, createResource, createMemo, Index } from "solid-js";
+import { createSignal, createEffect, onMount, onCleanup, For, Show, createResource, createMemo, Index } from "solid-js";
 import { extractFormVariables, checkWorkflowConfiguredInDashboards, detectStepVariables } from "~/lib/workflowVariableChecker";
 
 
@@ -20,6 +20,7 @@ function get(obj: any, path: string | string[], defValue?: any) {
 import { DefaultChart } from "solid-chartjs";
 import { Chart, registerables } from "chart.js";
 import * as ChartGeo from "chartjs-chart-geo";
+import { getChartThemeColors, getTimelineThemeColors, subscribeToThemeChanges } from "~/lib/theme";
 
 if (!isServer) {
   Chart.register(...registerables);
@@ -220,6 +221,7 @@ function LogTimeline(props: { data: any[]; xKey?: string; yKey?: string }) {
 
   const render = () => {
     if (!canvasRef || !vpRef) return;
+    const themeColors = getTimelineThemeColors();
     while (canvasRef.children.length > 1) canvasRef.removeChild(canvasRef.lastChild!);
     const evs = events();
     if (!evs.length) return;
@@ -237,7 +239,7 @@ function LogTimeline(props: { data: any[]; xKey?: string; yKey?: string }) {
     for (let y = Math.floor(minY / interval) * interval - interval; y <= maxY + interval; y += interval) {
       const t = document.createElement("div");
       t.style.cssText = `position:absolute;left:${cx(y)}px;top:${AXIS_Y - 8}px;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;pointer-events:none`;
-      t.innerHTML = `<div style="width:1px;height:8px;background:#2d3356"></div><div style="font-size:8px;color:#4a5273;margin-top:1px;white-space:nowrap">${y < 0 ? Math.abs(y) + " BCE" : y === 0 ? "0" : y + " CE"}</div>`;
+      t.innerHTML = `<div style="width:1px;height:8px;background:${themeColors.tick}"></div><div style="font-size:8px;color:${themeColors.hint};margin-top:1px;white-space:nowrap">${y < 0 ? Math.abs(y) + " BCE" : y === 0 ? "0" : y + " CE"}</div>`;
       canvasRef.appendChild(t);
     }
     [...evs].sort((a, b) => a.year - b.year).forEach((ev, i) => {
@@ -252,8 +254,8 @@ function LogTimeline(props: { data: any[]; xKey?: string; yKey?: string }) {
       const dot = document.createElement("div");
       dot.style.cssText = `width:8px;height:8px;border-radius:50%;background:${color};box-shadow:0 0 6px ${color};order:${above ? 1 : 2};transition:transform 0.15s`;
       const lbl = document.createElement("div");
-      lbl.style.cssText = `position:absolute;${above ? `bottom:${stemH + 10}px` : `top:${stemH + 10}px`};left:50%;transform:translateX(-50%);background:#1a1e35;border:1px solid #2d3356;border-radius:6px;padding:5px 8px;width:140px;font-size:9px;color:#e2e8f0;opacity:0;transition:opacity 0.15s;z-index:10;pointer-events:none;box-shadow:0 4px 14px rgba(0,0,0,0.6)`;
-      lbl.innerHTML = `<div style="font-size:8px;font-weight:700;color:${color};margin-bottom:2px">${ev.date}</div><div style="font-weight:600;margin-bottom:3px">${ev.header}</div>${ev.text ? `<div style="font-size:8px;color:#8892b0">${ev.text.slice(0, 100)}${ev.text.length > 100 ? "…" : ""}</div>` : ""}${ev.link ? `<a href="${ev.link}" target="_blank" style="font-size:8px;color:#a78bfa">→ Link</a>` : ""}`;
+      lbl.style.cssText = `position:absolute;${above ? `bottom:${stemH + 10}px` : `top:${stemH + 10}px`};left:50%;transform:translateX(-50%);background:${themeColors.panel};border:1px solid ${themeColors.border};border-radius:6px;padding:5px 8px;width:140px;font-size:9px;color:${themeColors.text};opacity:0;transition:opacity 0.15s;z-index:10;pointer-events:none;box-shadow:0 4px 14px rgba(0,0,0,0.18)`;
+      lbl.innerHTML = `<div style="font-size:8px;font-weight:700;color:${color};margin-bottom:2px">${ev.date}</div><div style="font-weight:600;margin-bottom:3px">${ev.header}</div>${ev.text ? `<div style="font-size:8px;color:${themeColors.muted}">${ev.text.slice(0, 100)}${ev.text.length > 100 ? "…" : ""}</div>` : ""}${ev.link ? `<a href="${ev.link}" target="_blank" style="font-size:8px;color:#a78bfa">→ Link</a>` : ""}`;
       node.addEventListener("mouseenter", () => { dot.style.transform = "scale(1.5)"; lbl.style.opacity = "1"; });
       node.addEventListener("mouseleave", () => { dot.style.transform = "scale(1)"; lbl.style.opacity = "0"; });
       node.append(above ? stem : dot, above ? dot : stem, lbl);
@@ -274,6 +276,8 @@ function LogTimeline(props: { data: any[]; xKey?: string; yKey?: string }) {
       offsetX = vpRef.clientWidth / (2 * scale) - mid;
     }
     render();
+    const unsubscribeTheme = subscribeToThemeChanges(render);
+    onCleanup(unsubscribeTheme);
     vpRef.addEventListener("wheel", (e) => {
       e.preventDefault();
       const f = e.deltaY < 0 ? 1.15 : 1 / 1.15;
@@ -289,13 +293,13 @@ function LogTimeline(props: { data: any[]; xKey?: string; yKey?: string }) {
   });
 
   return (
-    <div style="position:relative;height:250px;background:#0d0f17;border-radius:8px;overflow:hidden;border:1px solid #2d3356">
+    <div style="position:relative;height:250px;background:var(--theme-chart-canvas);border-radius:8px;overflow:hidden;border:1px solid var(--theme-timeline-border)">
       <div ref={vpRef} style="width:100%;height:100%;overflow:hidden;cursor:grab;position:relative">
         <div ref={canvasRef} class="lt-canvas" style="position:absolute;transform-origin:0 0">
           <div class="lt-axis" style="position:absolute;left:0;height:2px;background:linear-gradient(90deg,transparent,#6c63ff 5%,#6c63ff 95%,transparent);box-shadow:0 0 10px rgba(108,99,255,0.4)"></div>
         </div>
       </div>
-      <div style="position:absolute;bottom:5px;right:8px;font-size:8px;color:#4a5273;pointer-events:none">Scroll · Drag</div>
+      <div style="position:absolute;bottom:5px;right:8px;font-size:8px;color:var(--theme-timeline-hint);pointer-events:none">Scroll · Drag</div>
     </div>
   );
 }
@@ -303,6 +307,16 @@ function LogTimeline(props: { data: any[]; xKey?: string; yKey?: string }) {
 function LogChart(props: { data: any[]; xKey?: string; yKey?: string; chartType?: string }) {
   const cType = () => props.chartType || "bar";
   const [topoJson, setTopoJson] = createSignal<any>(null);
+  const [themeRevision, setThemeRevision] = createSignal(0);
+  const chartTheme = () => {
+    themeRevision();
+    return getChartThemeColors();
+  };
+
+  onMount(() => {
+    const unsubscribe = subscribeToThemeChanges(() => setThemeRevision((revision) => revision + 1));
+    onCleanup(unsubscribe);
+  });
 
   createEffect(() => {
     const type = cType();
@@ -433,7 +447,7 @@ function LogChart(props: { data: any[]; xKey?: string; yKey?: string; chartType?
           data: points,
           backgroundColor: bgColors,
           borderWidth: 1,
-          borderColor: "#1e1e2e"
+          borderColor: chartTheme().cutout
         }]
       };
     }
@@ -457,6 +471,7 @@ function LogChart(props: { data: any[]; xKey?: string; yKey?: string; chartType?
 
   const chartOptions = () => {
     const type = cType();
+    const colors = chartTheme();
     if (type.startsWith("choropleth")) {
       const isUS = type === "choropleth-us";
       return {
@@ -490,10 +505,19 @@ function LogChart(props: { data: any[]; xKey?: string; yKey?: string; chartType?
     return {
       responsive: true,
       maintainAspectRatio: false,
-      plugins: { legend: { labels: { color: "#c8c8d8" } } },
+      plugins: {
+        legend: { labels: { color: colors.text } },
+        tooltip: {
+          backgroundColor: colors.tooltip,
+          titleColor: colors.tooltipText,
+          bodyColor: colors.tooltipText,
+          borderColor: colors.tooltipBorder,
+          borderWidth: 1,
+        },
+      },
       scales: isPie ? {} : {
-        x: { grid: { color: "#2a2a3e" }, ticks: { color: "#8b8b9e" } },
-        y: { grid: { color: "#2a2a3e" }, ticks: { color: "#8b8b9e" } },
+        x: { grid: { color: colors.grid }, ticks: { color: colors.axis } },
+        y: { grid: { color: colors.grid }, ticks: { color: colors.axis } },
       },
     };
   };

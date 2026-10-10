@@ -1,4 +1,4 @@
-import { createSignal, createResource, For, Show, onMount, createMemo, createEffect } from "solid-js";
+import { createSignal, createResource, For, Show, onMount, onCleanup, createMemo, createEffect } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import { useParams, useNavigate, A } from "@solidjs/router";
 import { isServer } from "solid-js/web";
@@ -23,6 +23,9 @@ import { DashboardButtonFormWidget } from "~/components/dashboard/DashboardButto
 import { DashboardPublicButtonFormWidget } from "~/components/dashboard/DashboardPublicWidget";
 import { useWidgetOutcome } from "~/components/dashboard/useWidgetOutcome";
 import { applyWidgetConditions, defaultEffectiveConfig } from "~/lib/dashboard/widgetConditions";
+import { buildMixedChartData, resolveChartSeries } from "~/lib/dashboard/chartSeries";
+import type { ChartSeriesConfig } from "~/lib/dashboard/widgetTypes";
+import { getChartThemeColors, getTimelineThemeColors, subscribeToThemeChanges } from "~/lib/theme";
 import { TabsList, TabsTrigger } from "~/components/ui/tabs";
 import { Badge } from "~/components/ui/badge";
 
@@ -456,6 +459,20 @@ export default function DashboardBuilder() {
             <For each={buttons}>
               {(btn, index) => {
                 const wt = () => btn.widgetType || "button";
+                const isBarLineChart = () => btn.chartType === "bar" || btn.chartType === "line" || !btn.chartType;
+                const chartSeries = () => resolveChartSeries(btn.chartSeries, btn.chartType || "bar", btn.yKey);
+                const updateChartSeries = (next: ChartSeriesConfig[]) => updateButton(index(), "chartSeries", next);
+                const updateChartSeriesItem = (seriesIndex: number, patch: Partial<ChartSeriesConfig>) => {
+                  const next = chartSeries().map((series, i) => i === seriesIndex ? { ...series, ...patch } : series);
+                  updateChartSeries(next);
+                };
+                const addChartSeries = () => {
+                  const current = chartSeries();
+                  updateChartSeries([
+                    ...current,
+                    { label: `Series ${current.length + 1}`, yKey: "", type: "line", axis: "left" },
+                  ]);
+                };
                 const accentCls = () =>
                   wt() === "chart" ? "border-l-pink-500" :
                   wt() === "table" ? "border-l-emerald-500" :
@@ -742,7 +759,17 @@ export default function DashboardBuilder() {
                         <div class="col-span-2 pt-3 border-t border-[#2a2a3a]/50 grid grid-cols-3 gap-3">
                           <div>
                             <label class="mb-1 block text-sm text-[#8b8b9e]">Chart Type</label>
-                            <select class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2 text-xs text-white focus:border-pink-500 focus:outline-none" value={btn.chartType || "bar"} onChange={(e) => updateButton(index(), "chartType", e.currentTarget.value)}>
+                            <select
+                              class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2 text-xs text-white focus:border-pink-500 focus:outline-none"
+                              value={btn.chartType || "bar"}
+                              onChange={(e) => {
+                                const chartType = e.currentTarget.value;
+                                if (Array.isArray(btn.chartSeries) && (chartType === "bar" || chartType === "line")) {
+                                  updateChartSeries(btn.chartSeries.map((series: ChartSeriesConfig) => ({ ...series, type: chartType })));
+                                }
+                                updateButton(index(), "chartType", chartType);
+                              }}
+                            >
                               <option value="bar">Bar</option>
                               <option value="line">Line</option>
                               <option value="pie">Pie</option>
@@ -753,18 +780,96 @@ export default function DashboardBuilder() {
                               <option value="choropleth-world">World Choropleth Map</option>
                             </select>
                           </div>
-                          <div>
+                          <div class={isBarLineChart() ? "col-span-2" : ""}>
                             <label class="mb-1 block text-sm text-[#8b8b9e]">
                               {btn.chartType?.startsWith("choropleth") ? "Region Field (State/Country)" : btn.chartType === "timeline" ? "Date/Year Field" : "X-Axis Field"}
                             </label>
                             <input type="text" class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2 text-xs text-white focus:border-pink-500 focus:outline-none" placeholder={btn.chartType?.startsWith("choropleth") ? "e.g. state" : btn.chartType === "timeline" ? "e.g. year" : "e.g. date"} value={btn.xKey || ""} onInput={(e) => updateButton(index(), "xKey", e.currentTarget.value)} />
                           </div>
+                          <Show when={!isBarLineChart()}>
                           <div>
                             <label class="mb-1 block text-sm text-[#8b8b9e]">
                               {btn.chartType?.startsWith("choropleth") ? "Value Field" : btn.chartType === "timeline" ? "Title/Header Field" : "Y-Axis Field"}
                             </label>
                             <input type="text" class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2 text-xs text-white focus:border-pink-500 focus:outline-none" placeholder={btn.chartType === "timeline" ? "e.g. header" : "e.g. value"} value={btn.yKey || ""} onInput={(e) => updateButton(index(), "yKey", e.currentTarget.value)} />
                           </div>
+                          </Show>
+
+                          <Show when={isBarLineChart()}>
+                            <div class="col-span-3 rounded-lg border border-[#2a2a3a]/70 bg-[#11111a] p-3">
+                              <div class="mb-3 flex items-start justify-between gap-3">
+                                <div>
+                                  <div class="text-sm font-semibold text-white">Chart Series</div>
+                                  <p class="mt-0.5 text-[10px] text-[#77778b]">Each series uses a field from the same rows and shares the X axis.</p>
+                                </div>
+                                <button type="button" onClick={addChartSeries} class="shrink-0 rounded-md border border-pink-500/30 bg-pink-500/10 px-2.5 py-1.5 text-[10px] font-semibold text-pink-300 hover:bg-pink-500/20">
+                                  + Add Series
+                                </button>
+                              </div>
+
+                              <div class="space-y-2">
+                                <For each={chartSeries()}>
+                                  {(series, seriesIndex) => (
+                                    <div class="grid grid-cols-1 gap-2 rounded-md border border-[#28283a] bg-[#0b0b12] p-2 sm:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_7rem_8rem_auto]">
+                                      <div>
+                                        <label class="mb-1 block text-[10px] text-[#8b8b9e]">Legend Label</label>
+                                        <input
+                                          type="text"
+                                          class="w-full rounded-md border border-[#2a2a3a] bg-[#1e1e2e] px-2 py-1.5 text-xs text-white focus:border-pink-500 focus:outline-none"
+                                          value={series.label || ""}
+                                          onInput={(e) => updateChartSeriesItem(seriesIndex(), { label: e.currentTarget.value })}
+                                          placeholder="e.g. Homicides"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label class="mb-1 block text-[10px] text-[#8b8b9e]">Y Field</label>
+                                        <input
+                                          type="text"
+                                          class="w-full rounded-md border border-[#2a2a3a] bg-[#1e1e2e] px-2 py-1.5 text-xs text-white focus:border-pink-500 focus:outline-none"
+                                          value={series.yKey || ""}
+                                          onInput={(e) => updateChartSeriesItem(seriesIndex(), { yKey: e.currentTarget.value })}
+                                          placeholder="e.g. count"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label class="mb-1 block text-[10px] text-[#8b8b9e]">Type</label>
+                                        <select
+                                          class="w-full rounded-md border border-[#2a2a3a] bg-[#1e1e2e] px-2 py-1.5 text-xs text-white focus:border-pink-500 focus:outline-none"
+                                          value={series.type}
+                                          onChange={(e) => updateChartSeriesItem(seriesIndex(), { type: e.currentTarget.value as ChartSeriesConfig["type"] })}
+                                        >
+                                          <option value="bar">Bar</option>
+                                          <option value="line">Line</option>
+                                        </select>
+                                      </div>
+                                      <div>
+                                        <label class="mb-1 block text-[10px] text-[#8b8b9e]">Y Axis</label>
+                                        <select
+                                          class="w-full rounded-md border border-[#2a2a3a] bg-[#1e1e2e] px-2 py-1.5 text-xs text-white focus:border-pink-500 focus:outline-none"
+                                          value={series.axis || "left"}
+                                          onChange={(e) => updateChartSeriesItem(seriesIndex(), { axis: e.currentTarget.value as ChartSeriesConfig["axis"] })}
+                                        >
+                                          <option value="left">Left</option>
+                                          <option value="right">Right</option>
+                                        </select>
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={() => updateChartSeries(chartSeries().filter((_, i) => i !== seriesIndex()))}
+                                        class="self-end rounded-md border border-rose-500/30 px-2 py-1.5 text-[10px] font-medium text-rose-300 hover:bg-rose-500/10"
+                                        title="Remove series"
+                                      >
+                                        Remove
+                                      </button>
+                                    </div>
+                                  )}
+                                </For>
+                                <Show when={chartSeries().length === 0}>
+                                  <p class="rounded-md border border-dashed border-[#343447] py-3 text-center text-xs text-[#77778b]">No series configured. Add a Bar or Line series to display data.</p>
+                                </Show>
+                              </div>
+                            </div>
+                          </Show>
                         </div>
                       </Show>
 
@@ -1675,6 +1780,7 @@ function DashTimeline(props: { data: any[]; xKey?: string; yKey?: string }) {
 
   const render = () => {
     if (!canvasRef || !vpRef) return;
+    const themeColors = getTimelineThemeColors();
     // clear dynamic children
     while (canvasRef.children.length > 1) canvasRef.removeChild(canvasRef.lastChild!);
 
@@ -1705,7 +1811,7 @@ function DashTimeline(props: { data: any[]; xKey?: string; yKey?: string }) {
       const tick = document.createElement("div");
       tick.className = "tl-tick";
       tick.style.cssText = `position:absolute;left:${cx(y)}px;top:${AXIS_Y - 10}px;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;pointer-events:none;`;
-      tick.innerHTML = `<div style="width:1px;height:10px;background:#2d3356"></div><div style="font-size:9px;color:#4a5273;margin-top:2px;white-space:nowrap">${y < 0 ? Math.abs(y) + " BCE" : y === 0 ? "0" : y + " CE"}</div>`;
+      tick.innerHTML = `<div style="width:1px;height:10px;background:${themeColors.tick}"></div><div style="font-size:9px;color:${themeColors.hint};margin-top:2px;white-space:nowrap">${y < 0 ? Math.abs(y) + " BCE" : y === 0 ? "0" : y + " CE"}</div>`;
       canvasRef.appendChild(tick);
     }
 
@@ -1727,8 +1833,8 @@ function DashTimeline(props: { data: any[]; xKey?: string; yKey?: string }) {
 
       // label below dot (or above)
       const label = document.createElement("div");
-      label.style.cssText = `position:absolute;${above ? `bottom:${stemH + 12}px` : `top:${stemH + 12}px`};left:50%;transform:translateX(-50%);background:#1a1e35;border:1px solid #2d3356;border-radius:8px;padding:6px 10px;width:160px;font-size:10px;color:#e2e8f0;pointer-events:none;opacity:0;transition:opacity 0.2s;z-index:10;box-shadow:0 4px 16px rgba(0,0,0,0.5);`;
-      label.innerHTML = `<div style="font-size:9px;font-weight:700;color:${color};margin-bottom:3px">${ev.date}</div><div style="font-weight:600;margin-bottom:4px;line-height:1.3">${ev.header}</div>${ev.text ? `<div style="font-size:9px;color:#8892b0;line-height:1.5;margin-bottom:4px">${ev.text.slice(0,120)}${ev.text.length>120?"…":""}</div>` : ""}${ev.link ? `<a href="${ev.link}" target="_blank" style="font-size:9px;color:#a78bfa;text-decoration:none">→ Link</a>` : ""}`;
+      label.style.cssText = `position:absolute;${above ? `bottom:${stemH + 12}px` : `top:${stemH + 12}px`};left:50%;transform:translateX(-50%);background:${themeColors.panel};border:1px solid ${themeColors.border};border-radius:8px;padding:6px 10px;width:160px;font-size:10px;color:${themeColors.text};pointer-events:none;opacity:0;transition:opacity 0.2s;z-index:10;box-shadow:0 4px 16px rgba(0,0,0,0.18);`;
+      label.innerHTML = `<div style="font-size:9px;font-weight:700;color:${color};margin-bottom:3px">${ev.date}</div><div style="font-weight:600;margin-bottom:4px;line-height:1.3">${ev.header}</div>${ev.text ? `<div style="font-size:9px;color:${themeColors.muted};line-height:1.5;margin-bottom:4px">${ev.text.slice(0,120)}${ev.text.length>120?"…":""}</div>` : ""}${ev.link ? `<a href="${ev.link}" target="_blank" style="font-size:9px;color:#a78bfa;text-decoration:none">→ Link</a>` : ""}`;
 
       node.addEventListener("mouseenter", () => { dot.style.transform = "scale(1.6)"; label.style.opacity = "1"; });
       node.addEventListener("mouseleave", () => { dot.style.transform = "scale(1)"; label.style.opacity = "0"; });
@@ -1762,6 +1868,8 @@ function DashTimeline(props: { data: any[]; xKey?: string; yKey?: string }) {
 
   onMount(() => {
     centreView();
+    const unsubscribeTheme = subscribeToThemeChanges(render);
+    onCleanup(unsubscribeTheme);
 
     vpRef.addEventListener("wheel", (e) => {
       e.preventDefault();
@@ -1780,7 +1888,7 @@ function DashTimeline(props: { data: any[]; xKey?: string; yKey?: string }) {
   });
 
   return (
-    <div style="position:relative;height:300px;background:#0d0f17;border-radius:10px;overflow:hidden;border:1px solid #2d3356">
+    <div style="position:relative;height:300px;background:var(--theme-chart-canvas);border-radius:10px;overflow:hidden;border:1px solid var(--theme-timeline-border)">
       <div
         ref={vpRef}
         style="width:100%;height:100%;overflow:hidden;cursor:grab;position:relative"
@@ -1789,14 +1897,26 @@ function DashTimeline(props: { data: any[]; xKey?: string; yKey?: string }) {
           <div class="tl-axis" style="position:absolute;left:0;height:2px;background:linear-gradient(90deg,transparent,#6c63ff 5%,#6c63ff 95%,transparent);box-shadow:0 0 12px rgba(108,99,255,0.4)"></div>
         </div>
       </div>
-      <div style="position:absolute;bottom:6px;right:10px;font-size:9px;color:#4a5273;pointer-events:none">Scroll to zoom · Drag to pan</div>
+      <div style="position:absolute;bottom:6px;right:10px;font-size:9px;color:var(--theme-timeline-hint);pointer-events:none">Scroll to zoom · Drag to pan</div>
     </div>
   );
 }
 
-function DashChart(props: { data: any[]; xKey?: string; yKey?: string; chartType?: string }) {
+function DashChart(props: { data: any[]; xKey?: string; yKey?: string; chartType?: string; chartSeries?: ChartSeriesConfig[] }) {
   const cType = () => props.chartType || "bar";
+  const isMixedChart = () => (cType() === "bar" || cType() === "line") && Array.isArray(props.chartSeries);
+  const mixedData = () => buildMixedChartData(normalizeDataArray(props.data), props.xKey, props.chartSeries || []);
   const [topoJson, setTopoJson] = createSignal<any>(null);
+  const [themeRevision, setThemeRevision] = createSignal(0);
+  const chartTheme = () => {
+    themeRevision();
+    return getChartThemeColors();
+  };
+
+  onMount(() => {
+    const unsubscribe = subscribeToThemeChanges(() => setThemeRevision((revision) => revision + 1));
+    onCleanup(unsubscribe);
+  });
 
   createEffect(() => {
     const type = cType();
@@ -1828,6 +1948,8 @@ function DashChart(props: { data: any[]; xKey?: string; yKey?: string; chartType
   const buildData = () => {
     const data = normalizeDataArray(props.data);
     if (!Array.isArray(data) || !data.length) return { labels: [], datasets: [] };
+
+    if (isMixedChart()) return mixedData();
     
     const type = cType();
     const isPie = type === "pie" || type === "doughnut";
@@ -1925,7 +2047,7 @@ function DashChart(props: { data: any[]; xKey?: string; yKey?: string; chartType
           data: points,
           backgroundColor: bgColors,
           borderWidth: 1,
-          borderColor: "#0a0a0f"
+          borderColor: chartTheme().cutout
         }]
       };
     }
@@ -1949,6 +2071,36 @@ function DashChart(props: { data: any[]; xKey?: string; yKey?: string; chartType
 
   const chartOptions = () => {
     const type = cType();
+    const colors = chartTheme();
+    if (isMixedChart()) {
+      const yScale = { grid: { color: colors.grid }, ticks: { color: colors.axis }, position: "left" as const };
+      return {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { labels: { color: colors.text } },
+          tooltip: {
+            backgroundColor: colors.tooltip,
+            titleColor: colors.tooltipText,
+            bodyColor: colors.tooltipText,
+            borderColor: colors.tooltipBorder,
+            borderWidth: 1,
+          },
+        },
+        scales: {
+          x: { grid: { color: colors.grid }, ticks: { color: colors.axis } },
+          y: yScale,
+          ...(mixedData().hasRightAxis ? {
+            y1: {
+              axis: "y" as const,
+              position: "right" as const,
+              grid: { drawOnChartArea: false, color: colors.grid },
+              ticks: { color: colors.axis },
+            },
+          } : {}),
+        },
+      };
+    }
     if (type.startsWith("choropleth")) {
       const isUS = type === "choropleth-us";
       return {
@@ -1982,10 +2134,19 @@ function DashChart(props: { data: any[]; xKey?: string; yKey?: string; chartType
     return {
       responsive: true,
       maintainAspectRatio: false,
-      plugins: { legend: { labels: { color: "#c8c8d8" } } },
+      plugins: {
+        legend: { labels: { color: colors.text } },
+        tooltip: {
+          backgroundColor: colors.tooltip,
+          titleColor: colors.tooltipText,
+          bodyColor: colors.tooltipText,
+          borderColor: colors.tooltipBorder,
+          borderWidth: 1,
+        },
+      },
       scales: isPie ? {} : {
-        x: { grid: { color: "#2a2a3e" }, ticks: { color: "#8b8b9e" } },
-        y: { grid: { color: "#2a2a3e" }, ticks: { color: "#8b8b9e" } },
+        x: { grid: { color: colors.grid }, ticks: { color: colors.axis } },
+        y: { grid: { color: colors.grid }, ticks: { color: colors.axis } },
       },
     };
   };
@@ -1995,8 +2156,10 @@ function DashChart(props: { data: any[]; xKey?: string; yKey?: string; chartType
       <Show when={cType() === "timeline"} fallback={
         <Show when={normalizeDataArray(props.data).length > 0} fallback={<p class="text-xs text-[#5a5a6e]">No valid array data for chart</p>}>
           <Show when={!cType().startsWith("choropleth") || topoJson()} fallback={<p class="text-xs text-[#8b8b9e] animate-pulse">Loading map assets...</p>}>
-            {/* @ts-ignore */}
-            <DefaultChart type={cType().startsWith("choropleth") ? "choropleth" : (cType() as any)} data={buildData()} options={chartOptions()} />
+            <Show when={!isMixedChart() || mixedData().datasets.length > 0} fallback={<p class="py-8 text-center text-xs text-[#8b8b9e]">Add a Y field to at least one series to preview this chart.</p>}>
+              {/* @ts-ignore */}
+              <DefaultChart type={isMixedChart() ? "bar" : cType().startsWith("choropleth") ? "choropleth" : (cType() as any)} data={buildData()} options={chartOptions()} />
+            </Show>
           </Show>
         </Show>
       }>
@@ -2103,6 +2266,7 @@ function PreviewWidget(props: { btn: any }) {
             xKey={props.btn.xKey || meta().xKey}
             yKey={props.btn.yKey || meta().yKey}
             chartType={props.btn.chartType || meta().chartType || "bar"}
+            chartSeries={props.btn.chartSeries}
           />
         </Show>
         <Show when={kind === "chart" && props.btn.chartType === "timeline"}>

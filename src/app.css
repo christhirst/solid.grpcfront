@@ -12,6 +12,31 @@
   --color-text-primary: #e8e8ed;
   --color-text-secondary: #8b8b9e;
   --color-text-muted: #5a5a6e;
+  --theme-surface-base: #0a0a0f;
+  --theme-surface-raised: #12121a;
+  --theme-surface-input: #0a0a0f;
+  --theme-surface-hover: #1e1e2e;
+  --theme-surface-tinted: #12121a;
+  --theme-border: #2a2a3a;
+  --theme-border-soft: #1e1e2e;
+  --theme-text-primary: #e8e8ed;
+  --theme-text-secondary: #8b8b9e;
+  --theme-text-muted: #5a5a6e;
+  --theme-chart-text: #c8c8d8;
+  --theme-chart-axis: #8b8b9e;
+  --theme-chart-grid: #2a2a3e;
+  --theme-chart-canvas: #101015;
+  --theme-chart-cutout: #0a0a0f;
+  --theme-chart-tooltip: rgba(10, 10, 15, 0.96);
+  --theme-chart-tooltip-text: #e8e8ed;
+  --theme-chart-tooltip-border: #2a2a3a;
+  --theme-timeline-tick: #2d3356;
+  --theme-timeline-hint: #4a5273;
+  --theme-timeline-panel: #1a1e35;
+  --theme-timeline-border: #2d3356;
+  --theme-timeline-text: #e2e8f0;
+  --theme-timeline-muted: #8892b0;
+  --theme-workflow-dot: rgba(255, 255, 255, 0.06);
   --color-accent-blue: #3b82f6;
   --color-accent-blue-glow: rgba(59, 130, 246, 0.15);
   --color-accent-emerald: #10b981;
@@ -518,4 +543,250 @@ svg.connection:hover path, .connection:hover path, [data-testid="connection"]:ho
 
 .hover-zoom-preview:hover .blueprint-mini-widget {
   transform: scale(1.02);
+}
+
+/* Global theme values. Dark mode values match the existing design. */
+:root {
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --color-bg-primary: #edf2f8;
+  --color-bg-secondary: #e6edf5;
+  --color-bg-card: rgba(255, 255, 255, 0.78);
+  --color-bg-card-hover: rgba(255, 255, 255, 0.94);
+  --color-border-primary: rgba(148, 163, 184, 0.34);
+  --color-border-hover: rgba(100, 116, 139, 0.45);
+  --color-text-primary: #172033;
+  --color-text-secondary: #475569;
+  --color-text-muted: #64748b;
+  --theme-surface-base: rgba(255, 255, 255, 0.74);
+  --theme-surface-raised: rgba(255, 255, 255, 0.82);
+  --theme-surface-input: rgba(255, 255, 255, 0.72);
+  --theme-surface-hover: rgba(226, 232, 240, 0.78);
+  --theme-surface-tinted: rgba(241, 245, 249, 0.82);
+  --theme-border: rgba(148, 163, 184, 0.4);
+  --theme-border-soft: rgba(148, 163, 184, 0.27);
+  --theme-text-primary: #172033;
+  --theme-text-secondary: #475569;
+  --theme-text-muted: #64748b;
+  --theme-chart-text: #334155;
+  --theme-chart-axis: #64748b;
+  --theme-chart-grid: rgba(100, 116, 139, 0.2);
+  --theme-chart-canvas: rgba(255, 255, 255, 0.4);
+  --theme-chart-cutout: #f8fafc;
+  --theme-chart-tooltip: rgba(255, 255, 255, 0.97);
+  --theme-chart-tooltip-text: #172033;
+  --theme-chart-tooltip-border: rgba(100, 116, 139, 0.35);
+  --theme-timeline-tick: rgba(100, 116, 139, 0.35);
+  --theme-timeline-hint: #64748b;
+  --theme-timeline-panel: rgba(255, 255, 255, 0.96);
+  --theme-timeline-border: rgba(100, 116, 139, 0.35);
+  --theme-timeline-text: #172033;
+  --theme-timeline-muted: #64748b;
+  --theme-workflow-dot: rgba(71, 85, 105, 0.14);
+
+  /* Reverse the neutral Tailwind ramps so existing zinc/slate utilities
+     become light surfaces and dark text without changing accent colors. */
+  --color-zinc-50: #172033;
+  --color-zinc-100: #172033;
+  --color-zinc-200: #1e293b;
+  --color-zinc-300: #334155;
+  --color-zinc-400: #475569;
+  --color-zinc-500: #64748b;
+  --color-zinc-600: #64748b;
+  --color-zinc-700: #cbd5e1;
+  --color-zinc-800: #e2e8f0;
+  --color-zinc-900: #f1f5f9;
+  --color-zinc-950: #ffffff;
+  --color-slate-300: #334155;
+  --color-slate-400: #475569;
+  --color-slate-500: #64748b;
+  --color-slate-600: #64748b;
+  --color-slate-700: #cbd5e1;
+  --color-slate-800: #e2e8f0;
+  --color-slate-900: #f1f5f9;
+}
+
+:root[data-theme="light"] body {
+  background: var(--color-bg-primary);
+  color: var(--theme-text-primary);
+}
+
+:root[data-theme="light"] .grid-pattern {
+  background-image:
+    linear-gradient(rgba(51, 65, 85, 0.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(51, 65, 85, 0.055) 1px, transparent 1px);
+}
+
+:root[data-theme="light"] .hover-zoom-preview:hover {
+  box-shadow: 0 25px 50px -12px rgba(51, 65, 85, 0.22), 0 0 35px -5px rgba(168, 85, 247, 0.16);
+}
+
+:root[data-theme="light"] .grid-stack-item > .grid-stack-item-content {
+  background: var(--theme-surface-raised);
+  border-color: var(--theme-border-soft);
+  box-shadow: 0 10px 25px -5px rgba(51, 65, 85, 0.1), 0 8px 10px -6px rgba(51, 65, 85, 0.08);
+}
+
+:root[data-theme="light"] .grid-stack-item:hover > .grid-stack-item-content {
+  border-color: var(--theme-border);
+}
+
+:root[data-theme="light"] .rete-node,
+:root[data-theme="light"] [data-testid="node"] {
+  background: rgba(255, 255, 255, 0.88) !important;
+  border-color: var(--theme-border) !important;
+  color: var(--theme-text-primary) !important;
+  box-shadow: 0 10px 30px rgba(51, 65, 85, 0.14), 0 0 1px rgba(255, 255, 255, 0.8) inset !important;
+}
+
+:root[data-theme="light"] .rete-node:hover,
+:root[data-theme="light"] [data-testid="node"]:hover {
+  border-color: rgba(100, 116, 139, 0.58) !important;
+  box-shadow: 0 14px 40px rgba(51, 65, 85, 0.2), 0 0 20px rgba(168, 85, 247, 0.12) !important;
+}
+
+:root[data-theme="light"] .rete-node .title,
+:root[data-theme="light"] [data-testid="title"] {
+  color: var(--theme-text-primary) !important;
+  border-bottom-color: var(--theme-border-soft) !important;
+}
+
+:root[data-theme="light"] .rete-node .input-title,
+:root[data-theme="light"] [data-testid="input-title"],
+:root[data-theme="light"] .rete-node .output-title,
+:root[data-theme="light"] [data-testid="output-title"] {
+  color: var(--theme-text-secondary) !important;
+}
+
+:root[data-theme="light"] .rete-node .socket,
+:root[data-theme="light"] [data-testid="socket"] {
+  border-color: #ffffff !important;
+}
+
+/* Translate the app's established neutral hex utility classes to glass surfaces. */
+:root[data-theme="light"] [class*="bg-[#0a0a0f]"]:not([class*="hover:bg-[#0a0a0f]"]),
+:root[data-theme="light"] [class*="bg-[#050508]"]:not([class*="hover:bg-[#050508]"]),
+:root[data-theme="light"] [class*="bg-[#0d0d14]"]:not([class*="hover:bg-[#0d0d14]"]),
+:root[data-theme="light"] [class*="bg-[#0d0f17]"]:not([class*="hover:bg-[#0d0f17]"]),
+:root[data-theme="light"] [class*="bg-[#0c0c14]"]:not([class*="hover:bg-[#0c0c14]"]),
+:root[data-theme="light"] [class*="bg-[#0c0c12]"]:not([class*="hover:bg-[#0c0c12]"]),
+:root[data-theme="light"] [class*="bg-[#0b0b12]"]:not([class*="hover:bg-[#0b0b12]"]),
+:root[data-theme="light"] [class*="bg-[#0a0a12]"]:not([class*="hover:bg-[#0a0a12]"]),
+:root[data-theme="light"] [class*="bg-[#0e0e15]"]:not([class*="hover:bg-[#0e0e15]"]),
+:root[data-theme="light"] [class*="bg-[#101015]"]:not([class*="hover:bg-[#101015]"]),
+:root[data-theme="light"] [class*="bg-[#101018]"]:not([class*="hover:bg-[#101018]"]),
+:root[data-theme="light"] [class*="bg-[#111118]"]:not([class*="hover:bg-[#111118]"]),
+:root[data-theme="light"] [class*="bg-[#11111a]"]:not([class*="hover:bg-[#11111a]"]),
+:root[data-theme="light"] [class*="bg-[#12121a]"]:not([class*="hover:bg-[#12121a]"]),
+:root[data-theme="light"] [class*="bg-[#12121c]"]:not([class*="hover:bg-[#12121c]"]),
+:root[data-theme="light"] [class*="bg-[#12121e]"]:not([class*="hover:bg-[#12121e]"]),
+:root[data-theme="light"] [class*="bg-[#14141e]"]:not([class*="hover:bg-[#14141e]"]),
+:root[data-theme="light"] [class*="bg-[#141420]"]:not([class*="hover:bg-[#141420]"]),
+:root[data-theme="light"] [class*="bg-[#151520]"]:not([class*="hover:bg-[#151520]"]),
+:root[data-theme="light"] [class*="bg-[#16161f]"]:not([class*="hover:bg-[#16161f]"]),
+:root[data-theme="light"] [class*="bg-[#181824]"]:not([class*="hover:bg-[#181824]"]),
+:root[data-theme="light"] [class*="bg-[#1a1a24]"]:not([class*="hover:bg-[#1a1a24]"]),
+:root[data-theme="light"] [class*="bg-[#1a1a26]"]:not([class*="hover:bg-[#1a1a26]"]),
+:root[data-theme="light"] [class*="bg-[#1c1c28]"]:not([class*="hover:bg-[#1c1c28]"]),
+:root[data-theme="light"] [class*="bg-[#1e1e2e]"]:not([class*="hover:bg-[#1e1e2e]"]) {
+  background-color: var(--theme-surface-raised) !important;
+}
+
+:root[data-theme="light"] [class*="bg-[#222234]"]:not([class*="hover:bg-[#222234]"]),
+:root[data-theme="light"] [class*="bg-[#252535]"]:not([class*="hover:bg-[#252535]"]),
+:root[data-theme="light"] [class*="bg-[#28283a]"]:not([class*="hover:bg-[#28283a]"]),
+:root[data-theme="light"] [class*="bg-[#2a2a3a]"]:not([class*="hover:bg-[#2a2a3a]"]),
+:root[data-theme="light"] [class*="bg-[#2a2a3e]"]:not([class*="hover:bg-[#2a2a3e]"]),
+:root[data-theme="light"] [class*="bg-[#2e2640]"]:not([class*="hover:bg-[#2e2640]"]) {
+  background-color: var(--theme-surface-hover) !important;
+}
+
+:root[data-theme="light"] [class*="bg-[#0a120d]"]:not([class*="hover:bg-[#0a120d]"]),
+:root[data-theme="light"] [class*="bg-[#080f0a]"]:not([class*="hover:bg-[#080f0a]"]),
+:root[data-theme="light"] [class*="bg-[#0d0a10]"]:not([class*="hover:bg-[#0d0a10]"]),
+:root[data-theme="light"] [class*="bg-[#100a14]"]:not([class*="hover:bg-[#100a14]"]),
+:root[data-theme="light"] [class*="bg-[#120e1c]"]:not([class*="hover:bg-[#120e1c]"]) {
+  background-color: var(--theme-surface-tinted) !important;
+}
+
+:root[data-theme="light"] [class*="hover:bg-[#0a0a0f]"]:hover,
+:root[data-theme="light"] [class*="hover:bg-[#1e1e2e]"]:hover,
+:root[data-theme="light"] [class*="hover:bg-[#1a1a24]"]:hover,
+:root[data-theme="light"] [class*="hover:bg-[#252535]"]:hover {
+  background-color: var(--theme-surface-hover) !important;
+}
+
+:root[data-theme="light"] [class*="border-[#1e1e2e]"],
+:root[data-theme="light"] [class*="border-[#28283a]"],
+:root[data-theme="light"] [class*="border-[#2a2a3a]"],
+:root[data-theme="light"] [class*="border-[#2a2a3e]"],
+:root[data-theme="light"] [class*="border-[#343447]"],
+:root[data-theme="light"] [class*="border-[#3a3a4a]"],
+:root[data-theme="light"] [class*="border-[#4a4a5e]"] {
+  border-color: var(--theme-border) !important;
+}
+
+:root[data-theme="light"] [class*="divide-[#2a2a3a]"] > :not([hidden]) ~ :not([hidden]) {
+  border-color: var(--theme-border-soft) !important;
+}
+
+:root[data-theme="light"] [class*="text-[#c8c8d8]"] {
+  color: var(--theme-text-primary) !important;
+}
+
+:root[data-theme="light"] [class*="text-[#8b8b9e]"] {
+  color: var(--theme-text-secondary) !important;
+}
+
+:root[data-theme="light"] [class*="text-[#77778b]"],
+:root[data-theme="light"] [class*="text-[#7a7a8e]"],
+:root[data-theme="light"] [class*="text-[#6b6b7e]"],
+:root[data-theme="light"] [class*="text-[#5b5b6e]"],
+:root[data-theme="light"] [class*="text-[#5a5a6e]"],
+:root[data-theme="light"] [class*="text-[#5a5b6e]"],
+:root[data-theme="light"] [class*="text-[#4a4a5e]"],
+:root[data-theme="light"] [class*="text-[#3a3a4e]"],
+:root[data-theme="light"] [class*="text-[#4a5273]"] {
+  color: var(--theme-text-muted) !important;
+}
+
+:root[data-theme="light"] [class~="text-white"] {
+  color: var(--theme-text-primary) !important;
+}
+
+:root[data-theme="light"] [class~="bg-zinc-100"] {
+  background-color: var(--theme-surface-raised) !important;
+}
+
+:root[data-theme="light"] [class~="text-zinc-900"] {
+  color: var(--theme-text-primary) !important;
+}
+
+:root[data-theme="light"] [class~="text-white/70"] {
+  color: rgba(23, 32, 51, 0.7) !important;
+}
+
+:root[data-theme="light"] [class~="hover:text-white"]:hover {
+  color: var(--theme-text-primary) !important;
+}
+
+:root[data-theme="light"] [class~="text-white"][class*="bg-gradient-to-"],
+:root[data-theme="light"] [class~="text-white"][class*="bg-purple-600"],
+:root[data-theme="light"] [class~="text-white"][class*="bg-indigo-600"],
+:root[data-theme="light"] [class~="text-white"][class*="bg-blue-600"],
+:root[data-theme="light"] [class~="text-white"][class*="bg-emerald-600"],
+:root[data-theme="light"] [class~="text-white"][class*="bg-teal-600"],
+:root[data-theme="light"] [class~="text-white"][class*="bg-red-600"],
+:root[data-theme="light"] [class~="text-white"][class*="bg-rose-600"],
+:root[data-theme="light"] [class~="text-white"][class*="bg-orange-600"] {
+  color: #ffffff !important;
+}
+
+:root[data-theme="light"] [class*="placeholder-[#5b5b6e]"]::placeholder,
+:root[data-theme="light"] [class*="placeholder-[#5a5a6e]"]::placeholder,
+:root[data-theme="light"] [class*="placeholder-[#3a3a4e]"]::placeholder {
+  color: var(--theme-text-muted) !important;
 }

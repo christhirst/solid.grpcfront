@@ -15,10 +15,13 @@ if (typeof window !== "undefined") {
 }
 
 import { evaluateNewsRules, newsColorClasses } from "~/lib/newsRulesEvaluator";
+import { buildMixedChartData } from "~/lib/dashboard/chartSeries";
+import type { ChartSeriesConfig } from "~/lib/dashboard/widgetTypes";
 import DashboardGrid from "~/components/dashboard/DashboardGrid";
 import { DashboardPublicButtonFormWidget } from "~/components/dashboard/DashboardPublicWidget";
 import { useWidgetOutcome } from "~/components/dashboard/useWidgetOutcome";
 import { applyWidgetConditions } from "~/lib/dashboard/widgetConditions";
+import { getChartThemeColors, subscribeToThemeChanges } from "~/lib/theme";
 
 function NewsWidgetComponent(props: { btn: any; dashboardId?: string }) {
   const [data, setData] = createSignal<any>("No Data");
@@ -345,9 +348,21 @@ const STATE_ABBR_MAP: Record<string, string> = {
   VA: "Virginia", WA: "Washington", WV: "West Virginia", WI: "Wisconsin", WY: "Wyoming"
 };
 
-function DashChart(props: { data: any[]; xKey?: string; yKey?: string; chartType?: string }) {
+function DashChart(props: { data: any[]; xKey?: string; yKey?: string; chartType?: string; chartSeries?: ChartSeriesConfig[] }) {
   const cType = () => props.chartType || "bar";
+  const isMixedChart = () => (cType() === "bar" || cType() === "line") && Array.isArray(props.chartSeries);
+  const mixedData = () => buildMixedChartData(normalizeDataArray(props.data), props.xKey, props.chartSeries || []);
   const [topoJson, setTopoJson] = createSignal<any>(null);
+  const [themeRevision, setThemeRevision] = createSignal(0);
+  const chartTheme = () => {
+    themeRevision();
+    return getChartThemeColors();
+  };
+
+  onMount(() => {
+    const unsubscribe = subscribeToThemeChanges(() => setThemeRevision((revision) => revision + 1));
+    onCleanup(unsubscribe);
+  });
 
   createEffect(() => {
     const type = cType();
@@ -379,6 +394,8 @@ function DashChart(props: { data: any[]; xKey?: string; yKey?: string; chartType
   const buildData = () => {
     const data = normalizeDataArray(props.data);
     if (!Array.isArray(data) || !data.length) return { labels: [], datasets: [] };
+
+    if (isMixedChart()) return mixedData();
     
     const type = cType();
     const isPie = type === "pie" || type === "doughnut";
@@ -476,7 +493,7 @@ function DashChart(props: { data: any[]; xKey?: string; yKey?: string; chartType
           data: points,
           backgroundColor: bgColors,
           borderWidth: 1,
-          borderColor: "#0a0a0f"
+          borderColor: chartTheme().cutout
         }]
       };
     }
@@ -500,6 +517,39 @@ function DashChart(props: { data: any[]; xKey?: string; yKey?: string; chartType
 
   const chartOptions = () => {
     const type = cType();
+    const colors = chartTheme();
+    if (isMixedChart()) {
+      return {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { labels: { color: colors.text } },
+          tooltip: {
+            backgroundColor: colors.tooltip,
+            titleColor: colors.tooltipText,
+            bodyColor: colors.tooltipText,
+            borderColor: colors.tooltipBorder,
+            borderWidth: 1,
+          },
+        },
+        scales: {
+          x: { grid: { color: colors.grid }, ticks: { color: colors.axis } },
+          y: {
+            position: "left" as const,
+            grid: { color: colors.grid },
+            ticks: { color: colors.axis },
+          },
+          ...(mixedData().hasRightAxis ? {
+            y1: {
+              axis: "y" as const,
+              position: "right" as const,
+              grid: { drawOnChartArea: false, color: colors.grid },
+              ticks: { color: colors.axis },
+            },
+          } : {}),
+        },
+      };
+    }
     if (type.startsWith("choropleth")) {
       const isUS = type === "choropleth-us";
       return {
@@ -533,10 +583,19 @@ function DashChart(props: { data: any[]; xKey?: string; yKey?: string; chartType
     return {
       responsive: true,
       maintainAspectRatio: false,
-      plugins: { legend: { labels: { color: "#c8c8d8" } } },
+      plugins: {
+        legend: { labels: { color: colors.text } },
+        tooltip: {
+          backgroundColor: colors.tooltip,
+          titleColor: colors.tooltipText,
+          bodyColor: colors.tooltipText,
+          borderColor: colors.tooltipBorder,
+          borderWidth: 1,
+        },
+      },
       scales: isPie ? {} : {
-        x: { grid: { color: "#2a2a3e" }, ticks: { color: "#8b8b9e" } },
-        y: { grid: { color: "#2a2a3e" }, ticks: { color: "#8b8b9e" } },
+        x: { grid: { color: colors.grid }, ticks: { color: colors.axis } },
+        y: { grid: { color: colors.grid }, ticks: { color: colors.axis } },
       },
     };
   };
@@ -545,8 +604,10 @@ function DashChart(props: { data: any[]; xKey?: string; yKey?: string; chartType
     <div class="h-[250px] bg-[#101015] p-3 rounded border border-[#2a2a3a]/50">
       <Show when={normalizeDataArray(props.data).length > 0} fallback={<p class="text-xs text-[#5a5a6e]">No valid array data for chart</p>}>
         <Show when={!cType().startsWith("choropleth") || topoJson()} fallback={<p class="text-xs text-[#8b8b9e] animate-pulse">Loading map assets...</p>}>
-          {/* @ts-ignore */}
-          <DefaultChart type={cType().startsWith("choropleth") ? "choropleth" : (cType() as any)} data={buildData()} options={chartOptions()} />
+          <Show when={!isMixedChart() || mixedData().datasets.length > 0} fallback={<p class="py-8 text-center text-xs text-[#8b8b9e]">Add a Y field to at least one series to display this chart.</p>}>
+            {/* @ts-ignore */}
+            <DefaultChart type={isMixedChart() ? "bar" : cType().startsWith("choropleth") ? "choropleth" : (cType() as any)} data={buildData()} options={chartOptions()} />
+          </Show>
         </Show>
       </Show>
     </div>
@@ -675,6 +736,7 @@ function AutoWidget(props: { dashboardId: string; btn: any; workflow: any }) {
             xKey={props.btn.xKey || stepMeta().xKey || lastS?.xKey}
             yKey={props.btn.yKey || stepMeta().yKey || lastS?.yKey}
             chartType={props.btn.chartType || stepMeta().chartType || (lastS as any)?.chartType || "bar"}
+            chartSeries={props.btn.chartSeries}
           />
         </Show>
       </Show>
