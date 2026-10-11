@@ -3,6 +3,7 @@ import ReteWorkflowEditor from "~/components/workflow/ReteWorkflowEditor";
 import GrpcMethodPicker, { type ReflectionResult } from "~/components/workflow/GrpcMethodPicker";
 import { createSignal, createEffect, onMount, onCleanup, For, Show, createResource, createMemo, Index } from "solid-js";
 import { extractFormVariables, checkWorkflowConfiguredInDashboards, detectStepVariables } from "~/lib/workflowVariableChecker";
+import { collectFieldNames, type FieldInfo } from "~/lib/dashboard/chartSeries";
 
 
 import { createStore, reconcile, produce } from "solid-js/store";
@@ -1495,6 +1496,21 @@ export default function WorkflowBuilder() {
                   return Array.isArray(resp) ? resp : (resp ? [resp] : []);
                 });
 
+                const responseFields = createMemo(() => {
+                  const currentLog = log();
+                  if (!currentLog || currentLog.status !== "success" || currentLog.error) return [];
+                  return collectFieldNames(currentLog.response);
+                });
+                const [copiedField, setCopiedField] = createSignal<string | null>(null);
+                const copyFieldVar = (fieldPath: string) => {
+                  const text = `{{ steps.${step.id}.response.${fieldPath} }}`;
+                  if (!isServer && navigator?.clipboard?.writeText) {
+                    navigator.clipboard.writeText(text);
+                  }
+                  setCopiedField(fieldPath);
+                  setTimeout(() => setCopiedField(null), 2000);
+                };
+
                 const stepVars = createMemo(() => detectStepVariables(step));
                 const upVars = createMemo(() => stepVars().filter((v) => v.direction === "up"));
                 const downVars = createMemo(() => stepVars().filter((v) => v.direction === "down"));
@@ -2969,6 +2985,35 @@ export default function WorkflowBuilder() {
                                     }`}>
                                       {log()!.error || JSON.stringify(log()!.response, null, 2)}
                                     </pre>
+                                    <Show when={responseFields().length > 0}>
+                                      <div class="mt-2 pt-2 border-t border-[#2a2a3a]/50">
+                                        <div class="flex items-center justify-between mb-1.5">
+                                          <span class="text-[10px] font-semibold text-[#8b8b9e] flex items-center gap-1.5">
+                                            <span class="text-emerald-400">⚡</span>
+                                            <span>Usable values ({responseFields().length}):</span>
+                                          </span>
+                                          <span class="text-[9px] text-[#5b5b6e]">Click to copy variable</span>
+                                        </div>
+                                        <div class="flex flex-wrap gap-1.5 max-h-[72px] overflow-y-auto custom-scrollbar">
+                                          <For each={responseFields()}>
+                                            {(f) => (
+                                              <button
+                                                type="button"
+                                                onClick={() => copyFieldVar(f.path)}
+                                                title={`Sample: ${f.sample !== undefined ? JSON.stringify(f.sample) : "n/a"}\nClick to copy: {{ steps.${step.id}.response.${f.path} }}`}
+                                                class="group inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[#161622] hover:bg-emerald-500/20 border border-[#2a2a3a] hover:border-emerald-500/40 text-[10px] font-mono text-emerald-300 transition-colors"
+                                              >
+                                                <span>{f.path}</span>
+                                                <span class="text-[8px] text-[#6b6b80] group-hover:text-emerald-400">({f.type})</span>
+                                                <Show when={copiedField() === f.path}>
+                                                  <span class="text-[8px] font-bold text-cyan-300 animate-pulse ml-0.5">✓ Copied</span>
+                                                </Show>
+                                              </button>
+                                            )}
+                                          </For>
+                                        </div>
+                                      </div>
+                                    </Show>
                                   </Show>
                                 </Show>
                                 
@@ -2982,6 +3027,35 @@ export default function WorkflowBuilder() {
                                       <LogTable data={stepData()} columns={log()!.meta?.columns} />
                                     </Show>
                                   </div>
+                                  <Show when={responseFields().length > 0}>
+                                    <div class="mt-2 pt-2 border-t border-[#2a2a3a]/50">
+                                      <div class="flex items-center justify-between mb-1.5">
+                                        <span class="text-[10px] font-semibold text-[#8b8b9e] flex items-center gap-1.5">
+                                          <span class="text-emerald-400">⚡</span>
+                                          <span>Columns / values ({responseFields().length}):</span>
+                                        </span>
+                                        <span class="text-[9px] text-[#5b5b6e]">Click to copy variable</span>
+                                      </div>
+                                      <div class="flex flex-wrap gap-1.5 max-h-[72px] overflow-y-auto custom-scrollbar">
+                                        <For each={responseFields()}>
+                                          {(f) => (
+                                            <button
+                                              type="button"
+                                              onClick={() => copyFieldVar(f.path)}
+                                              title={`Sample: ${f.sample !== undefined ? JSON.stringify(f.sample) : "n/a"}\nClick to copy: {{ steps.${step.id}.response.${f.path} }}`}
+                                              class="group inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[#161622] hover:bg-emerald-500/20 border border-[#2a2a3a] hover:border-emerald-500/40 text-[10px] font-mono text-emerald-300 transition-colors"
+                                            >
+                                              <span>{f.path}</span>
+                                              <span class="text-[8px] text-[#6b6b80] group-hover:text-emerald-400">({f.type})</span>
+                                              <Show when={copiedField() === f.path}>
+                                                <span class="text-[8px] font-bold text-cyan-300 animate-pulse ml-0.5">✓ Copied</span>
+                                              </Show>
+                                            </button>
+                                          )}
+                                        </For>
+                                      </div>
+                                    </div>
+                                  </Show>
                                 </Show>
                                 
                                 <Show when={step.type === "chart"}>

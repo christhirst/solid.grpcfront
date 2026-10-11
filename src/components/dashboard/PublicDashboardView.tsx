@@ -15,7 +15,7 @@ if (typeof window !== "undefined") {
 }
 
 import { evaluateNewsRules, newsColorClasses } from "~/lib/newsRulesEvaluator";
-import { buildMixedChartData } from "~/lib/dashboard/chartSeries";
+import { buildMixedChartData, buildMultiChartData, effectiveChartType } from "~/lib/dashboard/chartSeries";
 import type { ChartSeriesConfig } from "~/lib/dashboard/widgetTypes";
 import DashboardGrid from "~/components/dashboard/DashboardGrid";
 import { DashboardPublicButtonFormWidget } from "~/components/dashboard/DashboardPublicWidget";
@@ -348,10 +348,26 @@ const STATE_ABBR_MAP: Record<string, string> = {
   VA: "Virginia", WA: "Washington", WV: "West Virginia", WI: "Wisconsin", WY: "Wyoming"
 };
 
-function DashChart(props: { data: any[]; xKey?: string; yKey?: string; chartType?: string; chartSeries?: ChartSeriesConfig[] }) {
-  const cType = () => props.chartType || "bar";
-  const isMixedChart = () => (cType() === "bar" || cType() === "line") && Array.isArray(props.chartSeries);
-  const mixedData = () => buildMixedChartData(normalizeDataArray(props.data), props.xKey, props.chartSeries || []);
+function DashChart(props: {
+  data: any[];
+  dataBySource?: Record<string, any[]>;
+  xKey?: string;
+  yKey?: string;
+  chartType?: string;
+  chartSeries?: ChartSeriesConfig[];
+}) {
+  const effType = () => effectiveChartType(props.chartType, props.chartSeries);
+  const cType = () => effType();
+  const isMultiChart = () => effType() === "multi";
+  const isMixedChart = () =>
+    (effType() === "bar" || effType() === "line" || isMultiChart()) &&
+    Array.isArray(props.chartSeries);
+  const multiData = () =>
+    buildMultiChartData(
+      props.dataBySource || normalizeDataArray(props.data),
+      props.xKey,
+      props.chartSeries || [],
+    );
   const [topoJson, setTopoJson] = createSignal<any>(null);
   const [themeRevision, setThemeRevision] = createSignal(0);
   const chartTheme = () => {
@@ -393,9 +409,12 @@ function DashChart(props: { data: any[]; xKey?: string; yKey?: string; chartType
 
   const buildData = () => {
     const data = normalizeDataArray(props.data);
-    if (!Array.isArray(data) || !data.length) return { labels: [], datasets: [] };
+    if (!Array.isArray(data) || !data.length) {
+      if (isMixedChart() && multiData().datasets.length > 0) return multiData();
+      return { labels: [], datasets: [] };
+    }
 
-    if (isMixedChart()) return mixedData();
+    if (isMixedChart()) return multiData();
     
     const type = cType();
     const isPie = type === "pie" || type === "doughnut";
@@ -519,6 +538,13 @@ function DashChart(props: { data: any[]; xKey?: string; yKey?: string; chartType
     const type = cType();
     const colors = chartTheme();
     if (isMixedChart()) {
+      const m = multiData();
+      const yScale = {
+        grid: { color: colors.grid },
+        ticks: { color: colors.axis },
+        position: "left" as const,
+        stacked: m.hasStack,
+      };
       return {
         responsive: true,
         maintainAspectRatio: false,
@@ -534,18 +560,29 @@ function DashChart(props: { data: any[]; xKey?: string; yKey?: string; chartType
         },
         scales: {
           x: { grid: { color: colors.grid }, ticks: { color: colors.axis } },
-          y: {
-            position: "left" as const,
-            grid: { color: colors.grid },
-            ticks: { color: colors.axis },
-          },
-          ...(mixedData().hasRightAxis ? {
+          y: yScale,
+          ...(m.hasRightAxis ? {
             y1: {
               axis: "y" as const,
               position: "right" as const,
               grid: { drawOnChartArea: false, color: colors.grid },
               ticks: { color: colors.axis },
             },
+          } : {}),
+          ...(m.hasDensity ? {
+            xDensity: {
+              type: "linear" as const,
+              position: "top" as const,
+              grid: { drawOnChartArea: false, color: colors.grid },
+              ticks: { color: colors.axis, font: { size: 9 } },
+              title: { display: true, text: "Distribution", color: colors.axis, font: { size: 9 } }
+            },
+            yDensity: {
+              type: "linear" as const,
+              position: "right" as const,
+              grid: { drawOnChartArea: false },
+              ticks: { display: false }
+            }
           } : {}),
         },
       };
@@ -602,9 +639,9 @@ function DashChart(props: { data: any[]; xKey?: string; yKey?: string; chartType
 
   return (
     <div class="h-[250px] bg-[#101015] p-3 rounded border border-[#2a2a3a]/50">
-      <Show when={normalizeDataArray(props.data).length > 0} fallback={<p class="text-xs text-[#5a5a6e]">No valid array data for chart</p>}>
+      <Show when={normalizeDataArray(props.data).length > 0 || (isMixedChart() && multiData().datasets.length > 0)} fallback={<p class="text-xs text-[#5a5a6e]">No valid array data for chart</p>}>
         <Show when={!cType().startsWith("choropleth") || topoJson()} fallback={<p class="text-xs text-[#8b8b9e] animate-pulse">Loading map assets...</p>}>
-          <Show when={!isMixedChart() || mixedData().datasets.length > 0} fallback={<p class="py-8 text-center text-xs text-[#8b8b9e]">Add a Y field to at least one series to display this chart.</p>}>
+          <Show when={!isMixedChart() || multiData().datasets.length > 0} fallback={<p class="py-8 text-center text-xs text-[#8b8b9e]">Add a Y field to at least one series to display this chart.</p>}>
             {/* @ts-ignore */}
             <DefaultChart type={isMixedChart() ? "bar" : cType().startsWith("choropleth") ? "choropleth" : (cType() as any)} data={buildData()} options={chartOptions()} />
           </Show>
@@ -669,6 +706,7 @@ function AutoWidget(props: { dashboardId: string; btn: any; workflow: any }) {
 
   const [status, setStatus] = createSignal<"loading" | "ready" | "error">("loading");
   const [tableData, setTableData] = createSignal<any[]>([]);
+  const [dataBySource, setDataBySource] = createSignal<Record<string, any[]>>({});
   const [stepMeta, setStepMeta] = createSignal<any>({});
   const [errorMsg, setErrorMsg] = createSignal("");
 
@@ -684,6 +722,11 @@ function AutoWidget(props: { dashboardId: string; btn: any; workflow: any }) {
           const { data, meta } = extractLastStep(logs);
           setTableData(data);
           setStepMeta(meta);
+          setDataBySource((prev) => ({
+            ...prev,
+            [props.btn.workflowId]: data,
+            __default__: data,
+          }));
           setStatus("ready");
         },
         (msg) => {
@@ -691,6 +734,39 @@ function AutoWidget(props: { dashboardId: string; btn: any; workflow: any }) {
           setStatus("error");
         }
       );
+
+      // Concurrently run extra series workflows if any
+      const seriesList: any[] = props.btn.chartSeries || [];
+      const extraSeriesWfs = seriesList
+        .map((s) => s.workflowId)
+        .filter((w) => typeof w === "string" && w.trim() !== "" && w !== props.btn.workflowId);
+      const uniqueExtraWfs = [...new Set(extraSeriesWfs)] as string[];
+
+      if (uniqueExtraWfs.length > 0) {
+        Promise.all(
+          uniqueExtraWfs.map(async (extraWf) => {
+            try {
+              const sRes = await fetch(`/api/dashboards/${props.dashboardId}/trigger/${props.btn.id}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ workflowId: extraWf, seriesRun: true }),
+              });
+              const sJson = await sRes.json();
+              if (!sJson.success) return;
+              await pollRun(
+                sJson.runId,
+                (sLogs) => {
+                  const { data: sData } = extractLastStep(sLogs);
+                  setDataBySource((prev) => ({ ...prev, [extraWf]: sData }));
+                },
+                () => {}
+              );
+            } catch {
+              // Ignore failure for individual auxiliary series
+            }
+          })
+        );
+      }
     } catch (e: any) {
       setErrorMsg(e.message);
       setStatus("error");
@@ -733,6 +809,7 @@ function AutoWidget(props: { dashboardId: string; btn: any; workflow: any }) {
         <Show when={kind === "chart"}>
           <DashChart
             data={tableData()}
+            dataBySource={dataBySource()}
             xKey={props.btn.xKey || stepMeta().xKey || lastS?.xKey}
             yKey={props.btn.yKey || stepMeta().yKey || lastS?.yKey}
             chartType={props.btn.chartType || stepMeta().chartType || (lastS as any)?.chartType || "bar"}
@@ -813,7 +890,10 @@ function InfographicWidget(props: { syntax?: string; data?: any; editable?: bool
 
 /** Fetches every workflow referenced by the given buttons, keyed by the raw workflowId. */
 export async function loadWorkflowMap(buttons: any[]): Promise<Record<string, any>> {
-  const ids: string[] = [...new Set((buttons || []).map((b: any) => b.workflowId).filter(Boolean))] as string[];
+  const ids: string[] = [...new Set((buttons || []).flatMap((b: any) => [
+    b.workflowId,
+    ...(b.chartSeries || []).map((s: any) => s.workflowId)
+  ]).filter(Boolean))] as string[];
   const entries = await Promise.all(
     ids.map(async (wid) => {
       const rawId = (wid.includes(":") ? wid.split(":")[1] : wid).replace(/[⟨⟩]/g, "");

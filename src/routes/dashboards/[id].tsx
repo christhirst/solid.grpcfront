@@ -1,4 +1,4 @@
-import { createSignal, createResource, For, Show, onMount, onCleanup, createMemo, createEffect } from "solid-js";
+import { createSignal, createResource, For, Show, onMount, onCleanup, createMemo, createEffect, Index } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import { useParams, useNavigate, A } from "@solidjs/router";
 import { isServer } from "solid-js/web";
@@ -23,8 +23,8 @@ import { DashboardButtonFormWidget } from "~/components/dashboard/DashboardButto
 import { DashboardPublicButtonFormWidget } from "~/components/dashboard/DashboardPublicWidget";
 import { useWidgetOutcome } from "~/components/dashboard/useWidgetOutcome";
 import { applyWidgetConditions, defaultEffectiveConfig } from "~/lib/dashboard/widgetConditions";
-import { buildMixedChartData, resolveChartSeries } from "~/lib/dashboard/chartSeries";
-import type { ChartSeriesConfig } from "~/lib/dashboard/widgetTypes";
+import { buildMixedChartData, buildMultiChartData, resolveChartSeries, effectiveChartType, SERIES_COLORS, MULTI_SERIES_TYPES } from "~/lib/dashboard/chartSeries";
+import type { ChartSeriesConfig, ChartSeriesType } from "~/lib/dashboard/widgetTypes";
 import { getChartThemeColors, getTimelineThemeColors, subscribeToThemeChanges } from "~/lib/theme";
 import { TabsList, TabsTrigger } from "~/components/ui/tabs";
 import { Badge } from "~/components/ui/badge";
@@ -459,18 +459,32 @@ export default function DashboardBuilder() {
             <For each={buttons}>
               {(btn, index) => {
                 const wt = () => btn.widgetType || "button";
-                const isBarLineChart = () => btn.chartType === "bar" || btn.chartType === "line" || !btn.chartType;
-                const chartSeries = () => resolveChartSeries(btn.chartSeries, btn.chartType || "bar", btn.yKey);
+                const effChartType = () => effectiveChartType(btn.chartType, btn.chartSeries);
+                const isMultiChart = () => effChartType() === "multi";
+                const isBarLineChart = () => effChartType() === "bar" || effChartType() === "line";
+                const showSeriesConfig = () => isBarLineChart() || isMultiChart();
+                const chartSeries = () => resolveChartSeries(btn.chartSeries, effChartType(), btn.yKey);
                 const updateChartSeries = (next: ChartSeriesConfig[]) => updateButton(index(), "chartSeries", next);
                 const updateChartSeriesItem = (seriesIndex: number, patch: Partial<ChartSeriesConfig>) => {
-                  const next = chartSeries().map((series, i) => i === seriesIndex ? { ...series, ...patch } : series);
-                  updateChartSeries(next);
+                  if (!Array.isArray(btn.chartSeries)) {
+                    updateChartSeries(chartSeries().map((s) => ({ ...s })));
+                  }
+                  updateButton(index(), "chartSeries", seriesIndex, (prev: any) => ({ ...prev, ...patch }));
                 };
                 const addChartSeries = () => {
                   const current = chartSeries();
+                  const nextColor = SERIES_COLORS[current.length % SERIES_COLORS.length];
                   updateChartSeries([
                     ...current,
-                    { label: `Series ${current.length + 1}`, yKey: "", type: "line", axis: "left" },
+                    {
+                      id: `series_${Date.now()}_${current.length + 1}`,
+                      label: `Series ${current.length + 1}`,
+                      yKey: "",
+                      type: isMultiChart() ? "line" : ((btn.chartType as any) || "bar"),
+                      axis: "left",
+                      color: nextColor,
+                      workflowId: "",
+                    },
                   ]);
                 };
                 const accentCls = () =>
@@ -763,17 +777,27 @@ export default function DashboardBuilder() {
                             <label class="mb-1 block text-sm text-[#8b8b9e]">Chart Type</label>
                             <select
                               class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2 text-xs text-white focus:border-pink-500 focus:outline-none"
-                              value={btn.chartType || "bar"}
+                              value={effChartType()}
                               onChange={(e) => {
                                 const chartType = e.currentTarget.value;
-                                if (Array.isArray(btn.chartSeries) && (chartType === "bar" || chartType === "line")) {
-                                  updateChartSeries(btn.chartSeries.map((series: ChartSeriesConfig) => ({ ...series, type: chartType })));
+                                if (chartType === "multi") {
+                                  updateButton(index(), "chartType", "multi");
+                                  if (!Array.isArray(btn.chartSeries) || btn.chartSeries.length === 0) {
+                                    updateChartSeries(resolveChartSeries(undefined, "multi", btn.yKey));
+                                  }
+                                } else if (chartType === "bar" || chartType === "line") {
+                                  updateButton(index(), "chartType", chartType);
+                                  if (Array.isArray(btn.chartSeries)) {
+                                    updateChartSeries(btn.chartSeries.map((series: ChartSeriesConfig) => ({ ...series, type: chartType as any })));
+                                  }
+                                } else {
+                                  updateButton(index(), "chartType", chartType);
                                 }
-                                updateButton(index(), "chartType", chartType);
                               }}
                             >
                               <option value="bar">Bar</option>
                               <option value="line">Line</option>
+                              <option value="multi">🧩 Multi-Chart (combine series)</option>
                               <option value="pie">Pie</option>
                               <option value="doughnut">Doughnut</option>
                               <option value="scatter">Scatter</option>
@@ -782,13 +806,13 @@ export default function DashboardBuilder() {
                               <option value="choropleth-world">World Choropleth Map</option>
                             </select>
                           </div>
-                          <div class={isBarLineChart() ? "col-span-2" : ""}>
+                          <div class={showSeriesConfig() ? "col-span-2" : ""}>
                             <label class="mb-1 block text-sm text-[#8b8b9e]">
                               {btn.chartType?.startsWith("choropleth") ? "Region Field (State/Country)" : btn.chartType === "timeline" ? "Date/Year Field" : "X-Axis Field"}
                             </label>
                             <input type="text" class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2 text-xs text-white focus:border-pink-500 focus:outline-none" placeholder={btn.chartType?.startsWith("choropleth") ? "e.g. state" : btn.chartType === "timeline" ? "e.g. year" : "e.g. date"} value={btn.xKey || ""} onInput={(e) => updateButton(index(), "xKey", e.currentTarget.value)} />
                           </div>
-                          <Show when={!isBarLineChart()}>
+                          <Show when={!showSeriesConfig()}>
                           <div>
                             <label class="mb-1 block text-sm text-[#8b8b9e]">
                               {btn.chartType?.startsWith("choropleth") ? "Value Field" : btn.chartType === "timeline" ? "Title/Header Field" : "Y-Axis Field"}
@@ -797,12 +821,18 @@ export default function DashboardBuilder() {
                           </div>
                           </Show>
 
-                          <Show when={isBarLineChart()}>
+                          <Show when={showSeriesConfig()}>
                             <div class="col-span-3 rounded-lg border border-[#2a2a3a]/70 bg-[#11111a] p-3">
                               <div class="mb-3 flex items-start justify-between gap-3">
                                 <div>
-                                  <div class="text-sm font-semibold text-white">Chart Series</div>
-                                  <p class="mt-0.5 text-[10px] text-[#77778b]">Each series uses a field from the same rows and shares the X axis.</p>
+                                  <div class="text-sm font-semibold text-white">
+                                    {isMultiChart() ? "Multi-Chart Series" : "Chart Series"}
+                                  </div>
+                                  <p class="mt-0.5 text-[10px] text-[#77778b]">
+                                    {isMultiChart()
+                                      ? "Configure multiple series with distinct types (Bar, Line, Stacked Area, Scatter, Bubble, Density), custom colors, and per-series workflows."
+                                      : "Each series uses a field from the same rows and shares the X axis."}
+                                  </p>
                                 </div>
                                 <button type="button" onClick={addChartSeries} class="shrink-0 rounded-md border border-pink-500/30 bg-pink-500/10 px-2.5 py-1.5 text-[10px] font-semibold text-pink-300 hover:bg-pink-500/20">
                                   + Add Series
@@ -810,64 +840,116 @@ export default function DashboardBuilder() {
                               </div>
 
                               <div class="space-y-2">
-                                <For each={chartSeries()}>
+                                <Index each={chartSeries()}>
                                   {(series, seriesIndex) => (
-                                    <div class="grid grid-cols-1 gap-2 rounded-md border border-[#28283a] bg-[#0b0b12] p-2 sm:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_7rem_8rem_auto]">
-                                      <div>
+                                    <div class="flex flex-wrap xl:flex-nowrap items-end gap-2 rounded-md border border-[#28283a] bg-[#0b0b12] p-2">
+                                      <Show when={isMultiChart()}>
+                                        <div class="w-full xl:w-44 shrink-0">
+                                          <label class="mb-1 block text-[10px] text-[#8b8b9e]">Workflow</label>
+                                          <select
+                                            class="w-full rounded-md border border-[#2a2a3a] bg-[#1e1e2e] px-2 py-1.5 text-xs text-emerald-300 focus:border-pink-500 focus:outline-none truncate"
+                                            value={series().workflowId || ""}
+                                            onChange={(e) => updateChartSeriesItem(seriesIndex, { workflowId: e.currentTarget.value })}
+                                          >
+                                            <option value="">↳ Widget Default</option>
+                                            <For each={workflows()}>
+                                              {(wf: any) => (
+                                                <option value={wf.id}>{wf.name || wf.id}</option>
+                                              )}
+                                            </For>
+                                          </select>
+                                        </div>
+                                      </Show>
+
+                                      <div class="min-w-0 flex-1">
                                         <label class="mb-1 block text-[10px] text-[#8b8b9e]">Legend Label</label>
                                         <input
                                           type="text"
                                           class="w-full rounded-md border border-[#2a2a3a] bg-[#1e1e2e] px-2 py-1.5 text-xs text-white focus:border-pink-500 focus:outline-none"
-                                          value={series.label || ""}
-                                          onInput={(e) => updateChartSeriesItem(seriesIndex(), { label: e.currentTarget.value })}
+                                          value={series().label || ""}
+                                          onInput={(e) => updateChartSeriesItem(seriesIndex, { label: e.currentTarget.value })}
                                           placeholder="e.g. Homicides"
                                         />
                                       </div>
-                                      <div>
+
+                                      <div class="min-w-0 flex-1">
                                         <label class="mb-1 block text-[10px] text-[#8b8b9e]">Y Field</label>
                                         <input
                                           type="text"
-                                          class="w-full rounded-md border border-[#2a2a3a] bg-[#1e1e2e] px-2 py-1.5 text-xs text-white focus:border-pink-500 focus:outline-none"
-                                          value={series.yKey || ""}
-                                          onInput={(e) => updateChartSeriesItem(seriesIndex(), { yKey: e.currentTarget.value })}
+                                          class="w-full rounded-md border border-[#2a2a3a] bg-[#1e1e2e] px-2 py-1.5 text-xs text-white focus:border-pink-500 focus:outline-none font-mono"
+                                          value={series().yKey || ""}
+                                          onInput={(e) => updateChartSeriesItem(seriesIndex, { yKey: e.currentTarget.value })}
                                           placeholder="e.g. count"
                                         />
                                       </div>
-                                      <div>
-                                        <label class="mb-1 block text-[10px] text-[#8b8b9e]">Type</label>
+
+                                      <Show when={isMultiChart()}>
+                                        <div class="w-32 shrink-0">
+                                          <label class="mb-1 block text-[10px] text-[#8b8b9e]">Type</label>
+                                          <select
+                                            class="w-full rounded-md border border-[#2a2a3a] bg-[#1e1e2e] px-2 py-1.5 text-xs text-white focus:border-pink-500 focus:outline-none"
+                                            value={series().type || "bar"}
+                                            onChange={(e) => updateChartSeriesItem(seriesIndex, { type: e.currentTarget.value as any })}
+                                          >
+                                            <option value="bar">Bar</option>
+                                            <option value="line">Line</option>
+                                            <option value="area">Stacked Area</option>
+                                            <option value="scatter">Scatter</option>
+                                            <option value="bubble">Bubble</option>
+                                            <option value="density">Density Plot</option>
+                                          </select>
+                                        </div>
+                                      </Show>
+
+                                      <div class="w-20 shrink-0">
+                                        <label class="mb-1 block text-[10px] text-[#8b8b9e]">Axis</label>
                                         <select
                                           class="w-full rounded-md border border-[#2a2a3a] bg-[#1e1e2e] px-2 py-1.5 text-xs text-white focus:border-pink-500 focus:outline-none"
-                                          value={series.type}
-                                          onChange={(e) => updateChartSeriesItem(seriesIndex(), { type: e.currentTarget.value as ChartSeriesConfig["type"] })}
-                                        >
-                                          <option value="bar">Bar</option>
-                                          <option value="line">Line</option>
-                                        </select>
-                                      </div>
-                                      <div>
-                                        <label class="mb-1 block text-[10px] text-[#8b8b9e]">Y Axis</label>
-                                        <select
-                                          class="w-full rounded-md border border-[#2a2a3a] bg-[#1e1e2e] px-2 py-1.5 text-xs text-white focus:border-pink-500 focus:outline-none"
-                                          value={series.axis || "left"}
-                                          onChange={(e) => updateChartSeriesItem(seriesIndex(), { axis: e.currentTarget.value as ChartSeriesConfig["axis"] })}
+                                          value={series().axis || "left"}
+                                          onChange={(e) => updateChartSeriesItem(seriesIndex, { axis: e.currentTarget.value as any })}
                                         >
                                           <option value="left">Left</option>
                                           <option value="right">Right</option>
                                         </select>
                                       </div>
+
+                                      <div class="w-12 shrink-0">
+                                        <label class="mb-1 block text-[10px] text-[#8b8b9e]">Color</label>
+                                        <input
+                                          type="color"
+                                          class="h-8 w-11 cursor-pointer rounded border border-[#2a2a3a] bg-[#1e1e2e] p-0.5"
+                                          value={series().color || SERIES_COLORS[seriesIndex % SERIES_COLORS.length]}
+                                          onInput={(e) => updateChartSeriesItem(seriesIndex, { color: e.currentTarget.value })}
+                                          title="Pick series color"
+                                        />
+                                      </div>
+
+                                      <Show when={isMultiChart() && series().type === "bubble"}>
+                                        <div class="w-24 shrink-0">
+                                          <label class="mb-1 block text-[10px] text-[#8b8b9e]">Radius (R)</label>
+                                          <input
+                                            type="text"
+                                            class="w-full rounded-md border border-[#2a2a3a] bg-[#1e1e2e] px-2 py-1.5 text-xs text-white focus:border-pink-500 focus:outline-none font-mono"
+                                            value={series().rKey || ""}
+                                            onInput={(e) => updateChartSeriesItem(seriesIndex, { rKey: e.currentTarget.value })}
+                                            placeholder="e.g. size"
+                                          />
+                                        </div>
+                                      </Show>
+
                                       <button
                                         type="button"
-                                        onClick={() => updateChartSeries(chartSeries().filter((_, i) => i !== seriesIndex()))}
-                                        class="self-end rounded-md border border-rose-500/30 px-2 py-1.5 text-[10px] font-medium text-rose-300 hover:bg-rose-500/10"
+                                        onClick={() => updateChartSeries(chartSeries().filter((_, i) => i !== seriesIndex))}
+                                        class="self-end mb-0.5 rounded-md border border-rose-500/30 px-2 py-1.5 text-[10px] font-medium text-rose-300 hover:bg-rose-500/10 shrink-0"
                                         title="Remove series"
                                       >
                                         Remove
                                       </button>
                                     </div>
                                   )}
-                                </For>
+                                </Index>
                                 <Show when={chartSeries().length === 0}>
-                                  <p class="rounded-md border border-dashed border-[#343447] py-3 text-center text-xs text-[#77778b]">No series configured. Add a Bar or Line series to display data.</p>
+                                  <p class="rounded-md border border-dashed border-[#343447] py-3 text-center text-xs text-[#77778b]">No series configured. Click "+ Add Series" to display data.</p>
                                 </Show>
                               </div>
                             </div>
@@ -1904,10 +1986,26 @@ function DashTimeline(props: { data: any[]; xKey?: string; yKey?: string }) {
   );
 }
 
-function DashChart(props: { data: any[]; xKey?: string; yKey?: string; chartType?: string; chartSeries?: ChartSeriesConfig[] }) {
-  const cType = () => props.chartType || "bar";
-  const isMixedChart = () => (cType() === "bar" || cType() === "line") && Array.isArray(props.chartSeries);
-  const mixedData = () => buildMixedChartData(normalizeDataArray(props.data), props.xKey, props.chartSeries || []);
+function DashChart(props: {
+  data: any[];
+  dataBySource?: Record<string, any[]>;
+  xKey?: string;
+  yKey?: string;
+  chartType?: string;
+  chartSeries?: ChartSeriesConfig[];
+}) {
+  const effType = () => effectiveChartType(props.chartType, props.chartSeries);
+  const cType = () => effType();
+  const isMultiChart = () => effType() === "multi";
+  const isMixedChart = () =>
+    (effType() === "bar" || effType() === "line" || isMultiChart()) &&
+    Array.isArray(props.chartSeries);
+  const multiData = () =>
+    buildMultiChartData(
+      props.dataBySource || normalizeDataArray(props.data),
+      props.xKey,
+      props.chartSeries || [],
+    );
   const [topoJson, setTopoJson] = createSignal<any>(null);
   const [themeRevision, setThemeRevision] = createSignal(0);
   const chartTheme = () => {
@@ -1949,9 +2047,12 @@ function DashChart(props: { data: any[]; xKey?: string; yKey?: string; chartType
 
   const buildData = () => {
     const data = normalizeDataArray(props.data);
-    if (!Array.isArray(data) || !data.length) return { labels: [], datasets: [] };
+    if (!Array.isArray(data) || !data.length) {
+      if (isMixedChart() && multiData().datasets.length > 0) return multiData();
+      return { labels: [], datasets: [] };
+    }
 
-    if (isMixedChart()) return mixedData();
+    if (isMixedChart()) return multiData();
     
     const type = cType();
     const isPie = type === "pie" || type === "doughnut";
@@ -2075,7 +2176,13 @@ function DashChart(props: { data: any[]; xKey?: string; yKey?: string; chartType
     const type = cType();
     const colors = chartTheme();
     if (isMixedChart()) {
-      const yScale = { grid: { color: colors.grid }, ticks: { color: colors.axis }, position: "left" as const };
+      const m = multiData();
+      const yScale = {
+        grid: { color: colors.grid },
+        ticks: { color: colors.axis },
+        position: "left" as const,
+        stacked: m.hasStack,
+      };
       return {
         responsive: true,
         maintainAspectRatio: false,
@@ -2092,13 +2199,28 @@ function DashChart(props: { data: any[]; xKey?: string; yKey?: string; chartType
         scales: {
           x: { grid: { color: colors.grid }, ticks: { color: colors.axis } },
           y: yScale,
-          ...(mixedData().hasRightAxis ? {
+          ...(m.hasRightAxis ? {
             y1: {
               axis: "y" as const,
               position: "right" as const,
               grid: { drawOnChartArea: false, color: colors.grid },
               ticks: { color: colors.axis },
             },
+          } : {}),
+          ...(m.hasDensity ? {
+            xDensity: {
+              type: "linear" as const,
+              position: "top" as const,
+              grid: { drawOnChartArea: false, color: colors.grid },
+              ticks: { color: colors.axis, font: { size: 9 } },
+              title: { display: true, text: "Distribution", color: colors.axis, font: { size: 9 } }
+            },
+            yDensity: {
+              type: "linear" as const,
+              position: "right" as const,
+              grid: { drawOnChartArea: false },
+              ticks: { display: false }
+            }
           } : {}),
         },
       };
@@ -2156,9 +2278,9 @@ function DashChart(props: { data: any[]; xKey?: string; yKey?: string; chartType
   return (
     <div class="bg-[#101015] p-3 rounded border border-[#2a2a3a]/50" style={cType() === "timeline" ? "" : "height:200px"}>
       <Show when={cType() === "timeline"} fallback={
-        <Show when={normalizeDataArray(props.data).length > 0} fallback={<p class="text-xs text-[#5a5a6e]">No valid array data for chart</p>}>
+        <Show when={normalizeDataArray(props.data).length > 0 || (isMixedChart() && multiData().datasets.length > 0)} fallback={<p class="text-xs text-[#5a5a6e]">No valid array data for chart</p>}>
           <Show when={!cType().startsWith("choropleth") || topoJson()} fallback={<p class="text-xs text-[#8b8b9e] animate-pulse">Loading map assets...</p>}>
-            <Show when={!isMixedChart() || mixedData().datasets.length > 0} fallback={<p class="py-8 text-center text-xs text-[#8b8b9e]">Add a Y field to at least one series to preview this chart.</p>}>
+            <Show when={!isMixedChart() || multiData().datasets.length > 0} fallback={<p class="py-8 text-center text-xs text-[#8b8b9e]">Add a Y field to at least one series to preview this chart.</p>}>
               {/* @ts-ignore */}
               <DefaultChart type={isMixedChart() ? "bar" : cType().startsWith("choropleth") ? "choropleth" : (cType() as any)} data={buildData()} options={chartOptions()} />
             </Show>
@@ -2174,37 +2296,73 @@ function DashChart(props: { data: any[]; xKey?: string; yKey?: string; chartType
 function PreviewWidget(props: { btn: any }) {
   const [status, setStatus] = createSignal<"idle" | "loading" | "ready" | "error">("idle");
   const [data, setData] = createSignal<any[]>([]);
+  const [dataBySource, setDataBySource] = createSignal<Record<string, any[]>>({});
   const [meta, setMeta] = createSignal<any>({});
   const [error, setError] = createSignal("");
+
+  const runWorkflowPromise = (wfId: string): Promise<{ data: any[]; meta: any }> => {
+    const rawId = wfId.includes(":") ? wfId.split(":")[1].replace(/[⟨⟩]/g, "") : wfId.replace(/[⟨⟩]/g, "");
+    return new Promise(async (resolve, reject) => {
+      try {
+        const res = await fetch(`/api/workflows/${rawId}/run`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ form: {} })
+        });
+        const json = await res.json();
+        if (!json.success) throw new Error(json.error || `Failed to start workflow ${rawId}`);
+
+        await pollRun(
+          json.runId,
+          (logs) => {
+            const { data: stepData, meta: stepMeta } = extractLastStep(logs);
+            resolve({ data: stepData, meta: stepMeta });
+          },
+          (msg) => reject(new Error(msg))
+        );
+      } catch (err) {
+        reject(err);
+      }
+    });
+  };
 
   const loadPreview = async () => {
     if (!props.btn.workflowId) return;
     setStatus("loading");
     setError("");
 
-    const wfId = props.btn.workflowId.includes(":") ? props.btn.workflowId.split(":")[1].replace(/[⟨⟩]/g, "") : props.btn.workflowId.replace(/[⟨⟩]/g, "");
     try {
-      const res = await fetch(`/api/workflows/${wfId}/run`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ form: {} })
-      });
-      const json = await res.json();
-      if (!json.success) throw new Error(json.error || "Failed to start workflow");
+      const { data: mainData, meta: mainMeta } = await runWorkflowPromise(props.btn.workflowId);
+      setData(mainData);
+      setMeta(mainMeta);
 
-      await pollRun(
-        json.runId,
-        (logs) => {
-          const { data: stepData, meta: stepMeta } = extractLastStep(logs);
-          setData(stepData);
-          setMeta(stepMeta);
-          setStatus("ready");
-        },
-        (msg) => {
-          setError(msg);
-          setStatus("error");
-        }
-      );
+      const sourcesMap: Record<string, any[]> = {
+        [props.btn.workflowId]: mainData,
+        __default__: mainData,
+      };
+
+      const seriesList: ChartSeriesConfig[] = props.btn.chartSeries || [];
+      const extraWfs = seriesList
+        .map((s) => s.workflowId)
+        .filter((w): w is string => typeof w === "string" && w.trim() !== "" && w !== props.btn.workflowId);
+      const uniqueExtraWfs = [...new Set(extraWfs)];
+
+      if (uniqueExtraWfs.length > 0) {
+        await Promise.all(
+          uniqueExtraWfs.map(async (extraWf) => {
+            try {
+              const res = await runWorkflowPromise(extraWf);
+              sourcesMap[extraWf] = res.data;
+            } catch (err: any) {
+              console.warn(`Series workflow ${extraWf} failed to load:`, err);
+              sourcesMap[extraWf] = [];
+            }
+          })
+        );
+      }
+
+      setDataBySource(sourcesMap);
+      setStatus("ready");
     } catch (e: any) {
       setError(e.message);
       setStatus("error");
@@ -2265,6 +2423,7 @@ function PreviewWidget(props: { btn: any }) {
         <Show when={kind === "chart" && (props.btn.chartType || "bar") !== "timeline"}>
           <DashChart
             data={data()}
+            dataBySource={dataBySource()}
             xKey={props.btn.xKey || meta().xKey}
             yKey={props.btn.yKey || meta().yKey}
             chartType={props.btn.chartType || meta().chartType || "bar"}

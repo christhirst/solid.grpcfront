@@ -53,9 +53,13 @@ export async function POST(event: APIEvent) {
     // No body or invalid JSON; use defaults.
   }
 
-  // Allow the request to override the workflow that gets executed. The default
+  // Allow the request to override the workflow that gets executed if authorized. The default
   // remains the workflow stored on the widget so existing behaviour is preserved.
   const workflowIdToRun = body.workflowId ?? targetWorkflowId;
+  const allowed = allowedWorkflowIds(button);
+  if (!allowed.has(normalizeId(workflowIdToRun as string))) {
+    return jsonResponse({ success: false, error: "Workflow not permitted for this widget" }, 403);
+  }
 
   const wfDbId = normalizeId(workflowIdToRun as string);
   const wfId = new RecordId("workflow", wfDbId);
@@ -70,17 +74,21 @@ export async function POST(event: APIEvent) {
   (workflow as any).id = `workflow:${wfDbId}`;
 
   const formPayload = mergeFormPayload(body.form ?? {}, button.formConfig);
-  const updatedButtons = buildUpdatedButtons(dashboard.buttons, buttonId, formPayload);
-  const { id: _dashboardId, ...dashboardData } = dashboard;
 
-  await db.query("UPDATE $id CONTENT $data", {
-    id: dId,
-    data: {
-      ...dashboardData,
-      buttons: updatedButtons,
-      updated_at: new Date().toISOString(),
-    },
-  });
+  // Skip updating dashboard buttons when triggering an auxiliary series run
+  if (!body.seriesRun) {
+    const updatedButtons = buildUpdatedButtons(dashboard.buttons, buttonId, formPayload);
+    const { id: _dashboardId, ...dashboardData } = dashboard;
+
+    await db.query("UPDATE $id CONTENT $data", {
+      id: dId,
+      data: {
+        ...dashboardData,
+        buttons: updatedButtons,
+        updated_at: new Date().toISOString(),
+      },
+    });
+  }
 
   const runId = `run:${uuidv4()}`;
   runWorkflowBackground(workflow, runId, { form: formPayload, dashboard_form: formPayload }).catch((err) => {

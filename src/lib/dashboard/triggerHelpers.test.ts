@@ -60,3 +60,30 @@ describe("buildUpdatedButtons", () => {
     expect(updated[1]).toEqual(buttons[1]);
   });
 });
+
+describe("allowedWorkflowIds", () => {
+  it("collects main, condition, conditional rule targets, and series workflow IDs", () => {
+    const { allowedWorkflowIds } = require("./triggerHelpers");
+    const button = {
+      id: "widget_1",
+      workflowId: "workflow:main",
+      conditionWorkflowId: "workflow:cond",
+      conditionRules: [
+        { action: "setWorkflow", targetValue: "workflow:action_wf" },
+        { action: "showWidget", elseAction: "setWorkflow", elseTargetValue: "workflow:else_wf" },
+      ],
+      chartSeries: [
+        { label: "S1", yKey: "v1", type: "bar", workflowId: "workflow:series_1" },
+        { label: "S2", yKey: "v2", type: "line" },
+      ],
+    };
+
+    const allowed = allowedWorkflowIds(button);
+    expect(allowed.has("main")).toBe(true);
+    expect(allowed.has("cond")).toBe(true);
+    expect(allowed.has("action_wf")).toBe(true);
+    expect(allowed.has("else_wf")).toBe(true);
+    expect(allowed.has("series_1")).toBe(true);
+    expect(allowed.has("unrelated")).toBe(false);
+  });
+});

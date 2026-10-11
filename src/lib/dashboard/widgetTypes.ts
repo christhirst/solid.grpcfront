@@ -57,11 +57,18 @@ export interface FormField {
   options?: string;
 }
 
+export type ChartSeriesType = "bar" | "line" | "scatter" | "bubble" | "density" | "area";
+
 export interface ChartSeriesConfig {
+  id?: string;
   label: string;
   yKey: string;
-  type: "bar" | "line";
+  type: ChartSeriesType;
   axis?: "left" | "right";
+  color?: string;
+  workflowId?: string;
+  rKey?: string;
+  xKey?: string;
 }
 
 export interface WidgetConfig {
