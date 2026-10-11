@@ -9,8 +9,9 @@ export type DashboardSummary = {
   tags?: string[];
 };
 
-/** Dashboard id without the "dashboard:" table prefix (used in URLs and API paths). */
-export const dashboardId = (id: string) => id.replace("dashboard:", "");
+/** Dashboard id without the "dashboard:" table prefix or chevrons (used in URLs and API paths). */
+export const dashboardId = (id: string) =>
+  (id || "").replace("dashboard:", "").replace(/[⟨⟩]/g, "").trim();
 
 export const formatDate = (value?: string) => {
   if (!value) return "Recently";

@@ -7,7 +7,7 @@ export async function GET(event: APIEvent) {
     const id = event.params.id;
     const db = await getDb();
 
-    const dbId = id.includes(":") ? id.split(":")[1] : id;
+    const dbId = (id.includes(":") ? id.split(":")[1] : id).replace(/[⟨⟩]/g, "").trim();
     let records: any = [];
     try {
       const recordId = new RecordId("dashboard", dbId);
@@ -42,7 +42,7 @@ export async function PUT(event: APIEvent) {
     const body = await new Response(event.request.body).json();
     console.log("[DB SAVE] Dashboard PUT Body:", JSON.stringify(body, null, 2));
     
-    const dbId = id.includes(":") ? id.split(":")[1] : id;
+    const dbId = (id.includes(":") ? id.split(":")[1] : id).replace(/[⟨⟩]/g, "").trim();
     const recordId = `dashboard:${dbId}`;
     const dashboard = { ...body, id: recordId, updated_at: new Date().toISOString() };
 
@@ -71,7 +71,7 @@ export async function DELETE(event: APIEvent) {
     const id = event.params.id;
     const db = await getDb();
     
-    const dbId = id.includes(":") ? id.split(":")[1] : id;
+    const dbId = (id.includes(":") ? id.split(":")[1] : id).replace(/[⟨⟩]/g, "").trim();
     const sId = new RecordId("dashboard", dbId);
     await db.delete(sId);
     

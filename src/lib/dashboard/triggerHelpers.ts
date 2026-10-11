@@ -20,9 +20,11 @@ export interface DashboardRecord {
   buttons: DashboardButton[];
 }
 
-/** Normalize a SurrealDB/URL id to the raw string part. */
+/** Normalize a SurrealDB/URL id to the raw string part, stripping table prefix and chevrons. */
 export function normalizeId(id: string): string {
-  return id.includes(":") ? id.split(":")[1] : id;
+  if (!id) return "";
+  const raw = id.includes(":") ? id.split(":")[1] : id;
+  return raw.replace(/[⟨⟩]/g, "").trim();
 }
 
 /** Compute the allowlist of workflow IDs permitted to execute for this button/widget. */

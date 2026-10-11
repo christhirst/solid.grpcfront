@@ -2,6 +2,8 @@ import { describe, expect, it } from "bun:test";
 import { buildUpdatedButtons, findButton, mergeFormPayload, normalizeId } from "./triggerHelpers";
 import type { DashboardButton, DashboardRecord } from "./triggerHelpers";
 
+import { dashboardId } from "./boardTypes";
+
 describe("normalizeId", () => {
   it("returns the raw id from a SurrealDB-style id", () => {
     expect(normalizeId("dashboard:abc123")).toBe("abc123");
@@ -9,6 +11,19 @@ describe("normalizeId", () => {
 
   it("returns the id unchanged when no colon", () => {
     expect(normalizeId("abc123")).toBe("abc123");
+  });
+
+  it("strips SurrealDB chevrons ⟨⟩ from ids", () => {
+    expect(normalizeId("dashboard:⟨ea6d7921-095f-4dbe-bc87-7e765f4164a8⟩")).toBe("ea6d7921-095f-4dbe-bc87-7e765f4164a8");
+    expect(normalizeId("⟨ea6d7921-095f-4dbe-bc87-7e765f4164a8⟩")).toBe("ea6d7921-095f-4dbe-bc87-7e765f4164a8");
+    expect(normalizeId("")).toBe("");
+  });
+});
+
+describe("dashboardId", () => {
+  it("strips dashboard: table prefix and chevrons", () => {
+    expect(dashboardId("dashboard:⟨ea6d7921-095f-4dbe-bc87-7e765f4164a8⟩")).toBe("ea6d7921-095f-4dbe-bc87-7e765f4164a8");
+    expect(dashboardId("dashboard:simple_id")).toBe("simple_id");
   });
 });
 

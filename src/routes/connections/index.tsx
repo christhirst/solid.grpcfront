@@ -31,6 +31,26 @@ const fetchProtos = async () => {
   }
 };
 
+function getMethodStreamKind(m: any): string {
+  if (m?.requestStream && m?.responseStream) return "Bidi Stream";
+  if (m?.requestStream) return "Client Stream";
+  if (m?.responseStream) return "Server Stream";
+  return "Unary";
+}
+
+function getMethodStreamBadge(kind: string): { bg: string; text: string; border: string } {
+  switch (kind) {
+    case "Bidi Stream":
+      return { bg: "bg-purple-500/10", text: "text-purple-400", border: "border-purple-500/20" };
+    case "Client Stream":
+      return { bg: "bg-blue-500/10", text: "text-blue-400", border: "border-blue-500/20" };
+    case "Server Stream":
+      return { bg: "bg-amber-500/10", text: "text-amber-400", border: "border-amber-500/20" };
+    default:
+      return { bg: "bg-emerald-500/10", text: "text-emerald-400", border: "border-emerald-500/20" };
+  }
+}
+
 export default function Connections() {
   const [connections, { refetch }] = createResource(fetchConnections);
   const [cas] = createResource(fetchCas);
@@ -98,6 +118,18 @@ export default function Connections() {
   const [isDeleting, setIsDeleting] = createSignal<string | null>(null);
   const [inlineTestingId, setInlineTestingId] = createSignal<string | null>(null);
   const [cardTestResults, setCardTestResults] = createSignal<Record<string, any>>({});
+
+  // gRPC Reflection States (modal)
+  const [isReflecting, setIsReflecting] = createSignal(false);
+  const [reflectionResult, setReflectionResult] = createSignal<any>(null);
+  const [reflectionError, setReflectionError] = createSignal<string | null>(null);
+
+  // gRPC Services Inspector Modal (card action)
+  const [inspectingConn, setInspectingConn] = createSignal<any>(null);
+  const [isInspectLoading, setIsInspectLoading] = createSignal(false);
+  const [inspectResult, setInspectResult] = createSignal<any>(null);
+  const [inspectError, setInspectError] = createSignal<string | null>(null);
+  const [inspectFilter, setInspectFilter] = createSignal("");
 
   const filteredConnections = createMemo(() => {
     const list = connections() || [];
@@ -169,6 +201,9 @@ export default function Connections() {
     setDbDatabase("main");
     setDbTimeoutMs(5000);
     setTestResult(null);
+    setIsReflecting(false);
+    setReflectionResult(null);
+    setReflectionError(null);
   };
 
   const startNew = (type: ConnectionType = "http") => {
@@ -255,6 +290,9 @@ export default function Connections() {
     setIsNew(false);
     setSelectedConnection(null);
     setTestResult(null);
+    setIsReflecting(false);
+    setReflectionResult(null);
+    setReflectionError(null);
   };
 
   const getPayload = () => {
@@ -371,6 +409,93 @@ export default function Connections() {
       setInlineTestingId(null);
     }
   };
+
+  const fetchReflection = async () => {
+    setIsReflecting(true);
+    setReflectionResult(null);
+    setReflectionError(null);
+
+    try {
+      const payload = getPayload();
+      const addr = (payload as any).serverAddress;
+      if (!addr) {
+        setReflectionError("Please provide a Server Address first (host:port).");
+        return;
+      }
+      const connId = selectedConnection()?.id;
+      const targetId = connId ? connId.replace(/^connection:/, "").replace(/[⟨⟩]/g, "").trim() : "adhoc";
+      const res = await fetch(`/api/connections/${encodeURIComponent(targetId)}/reflection`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(10000),
+      });
+      const json = await res.json();
+      if (!json.success) {
+        setReflectionError(json.error || "Server reflection failed");
+      } else {
+        setReflectionResult(json.data);
+      }
+    } catch (e: any) {
+      setReflectionError(e.message || "Failed to contact server for reflection");
+    } finally {
+      setIsReflecting(false);
+    }
+  };
+
+  const inspectConnectionFromCard = async (conn: any, e: Event) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    setInspectingConn(conn);
+    setIsInspectLoading(true);
+    setInspectResult(null);
+    setInspectError(null);
+    setInspectFilter("");
+
+    try {
+      const id = (conn.id || "").replace(/^connection:/, "").replace(/[⟨⟩]/g, "").trim();
+      const res = await fetch(`/api/connections/${encodeURIComponent(id)}/reflection`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(conn),
+        signal: AbortSignal.timeout(10000),
+      });
+      const json = await res.json();
+      if (!json.success) {
+        setInspectError(json.error || "Server reflection unavailable");
+      } else {
+        setInspectResult(json.data);
+      }
+    } catch (e: any) {
+      setInspectError(e.message || "Failed to inspect reflection");
+    } finally {
+      setIsInspectLoading(false);
+    }
+  };
+
+  const closeInspection = () => {
+    setInspectingConn(null);
+    setInspectResult(null);
+    setInspectError(null);
+  };
+
+  const filteredInspectedServices = createMemo(() => {
+    const data = inspectResult();
+    const services = data?.parsedProto?.services || [];
+    const query = inspectFilter().toLowerCase().trim();
+    if (!query) return services;
+
+    return services.filter((s: any) => {
+      const matchService = (s.fullName || s.name || "").toLowerCase().includes(query);
+      const matchMethods = (s.methods || []).some((m: any) =>
+        (m.name || "").toLowerCase().includes(query) ||
+        (m.requestType || "").toLowerCase().includes(query) ||
+        (m.responseType || "").toLowerCase().includes(query)
+      );
+      return matchService || matchMethods;
+    });
+  });
 
   const saveConnection = async () => {
     if (!name().trim()) {
@@ -704,16 +829,29 @@ export default function Connections() {
                             </div>
                           </Show>
 
-                          <button
-                            onClick={(e) => testConnectionFromCard(conn, e)}
-                            disabled={inlineTestingId() === conn.id}
-                            class="px-2.5 py-1 rounded bg-[#1e1e2e] hover:bg-[#2a2a3a] text-[#8b8b9e] hover:text-white text-[10px] font-semibold border border-[#2a2a3a] transition-colors flex items-center gap-1 disabled:opacity-50"
-                          >
-                            <Show when={inlineTestingId() === conn.id} fallback="Test">
-                              <svg class="animate-spin h-3 w-3 text-blue-400" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                              Testing...
+                          <div class="flex items-center gap-1.5">
+                            <Show when={type === "grpc"}>
+                              <button
+                                onClick={(e) => inspectConnectionFromCard(conn, e)}
+                                class="px-2 py-1 rounded bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 hover:text-white text-[10px] font-semibold border border-purple-500/20 transition-colors flex items-center gap-1"
+                                title="Inspect Services & Methods via gRPC Reflection"
+                              >
+                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+                                Services
+                              </button>
                             </Show>
-                          </button>
+
+                            <button
+                              onClick={(e) => testConnectionFromCard(conn, e)}
+                              disabled={inlineTestingId() === conn.id}
+                              class="px-2.5 py-1 rounded bg-[#1e1e2e] hover:bg-[#2a2a3a] text-[#8b8b9e] hover:text-white text-[10px] font-semibold border border-[#2a2a3a] transition-colors flex items-center gap-1 disabled:opacity-50"
+                            >
+                              <Show when={inlineTestingId() === conn.id} fallback="Test">
+                                <svg class="animate-spin h-3 w-3 text-blue-400" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                Testing...
+                              </Show>
+                            </button>
+                          </div>
                         </div>
                       </div>
                     );
@@ -936,6 +1074,92 @@ export default function Connections() {
                       onInput={(e) => setGrpcMetadata(e.currentTarget.value)}
                       placeholder='{"x-tenant-id": "acme"}'
                     />
+                  </div>
+
+                  {/* Server Reflection Section in Modal */}
+                  <div class="p-4 rounded-xl bg-[#111118] border border-[#2a2a3a] space-y-3">
+                    <div class="flex items-center justify-between gap-3">
+                      <div>
+                        <h4 class="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-purple-400"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+                          Server Reflection
+                        </h4>
+                        <p class="text-[11px] text-[#8b8b9e]">Fetch available services and methods dynamically from live gRPC server</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={fetchReflection}
+                        disabled={isReflecting() || !serverAddress().trim()}
+                        class="px-3 py-1.5 rounded-lg bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 text-xs font-semibold border border-purple-500/30 transition-all flex items-center gap-1.5 disabled:opacity-40 shrink-0"
+                      >
+                        <Show when={isReflecting()} fallback={
+                          <>
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"></path><path d="M16 21h5v-5"></path></svg>
+                            Fetch Services & Methods
+                          </>
+                        }>
+                          <svg class="animate-spin h-3 w-3 text-purple-400" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                          Discovering...
+                        </Show>
+                      </button>
+                    </div>
+
+                    <Show when={reflectionError()}>
+                      <div class="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-xs text-red-300 space-y-1">
+                        <div class="font-bold flex items-center gap-1.5 text-red-400">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                          Reflection Unavailable
+                        </div>
+                        <p class="font-mono text-[11px] text-red-200/90 break-all">{reflectionError()}</p>
+                        <p class="text-[10px] text-zinc-400 pt-1">Tip: If the server does not support gRPC reflection, upload a .proto file under Proto Files and link it above.</p>
+                      </div>
+                    </Show>
+
+                    <Show when={reflectionResult()?.parsedProto?.services}>
+                      <div class="space-y-2 pt-2 border-t border-[#2a2a3a]/40">
+                        <div class="flex items-center justify-between text-xs">
+                          <span class="text-emerald-400 font-semibold flex items-center gap-1.5">
+                            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                            Discovered {reflectionResult().parsedProto.services.length} Service(s) and {
+                              reflectionResult().parsedProto.services.reduce((acc: number, s: any) => acc + (s.methods?.length || 0), 0)
+                            } Method(s)
+                          </span>
+                        </div>
+                        <div class="max-h-56 overflow-y-auto space-y-2 pr-1">
+                          <For each={reflectionResult().parsedProto.services}>
+                            {(service: any) => (
+                              <div class="p-2.5 rounded-lg bg-[#0a0a0f] border border-[#2a2a3a] space-y-1.5">
+                                <div class="flex items-center justify-between">
+                                  <span class="font-mono text-xs font-bold text-purple-300 truncate">{service.fullName || service.name}</span>
+                                  <span class="text-[10px] text-[#8b8b9e] shrink-0 ml-2">{service.methods?.length || 0} method(s)</span>
+                                </div>
+                                <div class="space-y-1 pl-2 border-l border-[#2a2a3a]">
+                                  <For each={service.methods || []}>
+                                    {(method: any) => {
+                                      const streamKind = getMethodStreamKind(method);
+                                      const badge = getMethodStreamBadge(streamKind);
+                                      return (
+                                        <div class="flex items-center justify-between gap-2 text-[11px] py-0.5">
+                                          <div class="font-mono text-zinc-300 truncate">
+                                            <span class="text-blue-400 font-medium">{method.name}</span>
+                                            <span class="text-[#6b6b7e]">({method.requestType})</span>
+                                            <span class="text-[#6b6b7e]"> → </span>
+                                            <span class="text-emerald-400/90">{method.responseType}</span>
+                                          </div>
+                                          <span class={`text-[9px] font-bold px-1.5 py-0.2 rounded border shrink-0 ${badge.bg} ${badge.text} ${badge.border}`}>
+                                            {streamKind}
+                                          </span>
+                                        </div>
+                                      );
+                                    }}
+                                  </For>
+                                </div>
+                              </div>
+                            )}
+                          </For>
+                        </div>
+                      </div>
+                    </Show>
                   </div>
                 </div>
               </Show>
@@ -1292,6 +1516,144 @@ export default function Connections() {
                 </div>
               </div>
 
+            </div>
+          </div>
+        </Show>
+
+        {/* ---------------- gRPC SERVICES INSPECTOR MODAL ---------------- */}
+        <Show when={inspectingConn()}>
+          <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
+            <div class="relative w-full max-w-2xl rounded-2xl border border-purple-500/30 bg-[#0d0d14] p-6 shadow-2xl flex flex-col max-h-[85vh]">
+              {/* Header */}
+              <div class="flex items-start justify-between pb-4 border-b border-[#2a2a3a]">
+                <div class="flex items-center gap-3">
+                  <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-purple-500/10 text-purple-400 ring-1 ring-purple-500/30">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+                  </div>
+                  <div>
+                    <h3 class="text-base font-bold text-white flex items-center gap-2">
+                      <span>gRPC Server Reflection</span>
+                      <span class="text-xs px-2 py-0.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/20 font-mono">
+                        {inspectingConn()?.serverAddress}
+                      </span>
+                    </h3>
+                    <p class="text-xs text-[#8b8b9e]">{inspectingConn()?.name}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={closeInspection}
+                  class="text-[#5b5b6e] hover:text-white transition-colors p-1 rounded-lg hover:bg-[#1e1e2e]"
+                  title="Close"
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
+              </div>
+
+              {/* Body */}
+              <div class="flex-1 overflow-y-auto py-4 space-y-4">
+                {/* Loading state */}
+                <Show when={isInspectLoading()}>
+                  <div class="py-12 flex flex-col items-center justify-center gap-3 text-zinc-400">
+                    <svg class="animate-spin h-6 w-6 text-purple-400" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                    <p class="text-xs">Querying gRPC server reflection from <span class="font-mono text-purple-300">{inspectingConn()?.serverAddress}</span>...</p>
+                  </div>
+                </Show>
+
+                {/* Error state */}
+                <Show when={!isInspectLoading() && inspectError()}>
+                  <div class="p-4 rounded-xl bg-red-500/10 border border-red-500/20 space-y-2">
+                    <div class="flex items-center gap-2 text-sm font-bold text-red-400">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                      Server Reflection Unavailable
+                    </div>
+                    <p class="text-xs font-mono text-red-200/90 break-all">{inspectError()}</p>
+                    <div class="pt-2 text-[11px] text-zinc-400 leading-relaxed border-t border-red-500/20">
+                      This host does not support the gRPC server reflection protocol (<code class="text-purple-300 font-mono">grpc.reflection.v1</code> or <code class="text-purple-300 font-mono">v1alpha</code>), or could not be reached. You can upload your service's <code class="text-white font-mono">.proto</code> schema file in the <a href="/protos" class="text-blue-400 underline hover:text-blue-300">Proto Files</a> registry and associate it with this connection.
+                    </div>
+                  </div>
+                </Show>
+
+                {/* Success state */}
+                <Show when={!isInspectLoading() && inspectResult()?.parsedProto?.services}>
+                  <div class="space-y-4">
+                    {/* Search & Stats Bar */}
+                    <div class="flex items-center justify-between gap-3">
+                      <div class="relative flex-1">
+                        <svg class="absolute left-3 top-2.5 h-3.5 w-3.5 text-[#5b5b6e]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                        <input
+                          type="text"
+                          placeholder="Filter services and methods..."
+                          value={inspectFilter()}
+                          onInput={(e) => setInspectFilter(e.currentTarget.value)}
+                          class="w-full rounded-lg border border-[#2a2a3a] bg-[#111118] py-1.5 pl-8 pr-3 text-xs text-white placeholder-[#5b5b6e] focus:border-purple-500 focus:outline-none"
+                        />
+                      </div>
+                      <div class="flex items-center gap-1.5 shrink-0">
+                        <span class="text-[11px] font-bold px-2 py-0.5 rounded bg-purple-500/10 text-purple-300 border border-purple-500/20">
+                          {inspectResult().parsedProto.services.length} Service(s)
+                        </span>
+                        <span class="text-[11px] font-bold px-2 py-0.5 rounded bg-blue-500/10 text-blue-300 border border-blue-500/20">
+                          {inspectResult().parsedProto.services.reduce((acc: number, s: any) => acc + (s.methods?.length || 0), 0)} Method(s)
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Services List */}
+                    <div class="space-y-3">
+                      <For each={filteredInspectedServices()}>
+                        {(service: any) => (
+                          <div class="rounded-xl border border-[#2a2a3a] bg-[#111118] overflow-hidden">
+                            <div class="px-4 py-2.5 bg-[#161622] border-b border-[#2a2a3a] flex items-center justify-between">
+                              <span class="font-mono text-xs font-bold text-purple-300">{service.fullName || service.name}</span>
+                              <span class="text-[10px] text-[#8b8b9e]">{service.methods?.length || 0} method(s)</span>
+                            </div>
+                            <div class="divide-y divide-[#2a2a3a]/40 p-1">
+                              <For each={service.methods || []}>
+                                {(method: any) => {
+                                  const streamKind = getMethodStreamKind(method);
+                                  const badge = getMethodStreamBadge(streamKind);
+                                  return (
+                                    <div class="px-3 py-2 flex items-center justify-between gap-3 text-xs hover:bg-[#1a1a26] transition-colors rounded-lg">
+                                      <div class="min-w-0 font-mono text-[11px]">
+                                        <span class="text-blue-400 font-semibold">{method.name}</span>
+                                        <span class="text-[#6b6b7e]">(</span>
+                                        <span class="text-zinc-300">{method.requestType}</span>
+                                        <span class="text-[#6b6b7e]">) → </span>
+                                        <span class="text-emerald-400/90">{method.responseType}</span>
+                                      </div>
+                                      <span class={`text-[9px] font-bold px-1.5 py-0.5 rounded border shrink-0 ${badge.bg} ${badge.text} ${badge.border}`}>
+                                        {streamKind}
+                                      </span>
+                                    </div>
+                                  );
+                                }}
+                              </For>
+                            </div>
+                          </div>
+                        )}
+                      </For>
+                      <Show when={filteredInspectedServices().length === 0}>
+                        <div class="py-8 text-center text-xs text-zinc-500">
+                          No services or methods matched "{inspectFilter()}".
+                        </div>
+                      </Show>
+                    </div>
+                  </div>
+                </Show>
+              </div>
+
+              {/* Footer */}
+              <div class="pt-4 border-t border-[#2a2a3a] flex items-center justify-between">
+                <span class="text-[11px] text-[#5b5b6e]">
+                  Reflection enables dynamic RPC schema parsing without requiring static .proto files.
+                </span>
+                <button
+                  onClick={closeInspection}
+                  class="btn-secondary text-xs px-4 py-1.5"
+                >
+                  Close
+                </button>
+              </div>
             </div>
           </div>
         </Show>

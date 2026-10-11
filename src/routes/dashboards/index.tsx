@@ -5,19 +5,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter }
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
-
-type DashboardSummary = {
-  id: string;
-  name?: string;
-  isPublic?: boolean;
-  buttons?: unknown[];
-  updated_at?: string;
-  created_at?: string;
-  description?: string;
-  tags?: string[];
-};
-
-const dashboardId = (id: string) => id.replace("dashboard:", "");
+import { dashboardId } from "~/lib/dashboard/boardTypes";
 
 const formatDate = (value?: string) => {
   if (!value) return "No activity yet";

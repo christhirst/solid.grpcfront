@@ -1,6 +1,7 @@
 import { createSignal, Show, onMount, createEffect } from "solid-js";
 import { useParams } from "@solidjs/router";
 import PublicDashboardView, { loadWorkflowMap } from "~/components/dashboard/PublicDashboardView";
+import { dashboardId } from "~/lib/dashboard/boardTypes";
 
 // ─── Main public dashboard page ───────────────────────────────────────────────
 
@@ -73,7 +74,7 @@ export default function PublicDashboard() {
                 <span>Dashboard Library</span>
               </a>
               <Show when={session()}>
-                <a href={`/dashboards/${(dashboard()?.id || params.id || "").replace("dashboard:", "")}`} class="text-sm text-purple-400 hover:text-purple-300 flex items-center gap-1.5 transition-colors">
+                <a href={`/dashboards/${dashboardId(dashboard()?.id || params.id || "")}`} class="text-sm text-purple-400 hover:text-purple-300 flex items-center gap-1.5 transition-colors">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
                   <span>Edit & Arrange</span>
                 </a>
