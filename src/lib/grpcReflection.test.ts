@@ -52,7 +52,9 @@ async function startServer(version?: "v1" | "v1alpha", mode: "normal" | "error" 
       call.on("data", (request: any) => {
         requests.push(request);
         if (mode === "silent") return;
-        if (mode === "error" || call.metadata.get("authorization")[0] !== "Bearer test") {
+        const auth = call.metadata.get("authorization")[0];
+        const validAuth = auth === "Bearer test" || (typeof auth === "string" && auth.startsWith("Basic "));
+        if (mode === "error" || !validAuth) {
           call.write({ error_response: { error_code: grpc.status.PERMISSION_DENIED, error_message: "Reflection denied" } });
         } else if ("list_services" in request) {
           call.write({ list_services_response: { service: [
@@ -104,5 +106,15 @@ describe("gRPC server reflection", () => {
   test("bounds a nonresponsive reflection stream by its deadline", async () => {
     const server = await startServer("v1", "silent");
     await expect(reflectGrpcServices({ ...server, timeoutMs: 100 })).rejects.toMatchObject({ code: grpc.status.DEADLINE_EXCEEDED });
+  });
+
+  test("transmits Basic authorization metadata during reflection", async () => {
+    const server = await startServer("v1");
+    const credentials = Buffer.from("admin:secret").toString("base64");
+    const schema = await reflectGrpcServices({
+      ...server,
+      metadata: { authorization: `Basic ${credentials}` },
+    });
+    expect(schema.parsedProto.services.map(service => service.fullName)).toEqual(["example.Echo", "example.Feed"]);
   });
 });

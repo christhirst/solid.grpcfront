@@ -47,13 +47,19 @@ export async function POST(event: APIEvent) {
       // Ignore invalid metadata JSON
     }
 
-    if (connection.authType === "bearer" && connection.bearerToken) {
+    if (connection.authType === "basic" && (connection.username || connection.password)) {
+      const basicToken = Buffer.from(`${connection.username || ""}:${connection.password || ""}`).toString("base64");
+      metadata.authorization = `Basic ${basicToken}`;
+    } else if (connection.authType === "bearer" && connection.bearerToken) {
       metadata.authorization = `Bearer ${connection.bearerToken}`;
     } else if (connection.authType === "oauth") {
       const token = await fetchPreRequestToken(connection);
       if (!token.success) throw new Error(token.error || "Failed to fetch OAuth token");
       metadata[(connection.tokenMetadataKey || "authorization").toLowerCase()] =
         `${connection.tokenHeaderPrefix ?? "Bearer "}${token.token}`;
+    } else if (!metadata.authorization && connection.username && connection.password) {
+      const basicToken = Buffer.from(`${connection.username}:${connection.password}`).toString("base64");
+      metadata.authorization = `Basic ${basicToken}`;
     }
 
     const data = await reflectGrpcServices({

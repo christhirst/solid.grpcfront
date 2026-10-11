@@ -337,6 +337,8 @@ export default function Connections() {
         protoId: protoId() || undefined,
         metadata: grpcMetadata(),
         authType: authType(),
+        username: authType() === "basic" ? username() : undefined,
+        password: authType() === "basic" ? password() : undefined,
         bearerToken: authType() === "bearer" ? bearerToken() : undefined,
         // Pre-request token fields
         tokenUrl: authType() === "oauth" ? tokenUrl().trim() : undefined,
@@ -789,6 +791,12 @@ export default function Connections() {
                               <span class={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${conn.useTls ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" : "bg-[#1e1e2e] text-[#8b8b9e] border-[#2a2a3a]"}`}>
                                 {conn.useTls ? "TLS" : "Insecure"}
                               </span>
+                              <Show when={conn.authType === "basic"}>
+                                <span class="text-[9px] font-bold px-1.5 py-0.5 bg-blue-500/10 text-blue-400 rounded border border-blue-500/20">Basic Auth</span>
+                              </Show>
+                              <Show when={conn.authType === "bearer"}>
+                                <span class="text-[9px] font-bold px-1.5 py-0.5 bg-purple-500/10 text-purple-400 rounded border border-purple-500/20">Bearer Token</span>
+                              </Show>
                               <Show when={conn.authType === "oauth"}>
                                 <span class="text-[9px] font-bold px-1.5 py-0.5 bg-amber-500/10 text-amber-400 rounded border border-amber-500/20">OAuth Token</span>
                               </Show>
@@ -1254,14 +1262,12 @@ export default function Connections() {
                       >
                         None
                       </button>
-                      <Show when={connType() === "http"}>
-                        <button
-                          onClick={() => setAuthType("basic")}
-                          class={`px-2.5 py-1 text-xs font-bold rounded transition-all ${authType() === "basic" ? "bg-blue-600 text-white" : "text-[#8b8b9e] hover:text-white"}`}
-                        >
-                          Basic
-                        </button>
-                      </Show>
+                      <button
+                        onClick={() => setAuthType("basic")}
+                        class={`px-2.5 py-1 text-xs font-bold rounded transition-all ${authType() === "basic" ? "bg-blue-600 text-white" : "text-[#8b8b9e] hover:text-white"}`}
+                      >
+                        Basic
+                      </button>
                       <button
                         onClick={() => setAuthType("bearer")}
                         class={`px-2.5 py-1 text-xs font-bold rounded transition-all ${authType() === "bearer" ? "bg-blue-600 text-white" : "text-[#8b8b9e] hover:text-white"}`}

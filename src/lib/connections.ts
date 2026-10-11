@@ -56,6 +56,8 @@ export interface GrpcConnection extends ConnectionBase, OAuthConfig {
   protoId?: string;
   metadata?: string;
   authType?: AuthType;
+  username?: string;
+  password?: string;
   bearerToken?: string;
 }
 
@@ -446,6 +448,10 @@ export async function testGrpcConnection(config: any): Promise<any> {
       };
     }
     authToken = tokenResult.token;
+  } else if (authType === "basic" && (config.username || config.password)) {
+    authToken = `Basic ${Buffer.from(`${config.username || ""}:${config.password || ""}`).toString("base64")}`;
+  } else if (authType === "bearer" && config.bearerToken) {
+    authToken = `Bearer ${config.bearerToken}`;
   }
 
   const startTime = Date.now();
