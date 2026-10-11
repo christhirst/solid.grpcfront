@@ -101,4 +101,15 @@ describe("allowedWorkflowIds", () => {
     expect(allowed.has("series_1")).toBe(true);
     expect(allowed.has("unrelated")).toBe(false);
   });
+
+  it("handles chevron-wrapped workflow IDs properly", () => {
+    const { allowedWorkflowIds, normalizeId } = require("./triggerHelpers");
+    const button = {
+      id: "btn_homicides",
+      workflowId: "workflow:⟨92a5d7b0-a4f7-47f5-ad6a-525c481f16b5⟩",
+    };
+    const allowed = allowedWorkflowIds(button);
+    expect(allowed.has("92a5d7b0-a4f7-47f5-ad6a-525c481f16b5")).toBe(true);
+    expect(allowed.has(normalizeId("⟨92a5d7b0-a4f7-47f5-ad6a-525c481f16b5⟩"))).toBe(true);
+  });
 });

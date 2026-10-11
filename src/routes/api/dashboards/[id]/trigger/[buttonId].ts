@@ -10,6 +10,7 @@ import {
   mergeFormPayload,
   normalizeId,
   buildUpdatedButtons,
+  allowedWorkflowIds,
 } from "~/lib/dashboard/triggerHelpers";
 
 function jsonResponse(payload: { success: boolean; error?: string; runId?: string }, status = 200): Response {
