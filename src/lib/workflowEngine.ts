@@ -31,15 +31,18 @@ export function emitWorkflowEvent(runId: string, workflowId: string, type: strin
 
 async function getStepAuthHeader(step: any, db: any): Promise<string | undefined> {
   const authType = step.authType || "none";
-  if (authType === "basic" && (step.authUsername || step.authPassword)) {
-    const auth = Buffer.from(`${step.authUsername || ""}:${step.authPassword || ""}`).toString("base64");
+  if (authType === "basic" && (step.authUsername || step.authPassword || step.username || step.password)) {
+    const auth = Buffer.from(`${step.authUsername || step.username || ""}:${step.authPassword || step.password || ""}`).toString("base64");
     return `Basic ${auth}`;
+  }
+  if (authType === "bearer" && step.bearerToken) {
+    return `Bearer ${step.bearerToken}`;
   }
   
   if ((authType === "oauth" || step.connectionId) && step.connectionId) {
     console.log(`[STEP AUTH] Fetching connection details for ID: ${step.connectionId}`);
     try {
-      const connDbId = step.connectionId.includes(":") ? step.connectionId.split(":")[1] : step.connectionId;
+      const connDbId = (step.connectionId || "").replace(/^connection:/, "").replace(/[⟨⟩]/g, "").trim();
       const connRecord = await db.select(new RecordId("connection", connDbId));
       const rawConnection = Array.isArray(connRecord) ? connRecord[0] : connRecord;
       
@@ -574,7 +577,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
         // Resolve gRPC connection details from saved connection
         if (step.connectionId) {
           try {
-            const connDbId = step.connectionId.includes(":") ? step.connectionId.split(":")[1] : step.connectionId;
+            const connDbId = (step.connectionId || "").replace(/^connection:/, "").replace(/[⟨⟩]/g, "").trim();
             const connRecord = await db.select(new RecordId("connection", connDbId));
             const rawConn = Array.isArray(connRecord) ? connRecord[0] : connRecord;
             if (rawConn) {
@@ -585,7 +588,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
               step.acceptInvalidCert = step.acceptInvalidCert ?? conn.acceptInvalidCert;
               if (!stepProtoContent && conn.protoId) {
                 try {
-                  const protoDbId = conn.protoId.includes(":") ? conn.protoId.split(":")[1] : conn.protoId;
+                  const protoDbId = (conn.protoId || "").replace(/^proto_file:/, "").replace(/[⟨⟩]/g, "").trim();
                   const protoRecord = await db.select(new RecordId("proto_file", protoDbId));
                   const rawProto = Array.isArray(protoRecord) ? protoRecord[0] : protoRecord;
                   if (rawProto?.content) stepProtoContent = rawProto.content;
@@ -597,13 +600,23 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
           }
         }
 
+        const isCustomStreamStep = step.connectionMode === "custom" || (!step.connectionId && step.serverAddress);
+        const cleanStreamStepConnId = (step.connectionId || "").replace(/^connection:/, "").replace(/[⟨⟩]/g, "").trim();
+        const cleanStreamSchemaConnId = (step.grpcSchemaConnectionId || "").replace(/^connection:/, "").replace(/[⟨⟩]/g, "").trim();
+        const streamDescriptorSet = (
+          step.grpcDescriptorSet && (
+            (isCustomStreamStep && (cleanStreamSchemaConnId === "custom" || !cleanStreamSchemaConnId)) ||
+            (!isCustomStreamStep && cleanStreamSchemaConnId === cleanStreamStepConnId)
+          )
+        ) ? step.grpcDescriptorSet : undefined;
+
         const stepCaId = step.caId ?? defaultCaId;
         const stepCaCert = await resolveCaCert(stepCaId);
         await new Promise<void>((resolve) => {
           executeGrpcStreamCall(
             {
               protoContent: stepProtoContent,
-              descriptorSet: step.grpcSchemaConnectionId === step.connectionId ? step.grpcDescriptorSet : undefined,
+              descriptorSet: streamDescriptorSet,
               serverAddress: step.serverAddress || serverAddress,
               useTls: stepCaId !== "" || !!step.useTls,
               caCert: stepCaCert,
@@ -1380,7 +1393,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
       // Resolve gRPC connection details from saved connection
       if (step.connectionId) {
         try {
-          const connDbId = step.connectionId.includes(":") ? step.connectionId.split(":")[1] : step.connectionId;
+          const connDbId = (step.connectionId || "").replace(/^connection:/, "").replace(/[⟨⟩]/g, "").trim();
           const connRecord = await db.select(new RecordId("connection", connDbId));
           const rawConn = Array.isArray(connRecord) ? connRecord[0] : connRecord;
           if (rawConn) {
@@ -1391,7 +1404,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
             step.acceptInvalidCert = step.acceptInvalidCert ?? conn.acceptInvalidCert;
             if (!stepProtoContent && conn.protoId) {
               try {
-                const protoDbId = conn.protoId.includes(":") ? conn.protoId.split(":")[1] : conn.protoId;
+                const protoDbId = (conn.protoId || "").replace(/^proto_file:/, "").replace(/[⟨⟩]/g, "").trim();
                 const protoRecord = await db.select(new RecordId("proto_file", protoDbId));
                 const rawProto = Array.isArray(protoRecord) ? protoRecord[0] : protoRecord;
                 if (rawProto?.content) stepProtoContent = rawProto.content;
@@ -1427,11 +1440,21 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
         }
       }
 
+      const isCustomStep = step.connectionMode === "custom" || (!step.connectionId && step.serverAddress);
+      const cleanStepConnId = (step.connectionId || "").replace(/^connection:/, "").replace(/[⟨⟩]/g, "").trim();
+      const cleanSchemaConnId = (step.grpcSchemaConnectionId || "").replace(/^connection:/, "").replace(/[⟨⟩]/g, "").trim();
+      const descriptorSet = (
+        step.grpcDescriptorSet && (
+          (isCustomStep && (cleanSchemaConnId === "custom" || !cleanSchemaConnId)) ||
+          (!isCustomStep && cleanSchemaConnId === cleanStepConnId)
+        )
+      ) ? step.grpcDescriptorSet : undefined;
+
       // Execute gRPC call
       const stepCaId = step.caId ?? defaultCaId;
       const execResult = await executeGrpcCall({
         protoContent: stepProtoContent,
-        descriptorSet: step.grpcSchemaConnectionId === step.connectionId ? step.grpcDescriptorSet : undefined,
+        descriptorSet,
         serverAddress: step.serverAddress || serverAddress,
         useTls: stepCaId !== "" || !!step.useTls,
         caCert: await resolveCaCert(stepCaId),

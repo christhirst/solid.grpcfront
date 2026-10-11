@@ -9,8 +9,7 @@ export async function POST(event: APIEvent) {
     const id = event.params.id;
     const db = await getDb();
 
-    // Get the workflow definition
-    const dbId = id.includes(":") ? id.split(":")[1] : id;
+    const dbId = (id || "").replace(/^workflow:/, "").replace(/[⟨⟩]/g, "").trim();
     let records: any = [];
     
     try {

@@ -17,12 +17,21 @@ export async function POST(event: APIEvent) {
     }
 
     let rawConnection: any = null;
-    if (body && (body.serverAddress || body.type === "grpc")) {
+    if (id && id !== "adhoc" && id !== "draft" && id !== "new" && id !== "custom") {
+      try {
+        const db = await getDb();
+        const result = await db.select(new RecordId("connection", id));
+        const dbConn = Array.isArray(result) ? result[0] : result;
+        if (dbConn) {
+          rawConnection = { ...dbConn, ...(body || {}), type: "grpc" };
+        }
+      } catch {
+        // Fallback to body below
+      }
+    }
+
+    if (!rawConnection && body && (body.serverAddress || body.type === "grpc")) {
       rawConnection = { ...body, type: "grpc" };
-    } else if (id && id !== "adhoc" && id !== "draft" && id !== "new") {
-      const db = await getDb();
-      const result = await db.select(new RecordId("connection", id));
-      rawConnection = Array.isArray(result) ? result[0] : result;
     }
 
     if (!rawConnection) {

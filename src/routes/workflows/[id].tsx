@@ -716,21 +716,27 @@ export default function WorkflowBuilder() {
   });
 
   // Parsed state
-  // Share in-flight discovery across steps using the same connection.
+  // Share in-flight discovery across steps using the same connection and configuration.
   const reflectionRequests = new Map<string, Promise<ReflectionResult>>();
   const reflectedSchemas = new Map<string, ReflectionResult["data"]>();
-  const discoverConnection = (id: string, refresh = false): Promise<ReflectionResult> => {
-    if (refresh) reflectionRequests.delete(id);
-    let request = reflectionRequests.get(id);
+  const discoverConnection = (id: string, refresh = false, payload?: any): Promise<ReflectionResult> => {
+    const cleanId = (id || "adhoc").replace(/^connection:/, "").replace(/[⟨⟩]/g, "").trim() || "adhoc";
+    const cacheKey = `${cleanId}:${JSON.stringify(payload || {})}`;
+    if (refresh) reflectionRequests.delete(cacheKey);
+    let request = reflectionRequests.get(cacheKey);
     if (!request) {
-      request = fetch(`/api/connections/${encodeURIComponent(id)}/reflection`, { method: "POST" })
+      request = fetch(`/api/connections/${encodeURIComponent(cleanId)}/reflection`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: payload ? JSON.stringify(payload) : undefined,
+      })
         .then(res => res.json())
         .catch(error => ({ success: false, error: error.message }))
         .then((result: ReflectionResult) => {
-          if (result.success && result.data) reflectedSchemas.set(id, result.data);
-          return result.success ? result : { ...result, data: reflectedSchemas.get(id) };
+          if (result.success && result.data) reflectedSchemas.set(cacheKey, result.data);
+          return result.success ? result : { ...result, data: reflectedSchemas.get(cacheKey) };
         });
-      reflectionRequests.set(id, request!);
+      reflectionRequests.set(cacheKey, request!);
     }
     return request!;
   };
@@ -1770,7 +1776,7 @@ export default function WorkflowBuilder() {
                     </div>
                   </Show>
 
-                  <Show when={!step.type || step.type === "grpc"}>
+                  <Show when={!step.type || step.type === "grpc" || step.type === "grpc_stream"}>
                     {(() => {
                       const isCustom = () => {
                         if (step.connectionMode === "custom") return true;
@@ -3259,12 +3265,31 @@ function StepAuthSettings(props: { step: any, index: number, updateStep: (idx: n
           Basic
         </button>
         <button
+          onClick={() => props.updateStep(props.index, "authType", "bearer")}
+          class={`flex-1 py-1 text-xs font-bold rounded transition-all ${currentAuthType() === "bearer" ? "bg-blue-600 text-white shadow" : "text-[#8b8b9e] hover:text-white"}`}
+        >
+          Bearer
+        </button>
+        <button
           onClick={() => props.updateStep(props.index, "authType", "oauth")}
           class={`flex-1 py-1 text-xs font-bold rounded transition-all ${currentAuthType() === "oauth" ? "bg-blue-600 text-white shadow" : "text-[#8b8b9e] hover:text-white"}`}
         >
           OAuth
         </button>
       </div>
+
+      <Show when={currentAuthType() === "bearer"}>
+        <div class="max-w-md">
+          <label class="mb-1 block text-[10px] text-[#8b8b9e]">Bearer Token</label>
+          <input
+            type="password"
+            class="w-full rounded border border-[#2a2a3a] bg-[#1a1a26] p-2 text-xs text-white focus:border-blue-500 focus:outline-none font-mono"
+            placeholder="eyJhbGciOi..."
+            value={props.step?.bearerToken || ""}
+            onInput={(e) => props.updateStep(props.index, "bearerToken", e.currentTarget.value)}
+          />
+        </div>
+      </Show>
 
       <Show when={currentAuthType() === "basic"}>
         <div class="grid grid-cols-2 gap-3 max-w-md">

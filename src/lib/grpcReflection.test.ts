@@ -117,4 +117,36 @@ describe("gRPC server reflection", () => {
     });
     expect(schema.parsedProto.services.map(service => service.fullName)).toEqual(["example.Echo", "example.Feed"]);
   });
+
+  test("generates request skeleton and executes call using reflected schema without proto file", async () => {
+    const server = await startServer("v1");
+    const schema = await reflectGrpcServices({
+      ...server,
+      metadata: { authorization: "Bearer test" },
+    });
+
+    // Check service and method discovery
+    const echoService = schema.parsedProto.services.find(s => s.fullName === "example.Echo");
+    expect(echoService).toBeDefined();
+    expect(echoService!.methods.map(m => m.name)).toContain("Send");
+
+    // Check skeleton generation
+    const sendMethod = echoService!.methods.find(m => m.name === "Send")!;
+    const skeleton = generateSkeleton(schema.parsedProto.messageTypes, sendMethod.requestType);
+    expect(skeleton).toEqual({ text: "", child: {} });
+
+    // Execute using the reflected descriptorSet directly
+    const result = await executeGrpcCall({
+      protoContent: "",
+      descriptorSet: schema.descriptorSet,
+      serverAddress: server.serverAddress,
+      useTls: false,
+      serviceName: "example.Echo",
+      methodName: "Send",
+      requestBody: { text: "workflow-reflection-test" },
+    });
+    expect(result.success).toBe(true);
+    expect(result.data.text).toBe("workflow-reflection-test");
+  });
 });
+
