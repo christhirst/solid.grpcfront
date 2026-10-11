@@ -410,7 +410,7 @@ export default function DashboardBuilder() {
       <Show when={activeTab() === "config"}>
       <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
         {/* Editor */}
-        <div class="lg:col-span-8 space-y-6">
+        <div class="min-w-0 lg:col-span-8 space-y-6">
           <div class="flex items-center justify-between">
             <h2 class="text-lg font-bold text-white flex items-center gap-2">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
@@ -450,7 +450,7 @@ export default function DashboardBuilder() {
             </div>
           </div>
 
-          <div class="space-y-4">
+          <div class="flex min-w-0 flex-col gap-8">
             <Show when={buttons.length === 0}>
               <div class="rounded-xl border border-dashed border-[#2a2a3a] py-16 text-center bg-[#0a0a0f]/50">
                 <p class="text-[#8b8b9e] text-sm">No widgets yet. Click "Add Widget" to begin.</p>
@@ -493,7 +493,7 @@ export default function DashboardBuilder() {
                 const varStatus = createMemo(() => checkWidgetVariablesConfigured(boundWf(), btn.formConfig));
 
                 return (
-                  <div class={`card p-5 relative border-l-4 group overflow-hidden ${accentCls()}`}>
+                  <div class={`card min-w-0 p-5 relative border-l-4 group overflow-hidden ${accentCls()}`}>
                     {/* Translucent top color: light red if variables exist & not all configured, light green if all configured */}
                     <Show when={varStatus().hasVariables}>
                       <div
@@ -510,8 +510,9 @@ export default function DashboardBuilder() {
                     </button>
 
                     {/* Type badge & workflow variable status badge */}
-                    <div class="mb-4 flex items-center justify-between relative z-10">
-                      <span class={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${typeBadgeCls()}`}>{typeLabel[wt()]}</span>
+                    <div class="mb-5 flex flex-wrap items-center gap-3 border-b border-[#2a2a3a] pb-4 pr-6 relative z-10">
+                      <span class="min-w-0 truncate text-sm font-semibold text-white">{index() + 1}. {btn.label || "Untitled widget"}</span>
+                      <span class={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${typeBadgeCls()}`}>{typeLabel[wt()] || (wt() === "news" ? "📰 News Alert" : "🎛️ Toggle Switch")}</span>
                       <Show when={varStatus().hasVariables}>
                         <span
                           class={`text-[10px] font-bold px-2 py-0.5 rounded-full border transition-colors ${
@@ -543,9 +544,10 @@ export default function DashboardBuilder() {
                       </Show>
 
                       {/* Workflow binding — always */}
-                      <div class="col-span-2">
-                        <label class="mb-1 block text-sm font-bold text-[#8b8b9e]">Bind to Workflow</label>
-                        <select class="w-full rounded-lg border border-[#2a2a3a] bg-[#151520] p-3 text-sm text-emerald-300 font-mono shadow-inner focus:border-purple-500 focus:outline-none"
+                      <div class="col-span-2 min-w-0 w-full sm:max-w-sm">
+                        <label for={`workflow-${btn.id}`} class="mb-1 block text-sm font-bold text-[#8b8b9e]">Bind to Workflow</label>
+                        <select id={`workflow-${btn.id}`} class="w-full min-w-0 max-w-full truncate rounded-lg border border-[#2a2a3a] bg-[#151520] p-2.5 text-sm text-emerald-300 shadow-inner focus:border-purple-500 focus:outline-none"
+                          title={boundWf()?.name || "Select a workflow"}
                           value={btn.workflowId || ""}
                           onChange={(e) => {
                             const wfId = e.currentTarget.value;

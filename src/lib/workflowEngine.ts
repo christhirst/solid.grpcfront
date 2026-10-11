@@ -569,7 +569,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
 
         const chunks: any[] = [];
         let streamError: string | undefined = undefined;
-        let stepProtoContent = protoContent;
+        let stepProtoContent = step.protoContent || protoContent;
 
         // Resolve gRPC connection details from saved connection
         if (step.connectionId) {
@@ -581,6 +581,8 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
               const conn = normalizeConnection(rawConn) as any;
               if (conn.serverAddress && !step.serverAddress) step.serverAddress = conn.serverAddress;
               if (conn.caId && !step.caId) step.caId = conn.caId;
+              if (!step.caId) step.useTls = step.useTls ?? conn.useTls;
+              step.acceptInvalidCert = step.acceptInvalidCert ?? conn.acceptInvalidCert;
               if (!stepProtoContent && conn.protoId) {
                 try {
                   const protoDbId = conn.protoId.includes(":") ? conn.protoId.split(":")[1] : conn.protoId;
@@ -601,10 +603,11 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
           executeGrpcStreamCall(
             {
               protoContent: stepProtoContent,
+              descriptorSet: step.grpcSchemaConnectionId === step.connectionId ? step.grpcDescriptorSet : undefined,
               serverAddress: step.serverAddress || serverAddress,
-              useTls: stepCaId !== "",
+              useTls: stepCaId !== "" || !!step.useTls,
               caCert: stepCaCert,
-              acceptInvalidCert: stepCaId === ACCEPT_ALL_CA,
+              acceptInvalidCert: stepCaId === ACCEPT_ALL_CA || step.acceptInvalidCert,
               serviceName: step.serviceName || "",
               methodName: step.methodName || "",
               requestBody: requestPayload,
@@ -1372,7 +1375,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
 
       // Evaluate headers if present
       let metadata: Record<string, string> = {};
-      let stepProtoContent = protoContent;
+      let stepProtoContent = step.protoContent || protoContent;
       
       // Resolve gRPC connection details from saved connection
       if (step.connectionId) {
@@ -1384,6 +1387,8 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
             const conn = normalizeConnection(rawConn) as any;
             if (conn.serverAddress && !step.serverAddress) step.serverAddress = conn.serverAddress;
             if (conn.caId && !step.caId) step.caId = conn.caId;
+            if (!step.caId) step.useTls = step.useTls ?? conn.useTls;
+            step.acceptInvalidCert = step.acceptInvalidCert ?? conn.acceptInvalidCert;
             if (!stepProtoContent && conn.protoId) {
               try {
                 const protoDbId = conn.protoId.includes(":") ? conn.protoId.split(":")[1] : conn.protoId;
@@ -1426,10 +1431,11 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
       const stepCaId = step.caId ?? defaultCaId;
       const execResult = await executeGrpcCall({
         protoContent: stepProtoContent,
+        descriptorSet: step.grpcSchemaConnectionId === step.connectionId ? step.grpcDescriptorSet : undefined,
         serverAddress: step.serverAddress || serverAddress,
-        useTls: stepCaId !== "",
+        useTls: stepCaId !== "" || !!step.useTls,
         caCert: await resolveCaCert(stepCaId),
-        acceptInvalidCert: stepCaId === ACCEPT_ALL_CA,
+        acceptInvalidCert: stepCaId === ACCEPT_ALL_CA || step.acceptInvalidCert,
         serviceName: step.serviceName || "",
         methodName: step.methodName || "",
         requestBody: requestPayload,

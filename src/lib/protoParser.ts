@@ -33,7 +33,10 @@ export interface ParsedProto {
  */
 export function parseProtoContent(content: string): ParsedProto {
   const root = protobuf.parse(content, { keepCase: true }).root;
+  return parseProtoRoot(root);
+}
 
+export function parseProtoRoot(root: protobuf.Root): ParsedProto {
   const services: ProtoService[] = [];
   const messageTypes: Record<string, ProtoField[]> = {};
   let packageName = "";
@@ -58,8 +61,8 @@ export function parseProtoContent(content: string): ParsedProto {
         for (const method of child.methodsArray) {
           service.methods.push({
             name: method.name,
-            requestType: method.requestType,
-            responseType: method.responseType,
+            requestType: method.resolvedRequestType?.fullName.replace(/^\./, "") || method.requestType,
+            responseType: method.resolvedResponseType?.fullName.replace(/^\./, "") || method.responseType,
             requestStream: method.requestStream || false,
             responseStream: method.responseStream || false,
           });
@@ -74,7 +77,7 @@ export function parseProtoContent(content: string): ParsedProto {
         for (const field of child.fieldsArray) {
           const f: ProtoField = {
             name: field.name,
-            type: field.type,
+            type: field.resolvedType?.fullName.replace(/^\./, "") || field.type,
             repeated: field.repeated || false,
           };
 
@@ -106,10 +109,12 @@ export function parseProtoContent(content: string): ParsedProto {
  */
 export function generateSkeleton(
   messageTypes: Record<string, ProtoField[]>,
-  typeName: string
+  typeName: string,
+  ancestors: Set<string> = new Set()
 ): Record<string, any> {
   const fields = messageTypes[typeName];
-  if (!fields) return {};
+  if (!fields || ancestors.has(typeName)) return {};
+  const visited = new Set(ancestors).add(typeName);
 
   const obj: Record<string, any> = {};
 
@@ -145,7 +150,7 @@ export function generateSkeleton(
       default:
         // Nested message type — recurse (but guard against recursion)
         if (messageTypes[field.type]) {
-          value = generateSkeleton(messageTypes, field.type);
+          value = generateSkeleton(messageTypes, field.type, visited);
         } else {
           value = null;
         }

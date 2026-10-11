@@ -59,12 +59,18 @@ export interface WorkflowStep {
   databaseNs?: string;
   serviceName?: string;
   methodName?: string;
+  protoContent?: string;
+  grpcProtoId?: string;
+  grpcDescriptorSet?: string;
+  grpcSchemaConnectionId?: string;
+  grpcParsedProto?: import("./protoParser").ParsedProto;
   restUrl?: string;
   restMethod?: "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
   requestBodyTemplate?: string;
   headersTemplate?: string;
   serverAddress?: string;
   useTls?: boolean;
+  acceptInvalidCert?: boolean;
   caId?: string;
   dataPath?: string;
   xKey?: string;

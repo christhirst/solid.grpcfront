@@ -1,5 +1,6 @@
 import { getStepCategory, type StepCategory, type StepVariable } from "~/lib/stepCategories";
 import ReteWorkflowEditor from "~/components/workflow/ReteWorkflowEditor";
+import GrpcMethodPicker, { type ReflectionResult } from "~/components/workflow/GrpcMethodPicker";
 import { createSignal, createEffect, onMount, onCleanup, For, Show, createResource, createMemo, Index } from "solid-js";
 import { extractFormVariables, checkWorkflowConfiguredInDashboards, detectStepVariables } from "~/lib/workflowVariableChecker";
 
@@ -714,6 +715,25 @@ export default function WorkflowBuilder() {
   });
 
   // Parsed state
+  // Share in-flight discovery across steps using the same connection.
+  const reflectionRequests = new Map<string, Promise<ReflectionResult>>();
+  const reflectedSchemas = new Map<string, ReflectionResult["data"]>();
+  const discoverConnection = (id: string, refresh = false): Promise<ReflectionResult> => {
+    if (refresh) reflectionRequests.delete(id);
+    let request = reflectionRequests.get(id);
+    if (!request) {
+      request = fetch(`/api/connections/${encodeURIComponent(id)}/reflection`, { method: "POST" })
+        .then(res => res.json())
+        .catch(error => ({ success: false, error: error.message }))
+        .then((result: ReflectionResult) => {
+          if (result.success && result.data) reflectedSchemas.set(id, result.data);
+          return result.success ? result : { ...result, data: reflectedSchemas.get(id) };
+        });
+      reflectionRequests.set(id, request!);
+    }
+    return request!;
+  };
+
   const [parsedProto, setParsedProto] = createSignal<ParsedProto | null>(null);
   const [compileError, setCompileError] = createSignal<string | null>(null);
 
@@ -976,7 +996,11 @@ export default function WorkflowBuilder() {
     } else if (type === "grpc") {
        const conn = (connections() || []).find((c: any) => c.type === "grpc");
        newStep.connectionMode = conn ? "saved" : "custom";
-       if (conn) newStep.connectionId = conn.id;
+       if (conn) {
+         newStep.connectionId = conn.id;
+         newStep.serviceName = "";
+         newStep.methodName = "";
+       }
     } else if (type === "rest") {
        const conn = (connections() || []).find((c: any) => c.type === "http");
        newStep.connectionMode = conn ? "saved" : "custom";
@@ -988,6 +1012,9 @@ export default function WorkflowBuilder() {
   };
 
   const updateStep = (index: number, key: string, value: any) => {
+    if (key === "connectionId" && value !== steps[index].connectionId && (!steps[index].type || steps[index].type === "grpc")) {
+      setSteps(index, { serviceName: "", methodName: "", grpcDescriptorSet: undefined, grpcSchemaConnectionId: undefined, grpcParsedProto: undefined, grpcProtoId: undefined, protoContent: undefined });
+    }
     setSteps(index, key, value);
     
     // Auto skeleton generation if method changes
@@ -1931,60 +1958,14 @@ export default function WorkflowBuilder() {
                           </Show>
 
                           {/* Service & Method Pickers (Common) */}
-                          <div class="grid grid-cols-2 gap-4">
-                            <div>
-                              <label class="mb-1 block text-xs font-semibold text-[#8b8b9e]">Service</label>
-                              <select
-                                class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-blue-500 focus:outline-none"
-                                value={step.serviceName || ""}
-                                onChange={(e) => {
-                                  const val = e.currentTarget.value;
-                                  if (val.startsWith("PROTO:")) {
-                                    const pId = val.substring(6);
-                                    const p = savedProtos()?.find((x: any) => x.id === pId);
-                                    if (p) {
-                                      setProtoContent(p.content);
-                                      updateStep(index(), "serviceName", "");
-                                      updateStep(index(), "methodName", "");
-                                    }
-                                  } else {
-                                    updateStep(index(), "serviceName", val);
-                                    updateStep(index(), "methodName", "");
-                                  }
-                                }}
-                              >
-                                <option value="" disabled={!step.serviceName}>Select a service...</option>
-                                <Show when={savedProtos() && savedProtos().length > 0}>
-                                  <optgroup label="Load a Saved Proto">
-                                    <For each={savedProtos()}>
-                                      {(p: any) => <option value={`PROTO:${p.id}`}>Load: {p.name}</option>}
-                                    </For>
-                                  </optgroup>
-                                </Show>
-                                <Show when={parsedProto()?.services && parsedProto()!.services.length > 0}>
-                                  <optgroup label="Available Services in Proto">
-                                    <For each={parsedProto()?.services || []}>
-                                      {(svc) => <option value={svc.fullName} selected={step.serviceName === svc.fullName}>{svc.fullName}</option>}
-                                    </For>
-                                  </optgroup>
-                                </Show>
-                              </select>
-                            </div>
-                            <div>
-                              <label class="mb-1 block text-xs font-semibold text-[#8b8b9e]">Method</label>
-                              <select
-                                class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-blue-500 focus:outline-none disabled:opacity-50"
-                                disabled={!step.serviceName}
-                                value={step.methodName || ""}
-                                onChange={(e) => updateStep(index(), "methodName", e.currentTarget.value)}
-                              >
-                                <option value="" disabled>Select a method...</option>
-                                <For each={parsedProto()?.services.find((s) => s.fullName === step.serviceName)?.methods || []}>
-                                  {(m) => <option value={m.name} selected={step.methodName === m.name}>{m.name} ({m.requestType} → {m.responseType})</option>}
-                                </For>
-                              </select>
-                            </div>
-                          </div>
+                          <GrpcMethodPicker
+                            step={step}
+                            connections={connections() || []}
+                            savedProtos={savedProtos() || []}
+                            fallbackProto={parsedProto()}
+                            update={(key, value) => setSteps(index(), key, value)}
+                            discover={discoverConnection}
+                          />
 
                           {/* Request Payload Template (Common) */}
                           <div>

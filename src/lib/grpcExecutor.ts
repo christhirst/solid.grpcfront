@@ -1,11 +1,13 @@
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
-import { writeFileSync, unlinkSync, mkdtempSync } from "fs";
+import { writeFileSync, rmSync, mkdtempSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 
 export interface GrpcCallParams {
   protoContent: string;
+  /** Base64 FileDescriptorSet discovered through server reflection. */
+  descriptorSet?: string;
   serverAddress: string;
   serviceName: string;
   methodName: string;
@@ -34,19 +36,25 @@ export interface GrpcCallResult {
 export async function executeGrpcCall(params: GrpcCallParams): Promise<GrpcCallResult> {
   const { protoContent, serverAddress, serviceName, methodName, requestBody, useTls, metadata } = params;
   let tempDir: string | null = null;
+  let client: any = null;
 
   try {
-    tempDir = mkdtempSync(join(tmpdir(), "grpc-exec-"));
-    const protoPath = join(tempDir, "service.proto");
-    writeFileSync(protoPath, protoContent, "utf-8");
-
-    const packageDefinition = await protoLoader.load(protoPath, {
+    const loaderOptions = {
       keepCase: true,
       longs: String,
       enums: String,
       defaults: true,
       oneofs: true,
-    });
+    };
+    let packageDefinition: protoLoader.PackageDefinition;
+    if (params.descriptorSet) {
+      packageDefinition = protoLoader.loadFileDescriptorSetFromBuffer(Buffer.from(params.descriptorSet, "base64"), loaderOptions);
+    } else {
+      tempDir = mkdtempSync(join(tmpdir(), "grpc-exec-"));
+      const protoPath = join(tempDir, "service.proto");
+      writeFileSync(protoPath, protoContent, "utf-8");
+      packageDefinition = await protoLoader.load(protoPath, loaderOptions);
+    }
 
     const grpcObject = grpc.loadPackageDefinition(packageDefinition);
 
@@ -109,7 +117,7 @@ export async function executeGrpcCall(params: GrpcCallParams): Promise<GrpcCallR
         )
       : grpc.credentials.createInsecure();
 
-    const client = new ServiceConstructor(serverAddress, credentials);
+    client = new ServiceConstructor(serverAddress, credentials);
 
     const startTime = Date.now();
 
@@ -140,7 +148,6 @@ export async function executeGrpcCall(params: GrpcCallParams): Promise<GrpcCallR
     });
 
     const latencyMs = Date.now() - startTime;
-    client.close();
 
     return {
       success: true,
@@ -157,10 +164,10 @@ export async function executeGrpcCall(params: GrpcCallParams): Promise<GrpcCallR
       metadata: isGrpcError ? err.metadata?.toJSON?.() || {} : undefined,
     };
   } finally {
+    client?.close();
     if (tempDir) {
       try {
-        unlinkSync(join(tempDir, "service.proto"));
-        unlinkSync(tempDir);
+        rmSync(tempDir, { recursive: true, force: true });
       } catch {
         // ignore
       }
@@ -196,24 +203,28 @@ export async function executeGrpcStreamCall(
     }
     if (tempDir) {
       try {
-        unlinkSync(join(tempDir, "service.proto"));
-        unlinkSync(tempDir);
+        rmSync(tempDir, { recursive: true, force: true });
       } catch {}
     }
   };
 
   try {
-    tempDir = mkdtempSync(join(tmpdir(), "grpc-stream-"));
-    const protoPath = join(tempDir, "service.proto");
-    writeFileSync(protoPath, protoContent, "utf-8");
-
-    const packageDefinition = await protoLoader.load(protoPath, {
+    const loaderOptions = {
       keepCase: true,
       longs: String,
       enums: String,
       defaults: true,
       oneofs: true,
-    });
+    };
+    let packageDefinition: protoLoader.PackageDefinition;
+    if (params.descriptorSet) {
+      packageDefinition = protoLoader.loadFileDescriptorSetFromBuffer(Buffer.from(params.descriptorSet, "base64"), loaderOptions);
+    } else {
+      tempDir = mkdtempSync(join(tmpdir(), "grpc-stream-"));
+      const protoPath = join(tempDir, "service.proto");
+      writeFileSync(protoPath, protoContent, "utf-8");
+      packageDefinition = await protoLoader.load(protoPath, loaderOptions);
+    }
 
     const grpcObject = grpc.loadPackageDefinition(packageDefinition);
 
