@@ -28,6 +28,10 @@ import type { ChartSeriesConfig, ChartSeriesType } from "~/lib/dashboard/widgetT
 import { getChartThemeColors, getTimelineThemeColors, subscribeToThemeChanges } from "~/lib/theme";
 import { TabsList, TabsTrigger } from "~/components/ui/tabs";
 import { Badge } from "~/components/ui/badge";
+import { Input } from "~/components/ui/input";
+import { Button } from "~/components/ui/button";
+import { dashboardId } from "~/lib/dashboard/boardTypes";
+import { publicDashboardPath, slugFromName, SLUG_MAX_LENGTH, urlPartError } from "~/lib/dashboard/publicUrl";
 
 
 import { evaluateNewsRules, newsColorClasses, type NewsRule } from "~/lib/newsRulesEvaluator";
@@ -45,13 +49,25 @@ export default function DashboardBuilder() {
 
   const params = useParams();
   const navigate = useNavigate();
-  const isNew = params.id === "new";
+  const isNew = () => params.id === "new";
 
   const [name, setName] = createSignal("New Dashboard");
   const [description, setDescription] = createSignal("");
   const [tags, setTags] = createSignal<string[]>([]);
   const [tagInput, setTagInput] = createSignal("");
   const [isPublic, setIsPublic] = createSignal(false);
+  const [namespace, setNamespace] = createSignal("");
+  const [customSlug, setCustomSlug] = createSignal<string>();
+  const slug = createMemo(() => customSlug() ?? slugFromName(name()));
+  const [savedPath, setSavedPath] = createSignal("");
+  const [savedPublished, setSavedPublished] = createSignal(false);
+  const [saving, setSaving] = createSignal(false);
+  const [saveError, setSaveError] = createSignal("");
+  const [profileLoading, setProfileLoading] = createSignal(true);
+  const [origin, setOrigin] = createSignal("");
+  const [copied, setCopied] = createSignal(false);
+  const previewPath = () => `/p/${namespace() || "your-namespace"}/${slug() || "dashboard-name"}`;
+  const urlSaved = () => savedPublished() && savedPath() === previewPath();
   const [buttons, setButtons] = createStore<any[]>([]);
   const [activeTab, setActiveTab] = createSignal<"config" | "arrange">("config");
 
@@ -98,48 +114,99 @@ export default function DashboardBuilder() {
   });
 
   const fetchDashboard = async () => {
-    if (isNew) return;
+    if (isNew()) return;
     const res = await fetch(`/api/dashboards/${params.id}`);
     const json = await res.json();
     if (json.success && json.data) {
       setName(json.data.name || "Untitled");
       setIsPublic(json.data.isPublic || false);
+      setSavedPublished(json.data.isPublic || false);
+      setCustomSlug(json.data.slug || undefined);
+      setSavedPath(publicDashboardPath(json.data));
       setButtons(reconcile(json.data.buttons || []));
       setDescription(json.data.description || "");
       setTags(json.data.tags || []);
     }
   };
 
-  onMount(() => { fetchDashboard(); });
+  onMount(() => {
+    fetchDashboard().catch(() => setSaveError("Unable to load this dashboard."));
+    setOrigin(window.location.origin);
+    fetch("/api/user/profile").then(async (response) => {
+      const json = await response.json();
+      if (!response.ok || !json.success) throw new Error(json.error || "Unable to load your namespace.");
+      setNamespace(json.data.namespace || "");
+    }).catch((error) => setSaveError(error.message)).finally(() => setProfileLoading(false));
+    const onNamespaceChanged = (event: Event) => {
+      const next = (event as CustomEvent<{ namespace: string }>).detail.namespace;
+      if (savedPath().startsWith(`/p/${namespace()}/`)) {
+        setSavedPath(savedPath().replace(`/p/${namespace()}/`, `/p/${next}/`));
+      }
+      setNamespace(next);
+      setSaveError("");
+      setCopied(false);
+    };
+    window.addEventListener("user-namespace-changed", onNamespaceChanged);
+    onCleanup(() => window.removeEventListener("user-namespace-changed", onNamespaceChanged));
+  });
 
   const saveDashboard = async (quiet = false) => {
+    if (saving() || profileLoading()) return false;
+    setSaveError("");
+    if (isPublic() && !namespace()) {
+      setSaveError("Set a namespace in your user settings before publishing.");
+      window.dispatchEvent(new Event("open-user-settings"));
+      return false;
+    }
+    const validation = urlPartError(slug(), "Dashboard URL");
+    if ((slug() || isPublic()) && validation) { setSaveError(validation); return false; }
     const payload = {
-      id: isNew ? undefined : `dashboard:${params.id}`,
+      id: isNew() ? undefined : `dashboard:${params.id}`,
       name: name(),
       description: description(),
       tags: tags(),
       isPublic: isPublic(),
+      slug: slug(),
       buttons: buttons,
     };
 
-    const endpoint = isNew ? "/api/dashboards" : `/api/dashboards/${params.id}`;
-    const method = isNew ? "POST" : "PUT";
+    const endpoint = isNew() ? "/api/dashboards" : `/api/dashboards/${params.id}`;
+    const method = isNew() ? "POST" : "PUT";
 
-    const res = await fetch(endpoint, {
-      method,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-
-    const json = await res.json();
-    if (json.success) {
-      if (isNew) {
-        navigate(`/dashboards/${json.data.id.split(":")[1]}`);
+    setSaving(true);
+    try {
+      const res = await fetch(endpoint, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.error || "Unable to save dashboard.");
+      setCustomSlug(json.data.slug || undefined);
+      setNamespace(json.data.namespace || namespace());
+      setSavedPath(publicDashboardPath(json.data));
+      setSavedPublished(json.data.isPublic === true);
+      setCopied(false);
+      if (isNew()) {
+        navigate(`/dashboards/${dashboardId(json.data.id)}`);
       } else if (quiet !== true) {
         alert("Saved successfully!");
       }
-    } else {
-      alert("Failed to save: " + json.error);
+      return true;
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : "Unable to save dashboard.");
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const copyPublicUrl = async () => {
+    try {
+      await navigator.clipboard.writeText(`${origin()}${savedPath()}`);
+      setCopied(true);
+    } catch {
+      setSaveError("Unable to copy. You can select and copy the URL below.");
     }
   };
 
@@ -160,7 +227,7 @@ export default function DashboardBuilder() {
   };
 
   const triggerButton = async (btn: any, effectiveWorkflowId?: string) => {
-    if (isNew) {
+    if (isNew()) {
       alert("Please save the dashboard first before executing button actions!");
       return;
     }
@@ -395,17 +462,48 @@ export default function DashboardBuilder() {
                 type="checkbox"
                 class="peer sr-only"
                 checked={isPublic()}
+                disabled={saving() || profileLoading()}
                 onChange={async (e) => {
-                  setIsPublic(e.currentTarget.checked);
-                  if (!isNew) await saveDashboard(true);
+                  const next = e.currentTarget.checked;
+                  if (next && !namespace()) {
+                    e.currentTarget.checked = false;
+                    setSaveError("Set a namespace in your user settings before publishing.");
+                    window.dispatchEvent(new Event("open-user-settings"));
+                    return;
+                  }
+                  const previous = isPublic();
+                  setIsPublic(next);
+                  if (!isNew() && !(await saveDashboard(true))) setIsPublic(previous);
                 }}
               />
               <div class="h-6 w-11 rounded-full bg-[#2a2a3a] after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-[#8b8b9e] after:transition-all after:content-[''] peer-checked:bg-emerald-500 peer-checked:after:translate-x-full peer-checked:after:border-white peer-checked:after:bg-white peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-emerald-500/50"></div>
             </div>
           </label>
-          <button onClick={() => saveDashboard(false)} class="btn-primary bg-purple-600 hover:bg-purple-500 text-white">Save Dashboard</button>
+          <button disabled={saving() || profileLoading()} onClick={() => saveDashboard(false)} class="btn-primary bg-purple-600 hover:bg-purple-500 text-white disabled:opacity-50">{saving() ? "Saving…" : "Save Dashboard"}</button>
         </div>
       </div>
+
+      <section aria-label="Published dashboard URL" class="mb-8 space-y-3 rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
+        <div class="flex flex-col gap-4 sm:flex-row sm:items-end">
+          <div class="sm:w-56">
+            <span class="mb-1 block text-sm font-semibold text-zinc-300">Namespace</span>
+            <Button type="button" variant="secondary" class="w-full justify-between" disabled={profileLoading() || saving()}
+              onClick={() => window.dispatchEvent(new Event("open-user-settings"))}>
+              <span class="truncate">{namespace() || "Set your namespace"}</span><span aria-hidden="true">✎</span>
+            </Button>
+          </div>
+          <div class="min-w-0 flex-1">
+            <label for="dashboard-url-slug" class="mb-1 block text-sm font-semibold text-zinc-300">Dashboard URL name</label>
+            <Input id="dashboard-url-slug" value={slug()} disabled={saving()} maxLength={SLUG_MAX_LENGTH} placeholder="production-overview" spellcheck={false}
+              aria-describedby="dashboard-url-help" onInput={(event) => { setCustomSlug(event.currentTarget.value.toLowerCase().trim()); setCopied(false); }} />
+          </div>
+          <Button type="button" variant="secondary" disabled={!urlSaved() || saving()} onClick={copyPublicUrl}>{copied() ? "Copied!" : "Copy link"}</Button>
+        </div>
+        <p id="dashboard-url-help" class="text-xs text-zinc-400">Use lowercase letters, numbers, and hyphens. The URL name must be unique within your namespace.</p>
+        <p class="break-all font-mono text-sm text-purple-300 select-all">{origin()}{previewPath()}</p>
+        <Show when={!urlSaved()}><p class="text-xs text-zinc-400">Save and publish to use this URL.</p></Show>
+        <Show when={saveError()}><p role="alert" class="text-sm text-rose-400">{saveError()}</p></Show>
+      </section>
 
       <Show when={activeTab() === "config"}>
       <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
@@ -1490,8 +1588,8 @@ export default function DashboardBuilder() {
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
                 Arrange
               </button>
-              <Show when={isPublic() && !isNew}>
-                <A href={`/p/${params.id}`} target="_blank" class="text-xs text-blue-400 hover:underline flex items-center gap-1 normal-case tracking-normal font-semibold">
+              <Show when={savedPublished() && !isNew()}>
+                <A href={savedPath()} target="_blank" class="text-xs text-blue-400 hover:underline flex items-center gap-1 normal-case tracking-normal font-semibold">
                   Public View
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
                 </A>
@@ -1508,7 +1606,7 @@ export default function DashboardBuilder() {
                 <div class="w-3 h-3 rounded-full bg-green-500/80"></div>
               </div>
               <div class="mx-auto bg-[#0a0a0f] text-center rounded-md px-16 py-1 text-[10px] text-[#5b5b6e] font-mono truncate hidden sm:block">
-                {isPublic() && !isNew ? `/p/${params.id}` : `Draft: ${name()}`}
+                {savedPublished() && !isNew() ? savedPath() : `Draft: ${name()}`}
               </div>
             </div>
 
@@ -1565,6 +1663,7 @@ export default function DashboardBuilder() {
 
               <button
                 type="button"
+                disabled={saving() || profileLoading()}
                 onClick={() => saveDashboard(false)}
                 class="btn-primary bg-purple-600 hover:bg-purple-500 text-white text-xs flex items-center gap-1.5"
               >
@@ -1572,9 +1671,9 @@ export default function DashboardBuilder() {
                 Save Layout
               </button>
 
-              <Show when={isPublic() && !isNew}>
+              <Show when={savedPublished() && !isNew()}>
                 <A
-                  href={`/p/${params.id}`}
+                  href={savedPath()}
                   target="_blank"
                   class="flex items-center gap-1.5 rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-xs font-semibold text-blue-300 hover:bg-blue-500/20"
                 >

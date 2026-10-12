@@ -8,6 +8,7 @@ import BoardSidebar from "~/components/dashboard/BoardSidebar";
 import BoardPreview, { BoardLive } from "~/components/dashboard/BoardPreview";
 import BoardNavBar from "~/components/dashboard/BoardNavBar";
 import { dashboardId, formatDate, type DashboardSummary } from "~/lib/dashboard/boardTypes";
+import { publicDashboardPath } from "~/lib/dashboard/publicUrl";
 import { useBoardBrowsing } from "~/lib/dashboard/useBoardBrowsing";
 import { useSlideshow } from "~/lib/dashboard/useSlideshow";
 import { useSwipe } from "~/lib/dashboard/useSwipe";
@@ -116,6 +117,9 @@ export default function DashboardLibrary() {
   );
 
   onMount(() => {
+    const refreshUrls = () => { refetch(); };
+    window.addEventListener("user-namespace-changed", refreshUrls);
+    onCleanup(() => window.removeEventListener("user-namespace-changed", refreshUrls));
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const t = e.target as HTMLElement | null;
@@ -252,7 +256,7 @@ export default function DashboardLibrary() {
           </Button>
 
           <a
-            href={`/p/${dashboardId(p.d.id)}`}
+            href={publicDashboardPath(p.d)}
             target="_blank"
             class="font-semibold text-purple-400 hover:text-purple-300 flex items-center gap-1.5 transition-colors min-h-[44px] sm:min-h-0"
           >

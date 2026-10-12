@@ -4,6 +4,7 @@ import { signIn, signOut } from "@auth/solid-start/client";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { applyTheme, readStoredTheme, type ThemeMode } from "~/lib/theme";
+import UserNamespaceSettings from "~/components/UserNamespaceSettings";
 
 const fetchSession = async () => {
   try {
@@ -66,6 +67,8 @@ export default function Nav() {
   const [dbStatus, setDbStatus] = createSignal<"checking" | "connected" | "disconnected">("checking");
   const [dbError, setDbError] = createSignal<string | null>(null);
   const [currentPath, setCurrentPath] = createSignal("");
+  const [settingsOpen, setSettingsOpen] = createSignal(false);
+  const [namespace, setNamespace] = createSignal("");
 
   const checkDbHealth = async () => {
     if (isServer) return;
@@ -94,7 +97,16 @@ export default function Nav() {
     window.addEventListener("popstate", onPopState);
     onCleanup(() => window.removeEventListener("popstate", onPopState));
 
+    const openSettings = () => { if (session()) setSettingsOpen(true); };
+    window.addEventListener("open-user-settings", openSettings);
+    onCleanup(() => window.removeEventListener("open-user-settings", openSettings));
+
     setSession(await fetchSession());
+    if (session()) {
+      fetch("/api/user/profile").then((r) => r.json()).then((json) => {
+        if (json.success) setNamespace(json.data.namespace || "");
+      }).catch(() => {});
+    }
     checkDbHealth();
     const interval = setInterval(checkDbHealth, 30000);
     onCleanup(() => clearInterval(interval));
@@ -185,7 +197,7 @@ export default function Nav() {
                 }
               >
                 <Badge
-                  variant="destructive"
+                  variant="secondary"
                   class="gap-1.5 px-3 py-1 hidden sm:inline-flex cursor-pointer bg-rose-500/10 text-rose-400 border border-rose-500/30"
                   title={dbError() || "SurrealDB is unreachable. Check SURREALDB_URL in .env"}
                   onClick={() => checkDbHealth()}
@@ -225,9 +237,9 @@ export default function Nav() {
                 }
               >
                 <div class="flex items-center gap-2.5">
-                  <Badge variant="secondary" class="font-mono text-sm text-zinc-300">
-                    {session()?.user?.sub || "No Subject"}
-                  </Badge>
+                  <Button type="button" variant="secondary" size="sm" onClick={() => setSettingsOpen(true)} aria-label="Open user settings" title="User settings · Namespace" class="max-w-40">
+                    <span class="truncate">{namespace() ? `@${namespace()}` : session()?.user?.name || session()?.user?.sub || "User settings"}</span>
+                  </Button>
                   <Button
                     variant="secondary"
                     size="sm"
@@ -290,9 +302,9 @@ export default function Nav() {
                   }
                 >
                   <div class="flex flex-col gap-2">
-                    <Badge variant="secondary" class="font-mono text-sm text-zinc-300 justify-center">
-                      {session()?.user?.sub || "No Subject"}
-                    </Badge>
+                    <Button type="button" variant="secondary" onClick={() => setSettingsOpen(true)} aria-label="Open user settings">
+                      {namespace() ? `@${namespace()}` : session()?.user?.name || session()?.user?.sub || "User settings"}
+                    </Button>
                     <Button
                       variant="secondary"
                       size="sm"
@@ -309,6 +321,9 @@ export default function Nav() {
         </div>
       </Show>
     </nav>
+      <Show when={settingsOpen()}>
+        <UserNamespaceSettings onClose={() => setSettingsOpen(false)} onSaved={setNamespace} />
+      </Show>
       {/* Mobile bottom navigation - smartphones only */}
       <div class="fixed bottom-0 left-0 right-0 z-50 bg-zinc-950/95 backdrop-blur-xl border-t border-zinc-800/80 sm:hidden">
         <div class="flex items-center justify-around py-2 px-2">

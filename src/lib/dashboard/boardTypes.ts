@@ -2,6 +2,8 @@ export type DashboardSummary = {
   id: string;
   name?: string;
   isPublic?: boolean;
+  namespace?: string;
+  slug?: string;
   buttons?: any[];
   updated_at?: string;
   created_at?: string;

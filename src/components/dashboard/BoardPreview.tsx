@@ -4,6 +4,7 @@ import { Card } from "~/components/ui/card";
 import PublicDashboardView, { loadWorkflowMap } from "~/components/dashboard/PublicDashboardView";
 import BoardNavBar from "~/components/dashboard/BoardNavBar";
 import { dashboardId, formatDate, type DashboardSummary } from "~/lib/dashboard/boardTypes";
+import { publicDashboardPath } from "~/lib/dashboard/publicUrl";
 import type { Slideshow } from "~/lib/dashboard/useSlideshow";
 
 /** Live, read-only render of a board's widgets (charts/tables evaluated like the public view). */
@@ -76,7 +77,7 @@ export default function BoardPreview(props: BoardPreviewProps) {
             Updated {formatDate(props.dash.updated_at || props.dash.created_at)} • {props.dash.buttons?.length || 0} widgets
           </span>
           <a
-            href={`/p/${dashboardId(props.dash.id)}`}
+            href={publicDashboardPath(props.dash)}
             target="_blank"
             class="ml-auto flex items-center gap-1.5 text-sm font-semibold text-purple-400 transition-colors hover:text-purple-300"
           >

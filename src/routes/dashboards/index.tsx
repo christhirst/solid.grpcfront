@@ -1,11 +1,12 @@
-import { createMemo, createResource, createSignal, onMount, For, Show, Suspense } from "solid-js";
+import { createMemo, createResource, createSignal, onMount, onCleanup, For, Show, Suspense } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { isServer } from "solid-js/web";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "~/components/ui/card";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
-import { dashboardId } from "~/lib/dashboard/boardTypes";
+import { dashboardId, type DashboardSummary } from "~/lib/dashboard/boardTypes";
+import { publicDashboardPath } from "~/lib/dashboard/publicUrl";
 
 const formatDate = (value?: string) => {
   if (!value) return "No activity yet";
@@ -49,6 +50,9 @@ export default function Dashboards() {
 
   onMount(() => {
     refetch();
+    const refreshUrls = () => { refetch(); };
+    window.addEventListener("user-namespace-changed", refreshUrls);
+    onCleanup(() => window.removeEventListener("user-namespace-changed", refreshUrls));
   });
 
   const handleSearch = (value: string) => {
@@ -256,7 +260,7 @@ export default function Dashboards() {
                   <div class="flex items-center gap-2">
                     <Show when={d.isPublic}>
                       <a 
-                        href={`/p/${dashboardId(d.id)}`} 
+                        href={publicDashboardPath(d)}
                         target="_blank" 
                         onClick={(e: Event) => e.stopPropagation()} 
                         class="rounded-lg px-2.5 py-1 text-xs text-blue-400 transition-colors hover:bg-blue-500/10 hover:text-blue-300 flex items-center gap-1 border border-blue-500/20"
