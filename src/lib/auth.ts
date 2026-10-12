@@ -14,7 +14,7 @@ export interface AuthUser {
  */
 export async function getAuthUser(request: Request): Promise<AuthUser | null> {
   try {
-    const { request: dynamicReq } = createDynamicRequest(request);
+    const { request: dynamicReq } = createDynamicRequest(request, false);
     const session = await getSession(dynamicReq, authOpts);
     if (!session?.user) return null;
     const user = session.user as any;

@@ -3,6 +3,7 @@ import { getDb } from "~/lib/db";
 import { RecordId } from "surrealdb";
 import { getAuthUser } from "~/lib/auth";
 import { saveDashboard, assertDashboardOwner, firstRecord, publishingErrorResponse } from "~/lib/dashboard/publishing";
+import { readJsonBody } from "~/lib/requestUtils";
 
 export async function GET(event: APIEvent) {
   try {
@@ -45,7 +46,7 @@ export async function PUT(event: APIEvent) {
   if (!user || user.sub === "anonymous") return Response.json({ success: false, error: "Please log in." }, { status: 401 });
   try {
     const db = await getDb();
-    const body = await event.request.json();
+    const body = await readJsonBody(event);
     const record = await saveDashboard(db, user.sub, event.params.id, body);
     return Response.json({ success: true, data: record });
   } catch (err) {

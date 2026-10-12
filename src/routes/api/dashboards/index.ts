@@ -3,6 +3,7 @@ import { getDb } from "~/lib/db";
 import { v4 as uuidv4 } from "uuid";
 import { getAuthUser } from "~/lib/auth";
 import { saveDashboard, publishingErrorResponse } from "~/lib/dashboard/publishing";
+import { readJsonBody } from "~/lib/requestUtils";
 
 export async function GET(event: APIEvent) {
   try {
@@ -57,7 +58,7 @@ export async function POST(event: APIEvent) {
   if (!user || user.sub === "anonymous") return Response.json({ success: false, error: "Please log in." }, { status: 401 });
   try {
     const db = await getDb();
-    const body = await event.request.json();
+    const body = await readJsonBody(event);
     const record = await saveDashboard(db, user.sub, uuidv4(), body, true);
     return Response.json({ success: true, data: record });
   } catch (err) {

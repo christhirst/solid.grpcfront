@@ -1,5 +1,6 @@
 import { APIEvent } from "@solidjs/start/server";
 import { getDynamicDb } from "~/lib/db";
+import { readJsonBody } from "~/lib/requestUtils";
 
 export async function GET({ params }: APIEvent) {
   try {
@@ -26,16 +27,16 @@ export async function GET({ params }: APIEvent) {
   }
 }
 
-export async function POST({ request, params }: APIEvent) {
+export async function POST(event: APIEvent) {
   try {
-    const dbName = params.db;
-    const tableName = params.table;
+    const dbName = event.params.db;
+    const tableName = event.params.table;
     
     if (!dbName || !/^[a-zA-Z0-9_]+$/.test(dbName) || !tableName || !/^[a-zA-Z0-9_]+$/.test(tableName)) {
       return new Response(JSON.stringify({ success: false, error: "Invalid database or table name" }), { status: 400 });
     }
 
-    const { data } = await request.json();
+    const { data } = await readJsonBody(event);
     if (!data || typeof data !== "object") {
       return new Response(JSON.stringify({ success: false, error: "Data object required" }), { status: 400 });
     }

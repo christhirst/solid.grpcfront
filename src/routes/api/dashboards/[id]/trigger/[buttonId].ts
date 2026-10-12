@@ -12,6 +12,7 @@ import {
   buildUpdatedButtons,
   allowedWorkflowIds,
 } from "~/lib/dashboard/triggerHelpers";
+import { readJsonBody } from "~/lib/requestUtils";
 
 function jsonResponse(payload: { success: boolean; error?: string; runId?: string }, status = 200): Response {
   return new Response(JSON.stringify(payload), {
@@ -48,7 +49,7 @@ export async function POST(event: APIEvent) {
 
   let body: TriggerPayload = {};
   try {
-    const raw = await event.request.json();
+    const raw = await readJsonBody(event);
     if (raw && typeof raw === "object") body = raw as TriggerPayload;
   } catch {
     // No body or invalid JSON; use defaults.

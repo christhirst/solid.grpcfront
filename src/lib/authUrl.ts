@@ -121,7 +121,7 @@ function isInternalHost(hostWithPort: string): boolean {
  * Creates a cloned Request with URL rewritten to the dynamic origin.
  * Preserves method, headers, and body.
  */
-export function createDynamicRequest(request: Request | any): { request: Request; dynamicUrl: string } {
+export function createDynamicRequest(request: Request | any, includeBody = true): { request: Request; dynamicUrl: string } {
   if (!request) return { request, dynamicUrl: "" };
 
   const dynamicOrigin = getDynamicOrigin(request);
@@ -144,7 +144,7 @@ export function createDynamicRequest(request: Request | any): { request: Request
       headers: request.headers,
     };
 
-    if (isPost && request.body) {
+    if (includeBody && isPost && request.body) {
       reqInit.body = request.body;
       reqInit.duplex = "half";
     }

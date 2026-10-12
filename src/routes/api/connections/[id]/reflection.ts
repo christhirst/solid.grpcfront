@@ -3,6 +3,7 @@ import { RecordId } from "surrealdb";
 import { getDb } from "~/lib/db";
 import { normalizeConnection, getCaCertContent, fetchPreRequestToken } from "~/lib/connections";
 import { reflectGrpcServices } from "~/lib/grpcReflection";
+import { readJsonBody } from "~/lib/requestUtils";
 
 export async function POST(event: APIEvent) {
   try {
@@ -11,7 +12,7 @@ export async function POST(event: APIEvent) {
 
     let body: any = null;
     try {
-      body = await event.request.json();
+      body = await readJsonBody(event);
     } catch {
       // Body is optional if connection already exists in DB
     }

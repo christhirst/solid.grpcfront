@@ -1,15 +1,16 @@
 import { APIEvent } from "@solidjs/start/server";
 import { getDynamicDb } from "~/lib/db";
+import { readJsonBody } from "~/lib/requestUtils";
 
-export async function POST({ request, params }: APIEvent) {
+export async function POST(event: APIEvent) {
   try {
-    const dbName = params.db;
+    const dbName = event.params.db;
     
     if (!dbName || !/^[a-zA-Z0-9_]+$/.test(dbName)) {
       return new Response(JSON.stringify({ success: false, error: "Invalid database name" }), { status: 400 });
     }
 
-    const { query } = await request.json();
+    const { query } = await readJsonBody(event);
     if (!query || typeof query !== "string") {
       return new Response(JSON.stringify({ success: false, error: "Query string required" }), { status: 400 });
     }

@@ -2,7 +2,7 @@ import { getStepCategory, type StepCategory, type StepVariable } from "~/lib/ste
 import ReteWorkflowEditor from "~/components/workflow/ReteWorkflowEditor";
 import GrpcMethodPicker, { type ReflectionResult } from "~/components/workflow/GrpcMethodPicker";
 import { createSignal, createEffect, onMount, onCleanup, For, Show, createResource, createMemo, Index } from "solid-js";
-import { extractFormVariables, checkWorkflowConfiguredInDashboards, detectStepVariables } from "~/lib/workflowVariableChecker";
+import { extractFormVariables, checkWorkflowConfiguredInDashboards, detectStepVariables, type VariableConfigStatus } from "~/lib/workflowVariableChecker";
 import { collectFieldNames, type FieldInfo } from "~/lib/dashboard/chartSeries";
 
 
@@ -815,7 +815,17 @@ export default function WorkflowBuilder() {
 
   const varConfigStatus = createMemo(() => {
     const data = workflow();
-    if (!data) return { hasVariables: false, allConfigured: true, reqVars: [], missingVars: [] };
+    if (!data) {
+      return {
+        hasVariables: false,
+        hasLinkedDashboard: false,
+        allConfigured: true,
+        reqVars: [] as string[],
+        missingVars: [] as string[],
+        configuredVars: [] as string[],
+        varsWithStatus: [] as VariableConfigStatus[],
+      };
+    }
     return checkWorkflowConfiguredInDashboards(data, dashboards() || []);
   });
 

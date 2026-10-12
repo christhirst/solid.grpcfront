@@ -1,5 +1,6 @@
 import { APIEvent } from "@solidjs/start/server";
 import { getDb } from "~/lib/db";
+import { readJsonBody } from "~/lib/requestUtils";
 
 export async function GET({ request }: APIEvent) {
   try {
@@ -31,9 +32,9 @@ export async function GET({ request }: APIEvent) {
   }
 }
 
-export async function POST({ request }: APIEvent) {
+export async function POST(event: APIEvent) {
   try {
-    const { name } = await request.json();
+    const { name } = await readJsonBody(event);
     if (!name || typeof name !== "string") {
       return new Response(JSON.stringify({ success: false, error: "Database name required" }), { status: 400 });
     }

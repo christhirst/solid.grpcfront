@@ -395,11 +395,19 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
     const parsedProto = parseProtoContent(protoContent);
 
     const formPayload = customContext.form || {};
-    const context = {
+    const context: {
+      steps: any;
+      auth: any;
+      form: any;
+      dashboard_form: any;
+      variables?: Record<string, any>;
+      [key: string]: any;
+    } = {
       steps: {} as any,
       auth: {} as any,
       form: formPayload,
       dashboard_form: formPayload,
+      variables: {},
       ...customContext
     };
 

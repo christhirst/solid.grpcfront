@@ -3,6 +3,7 @@ import { getDb } from "~/lib/db";
 import { runWorkflowBackground } from "~/lib/workflowEngine";
 import { v4 as uuidv4 } from "uuid";
 import { RecordId } from "surrealdb";
+import { readJsonBody } from "~/lib/requestUtils";
 
 export async function POST(event: APIEvent) {
   try {
@@ -33,7 +34,7 @@ export async function POST(event: APIEvent) {
     // Read form data from payload if present
     let formPayload = {};
     try {
-      const body = await event.request.json();
+      const body = await readJsonBody(event);
       if (body && body.form) {
         formPayload = body.form;
       }
