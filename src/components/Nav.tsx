@@ -1,4 +1,4 @@
-import { createSignal, createMemo, onMount, onCleanup, Show, For } from "solid-js";
+import { createSignal, createMemo, createEffect, onMount, onCleanup, Show, For } from "solid-js";
 import { isServer } from "solid-js/web";
 import { signIn, signOut } from "@auth/solid-start/client";
 import { Badge } from "~/components/ui/badge";
@@ -17,38 +17,23 @@ const fetchSession = async () => {
   }
 };
 
-const publicLinks = ["/library", "/", "/about"];
-const authenticatedLinks = [
-  "/library",
-  "/",
-  "/dashboards",
-  "/workflows",
-  "/TrustedCA",
-  "/connections",
-  "/protos",
-  "/database",
-  "/requests",
-  "/about",
+const configLinks = [
+  { path: "/TrustedCA", label: "Trusted CAs" },
+  { path: "/connections", label: "Connections" },
+  { path: "/protos", label: "Protos" },
+  { path: "/database", label: "Database" },
 ];
+
+const publicNavLinks = ["/library", "/about"];
 
 const linkLabel = (path: string) => {
   switch (path) {
-    case "/":
-      return "Home";
     case "/library":
       return "Library";
     case "/dashboards":
       return "Dashboards";
     case "/workflows":
       return "Workflows";
-    case "/TrustedCA":
-      return "Trusted CAs";
-    case "/connections":
-      return "Connections";
-    case "/protos":
-      return "Protos";
-    case "/database":
-      return "Database";
     case "/requests":
       return "Requests";
     case "/about":
@@ -69,6 +54,15 @@ export default function Nav() {
   const [currentPath, setCurrentPath] = createSignal("");
   const [settingsOpen, setSettingsOpen] = createSignal(false);
   const [namespace, setNamespace] = createSignal("");
+  const [configOpen, setConfigOpen] = createSignal(false);
+  const [mobileConfigOpen, setMobileConfigOpen] = createSignal(false);
+  let configDropdownRef: HTMLLIElement | undefined;
+
+  const isConfigActive = createMemo(() => configLinks.some((l) => currentPath() === l.path));
+
+  createEffect(() => {
+    if (isConfigActive()) setMobileConfigOpen(true);
+  });
 
   const checkDbHealth = async () => {
     if (isServer) return;
@@ -97,6 +91,23 @@ export default function Nav() {
     window.addEventListener("popstate", onPopState);
     onCleanup(() => window.removeEventListener("popstate", onPopState));
 
+    const onDocClick = (e: MouseEvent) => {
+      if (configDropdownRef && !configDropdownRef.contains(e.target as Node)) {
+        setConfigOpen(false);
+      }
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setConfigOpen(false);
+      }
+    };
+    document.addEventListener("click", onDocClick);
+    document.addEventListener("keydown", onKeyDown);
+    onCleanup(() => {
+      document.removeEventListener("click", onDocClick);
+      document.removeEventListener("keydown", onKeyDown);
+    });
+
     const openSettings = () => { if (session()) setSettingsOpen(true); };
     window.addEventListener("open-user-settings", openSettings);
     onCleanup(() => window.removeEventListener("open-user-settings", openSettings));
@@ -111,8 +122,6 @@ export default function Nav() {
     const interval = setInterval(checkDbHealth, 30000);
     onCleanup(() => clearInterval(interval));
   });
-
-  const visibleLinks = createMemo(() => (session() ? authenticatedLinks : publicLinks));
 
   const toggleTheme = () => {
     const nextTheme = theme() === "dark" ? "light" : "dark";
@@ -137,8 +146,8 @@ export default function Nav() {
     <>
     <nav class="sticky top-0 z-50 border-b border-zinc-800/80 bg-zinc-950/85 backdrop-blur-xl">
       <div class="mx-auto flex max-w-7xl 2xl:max-w-[90rem] items-center justify-between px-4 sm:px-6 py-3.5">
-        {/* Logo */}
-        <a href="/" class="flex items-center gap-3 group shrink-0">
+        {/* Logo / Home */}
+        <a href="/" class="flex items-center gap-3 group shrink-0" aria-label="Home">
           <div class="relative flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-violet-600 shadow-lg shadow-blue-500/20 transition-transform group-hover:scale-105">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
               <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" />
@@ -146,25 +155,124 @@ export default function Nav() {
             </svg>
           </div>
           <span class="text-lg font-bold tracking-tight text-white">
-            Solid<span class="gradient-text">Flow</span>
+            Ho<span class="gradient-text">me</span>
           </span>
         </a>
 
         {/* Desktop Navigation Links */}
         <ul class="hidden lg:flex items-center gap-1">
-          <For each={visibleLinks()}>
-            {(path) => (
-              <li>
-                <a
-                  href={path}
-                  rel="external"
-                  class={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors duration-200 ${active(path)}`}
+          <Show
+            when={session()}
+            fallback={
+              <For each={publicNavLinks}>
+                {(path) => (
+                  <li>
+                    <a
+                      href={path}
+                      rel="external"
+                      class={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors duration-200 ${active(path)}`}
+                    >
+                      {linkLabel(path)}
+                    </a>
+                  </li>
+                )}
+              </For>
+            }
+          >
+            <li>
+              <a
+                href="/library"
+                rel="external"
+                class={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors duration-200 ${active("/library")}`}
+              >
+                Library
+              </a>
+            </li>
+            <li>
+              <a
+                href="/dashboards"
+                rel="external"
+                class={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors duration-200 ${active("/dashboards")}`}
+              >
+                Dashboards
+              </a>
+            </li>
+            <li>
+              <a
+                href="/workflows"
+                rel="external"
+                class={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors duration-200 ${active("/workflows")}`}
+              >
+                Workflows
+              </a>
+            </li>
+            <li>
+              <a
+                href="/requests"
+                rel="external"
+                class={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors duration-200 ${active("/requests")}`}
+              >
+                Requests
+              </a>
+            </li>
+            {/* Config dropdown */}
+            <li class="relative" ref={configDropdownRef}>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setConfigOpen(!configOpen());
+                }}
+                class={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors duration-200 inline-flex items-center gap-1.5 ${
+                  isConfigActive() || configOpen()
+                    ? "text-white bg-zinc-800/80 font-semibold shadow-sm"
+                    : "text-zinc-400 hover:text-white hover:bg-zinc-800/50"
+                }`}
+                aria-expanded={configOpen()}
+                aria-haspopup="true"
+              >
+                <span>Config</span>
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  class={`transition-transform duration-200 ${configOpen() ? "rotate-180" : ""}`}
                 >
-                  {linkLabel(path)}
-                </a>
-              </li>
-            )}
-          </For>
+                  <polyline points="6 9 12 15 18 9" />
+                </svg>
+              </button>
+              <Show when={configOpen()}>
+                <div class="absolute left-0 top-full mt-1.5 w-44 rounded-xl border border-zinc-800/90 bg-zinc-950/95 p-1.5 shadow-2xl backdrop-blur-xl z-50">
+                  <For each={configLinks}>
+                    {(item) => (
+                      <a
+                        href={item.path}
+                        rel="external"
+                        onClick={() => setConfigOpen(false)}
+                        class={`block rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-150 ${active(item.path)}`}
+                      >
+                        {item.label}
+                      </a>
+                    )}
+                  </For>
+                </div>
+              </Show>
+            </li>
+            <li>
+              <a
+                href="/about"
+                rel="external"
+                class={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors duration-200 ${active("/about")}`}
+              >
+                About
+              </a>
+            </li>
+          </Show>
         </ul>
 
         {/* Right Corner (Status + Auth) */}
@@ -271,18 +379,106 @@ export default function Nav() {
       <Show when={mobileOpen()}>
         <div class="lg:hidden border-t border-zinc-800/80 bg-zinc-950/95 backdrop-blur-xl">
           <div class="px-4 py-4 space-y-1">
-            <For each={visibleLinks()}>
-              {(path) => (
-                <a
-                  href={path}
-                  rel="external"
-                  onClick={() => setMobileOpen(false)}
-                  class={`block rounded-lg px-4 py-2.5 text-sm font-medium transition-colors duration-200 ${active(path)}`}
+            <Show
+              when={session()}
+              fallback={
+                <For each={publicNavLinks}>
+                  {(path) => (
+                    <a
+                      href={path}
+                      rel="external"
+                      onClick={() => setMobileOpen(false)}
+                      class={`block rounded-lg px-4 py-2.5 text-sm font-medium transition-colors duration-200 ${active(path)}`}
+                    >
+                      {linkLabel(path)}
+                    </a>
+                  )}
+                </For>
+              }
+            >
+              <a
+                href="/library"
+                rel="external"
+                onClick={() => setMobileOpen(false)}
+                class={`block rounded-lg px-4 py-2.5 text-sm font-medium transition-colors duration-200 ${active("/library")}`}
+              >
+                Library
+              </a>
+              <a
+                href="/dashboards"
+                rel="external"
+                onClick={() => setMobileOpen(false)}
+                class={`block rounded-lg px-4 py-2.5 text-sm font-medium transition-colors duration-200 ${active("/dashboards")}`}
+              >
+                Dashboards
+              </a>
+              <a
+                href="/workflows"
+                rel="external"
+                onClick={() => setMobileOpen(false)}
+                class={`block rounded-lg px-4 py-2.5 text-sm font-medium transition-colors duration-200 ${active("/workflows")}`}
+              >
+                Workflows
+              </a>
+              <a
+                href="/requests"
+                rel="external"
+                onClick={() => setMobileOpen(false)}
+                class={`block rounded-lg px-4 py-2.5 text-sm font-medium transition-colors duration-200 ${active("/requests")}`}
+              >
+                Requests
+              </a>
+              {/* Mobile Config Accordion */}
+              <div class="rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-2 my-1">
+                <button
+                  type="button"
+                  onClick={() => setMobileConfigOpen(!mobileConfigOpen())}
+                  class="flex w-full items-center justify-between px-2 py-1.5 text-sm font-medium text-zinc-300 hover:text-white"
                 >
-                  {linkLabel(path)}
-                </a>
-              )}
-            </For>
+                  <span class={isConfigActive() ? "text-purple-400 font-semibold" : ""}>Config</span>
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    class={`transition-transform duration-200 ${mobileConfigOpen() ? "rotate-180" : ""}`}
+                  >
+                    <polyline points="6 9 12 15 18 9" />
+                  </svg>
+                </button>
+                <Show when={mobileConfigOpen()}>
+                  <div class="mt-1 space-y-1 pl-2 border-l border-zinc-800 ml-2">
+                    <For each={configLinks}>
+                      {(item) => (
+                        <a
+                          href={item.path}
+                          rel="external"
+                          onClick={() => {
+                            setMobileOpen(false);
+                            setMobileConfigOpen(false);
+                          }}
+                          class={`block rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-200 ${active(item.path)}`}
+                        >
+                          {item.label}
+                        </a>
+                      )}
+                    </For>
+                  </div>
+                </Show>
+              </div>
+              <a
+                href="/about"
+                rel="external"
+                onClick={() => setMobileOpen(false)}
+                class={`block rounded-lg px-4 py-2.5 text-sm font-medium transition-colors duration-200 ${active("/about")}`}
+              >
+                About
+              </a>
+            </Show>
             <div class="pt-3 mt-3 border-t border-zinc-800/60 sm:hidden">
               <Show
                 when={session() !== undefined}
