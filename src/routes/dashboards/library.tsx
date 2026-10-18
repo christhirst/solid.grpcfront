@@ -428,17 +428,23 @@ export default function DashboardLibrary() {
               onSelect={(id) => selectBoard(id)}
             />
             <div class="min-w-0">
-              <Show when={selectedBoard()} keyed fallback={<div class="grid">{statusMessages()}</div>}>
-                {(d) => (
-                  <BoardPreview
-                    dash={d}
-                    index={browsing.index()}
-                    total={browsing.total()}
-                    onPrev={goPrev}
-                    onNext={goNext}
-                    slideshow={slideshow}
-                  />
-                )}
+              <Show when={selectedBoard()} fallback={<div class="grid">{statusMessages()}</div>}>
+                <div class="flex flex-col gap-4">
+                  {/* Dedicated Switcher & Slideshow Bar over Dashboard Preview */}
+                  <div class="sticky top-4 z-20">
+                    <BoardNavBar
+                      index={browsing.index()}
+                      total={browsing.total()}
+                      onPrev={goPrev}
+                      onNext={goNext}
+                      slideshow={slideshow}
+                    />
+                  </div>
+
+                  <Show when={selectedBoard()} keyed>
+                    {(d) => <BoardPreview dash={d} />}
+                  </Show>
+                </div>
               </Show>
             </div>
           </div>

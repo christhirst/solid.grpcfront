@@ -2,10 +2,8 @@ import { For, Show, createResource, onMount } from "solid-js";
 import { Badge } from "~/components/ui/badge";
 import { Card } from "~/components/ui/card";
 import PublicDashboardView, { loadWorkflowMap } from "~/components/dashboard/PublicDashboardView";
-import BoardNavBar from "~/components/dashboard/BoardNavBar";
 import { dashboardId, formatDate, type DashboardSummary } from "~/lib/dashboard/boardTypes";
 import { publicDashboardPath } from "~/lib/dashboard/publicUrl";
-import type { Slideshow } from "~/lib/dashboard/useSlideshow";
 
 /** Live, read-only render of a board's widgets (charts/tables evaluated like the public view). */
 export function BoardLive(props: { dash: DashboardSummary }) {
@@ -48,11 +46,6 @@ export function BoardLive(props: { dash: DashboardSummary }) {
 
 export interface BoardPreviewProps {
   dash: DashboardSummary;
-  index: number;
-  total: number;
-  onPrev: () => void;
-  onNext: () => void;
-  slideshow: Slideshow;
 }
 
 /** Desktop detail pane: public-style header (title, description, tags) + live widgets. */
@@ -67,7 +60,7 @@ export default function BoardPreview(props: BoardPreviewProps) {
   });
 
   return (
-    <Card ref={rootRef} class="scroll-mt-20 overflow-hidden border-purple-500/30 bg-zinc-950/80 shadow-2xl">
+    <Card ref={rootRef} class="scroll-mt-28 overflow-hidden border-purple-500/30 bg-zinc-950/80 shadow-2xl">
       <div class="relative border-b border-zinc-800 p-6 lg:p-8">
         <div class="absolute left-0 top-0 h-[2px] w-full bg-gradient-to-r from-transparent via-purple-500 to-transparent opacity-50"></div>
 
@@ -99,16 +92,6 @@ export default function BoardPreview(props: BoardPreviewProps) {
             <For each={props.dash.tags}>{(tag) => <Badge variant="purple">{tag}</Badge>}</For>
           </div>
         </Show>
-
-        <div class="mt-5">
-          <BoardNavBar
-            index={props.index}
-            total={props.total}
-            onPrev={props.onPrev}
-            onNext={props.onNext}
-            slideshow={props.slideshow}
-          />
-        </div>
       </div>
 
       <div class="p-4 lg:p-6">
