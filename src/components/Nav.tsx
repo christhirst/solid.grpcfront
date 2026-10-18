@@ -4,7 +4,7 @@ import { signIn, signOut } from "@auth/solid-start/client";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { applyTheme, readStoredTheme, type ThemeMode } from "~/lib/theme";
-import UserNamespaceSettings from "~/components/UserNamespaceSettings";
+import UserProfileModal, { type UserProfileData } from "~/components/UserProfileModal";
 
 const fetchSession = async () => {
   try {
@@ -54,6 +54,7 @@ export default function Nav() {
   const [currentPath, setCurrentPath] = createSignal("");
   const [settingsOpen, setSettingsOpen] = createSignal(false);
   const [namespace, setNamespace] = createSignal("");
+  const [profileData, setProfileData] = createSignal<UserProfileData | null>(null);
   const [configOpen, setConfigOpen] = createSignal(false);
   const [mobileConfigOpen, setMobileConfigOpen] = createSignal(false);
   let configDropdownRef: HTMLLIElement | undefined;
@@ -63,6 +64,36 @@ export default function Nav() {
   createEffect(() => {
     if (isConfigActive()) setMobileConfigOpen(true);
   });
+
+  const refreshProfile = async () => {
+    if (isServer || !session()) return;
+    try {
+      const r = await fetch("/api/user/profile");
+      const json = await r.json();
+      if (json.success && json.data) {
+        setProfileData(json.data);
+        setNamespace(json.data.namespace || "");
+      }
+    } catch {}
+  };
+
+  const quickResetGroups = async (e: Event) => {
+    e.stopPropagation();
+    try {
+      const r = await fetch("/api/user/profile", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ resetSimulation: true }),
+      });
+      const json = await r.json();
+      if (json.success && json.data) {
+        setProfileData(json.data);
+        setNamespace(json.data.namespace || "");
+        window.dispatchEvent(new CustomEvent("user-groups-changed", { detail: json.data }));
+        window.dispatchEvent(new CustomEvent("user-namespace-changed", { detail: json.data }));
+      }
+    } catch {}
+  };
 
   const checkDbHealth = async () => {
     if (isServer) return;
@@ -109,14 +140,17 @@ export default function Nav() {
     });
 
     const openSettings = () => { if (session()) setSettingsOpen(true); };
+    const onGroupsChanged = () => { refreshProfile(); };
     window.addEventListener("open-user-settings", openSettings);
-    onCleanup(() => window.removeEventListener("open-user-settings", openSettings));
+    window.addEventListener("user-groups-changed", onGroupsChanged);
+    onCleanup(() => {
+      window.removeEventListener("open-user-settings", openSettings);
+      window.removeEventListener("user-groups-changed", onGroupsChanged);
+    });
 
     setSession(await fetchSession());
     if (session()) {
-      fetch("/api/user/profile").then((r) => r.json()).then((json) => {
-        if (json.success) setNamespace(json.data.namespace || "");
-      }).catch(() => {});
+      await refreshProfile();
     }
     checkDbHealth();
     const interval = setInterval(checkDbHealth, 30000);
@@ -344,10 +378,55 @@ export default function Nav() {
                   </Button>
                 }
               >
-                <div class="flex items-center gap-2.5">
-                  <Button type="button" variant="secondary" size="sm" onClick={() => setSettingsOpen(true)} aria-label="Open user settings" title="User settings · Namespace" class="max-w-40">
-                    <span class="truncate">{namespace() ? `@${namespace()}` : session()?.user?.name || session()?.user?.sub || "User settings"}</span>
+                <div class="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setSettingsOpen(true)}
+                    aria-label="Open user profile and groups"
+                    title="User Profile · Groups · Permissions · Namespace"
+                    class={`flex items-center gap-2 max-w-64 ${
+                      profileData()?.isSimulating
+                        ? "border-amber-500/60 bg-amber-500/15 text-amber-100 hover:bg-amber-500/25"
+                        : "hover:border-purple-500/50"
+                    }`}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="shrink-0 text-purple-400">
+                      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                      <circle cx="12" cy="7" r="4"></circle>
+                    </svg>
+                    <span class="truncate">
+                      {namespace() ? `@${namespace()}` : session()?.user?.name || session()?.user?.sub || "Profile"}
+                    </span>
+                    <Show when={(profileData()?.allGrants?.length || 0) > 0 || profileData()?.isSimulating}>
+                      <span
+                        class={`rounded-md px-1.5 py-0.5 font-mono text-[10px] font-bold ${
+                          profileData()?.isSimulating
+                            ? "bg-amber-500/30 text-amber-200"
+                            : "bg-purple-500/20 text-purple-300"
+                        }`}
+                      >
+                        {profileData()?.activeGrants?.length || 0}/{profileData()?.allGrants?.length || 0}
+                      </span>
+                    </Show>
                   </Button>
+                  <Show when={profileData()?.isSimulating}>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={quickResetGroups}
+                      title="Reset — Enable back all groups and personal ownership"
+                      class="border-amber-500/50 bg-amber-500/20 text-amber-200 hover:bg-amber-500/35 text-xs px-2.5 gap-1"
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                        <path d="M3 3v5h5" />
+                      </svg>
+                      <span>Reset</span>
+                    </Button>
+                  </Show>
                   <Button
                     variant="secondary"
                     size="sm"
@@ -498,9 +577,19 @@ export default function Nav() {
                   }
                 >
                   <div class="flex flex-col gap-2">
-                    <Button type="button" variant="secondary" onClick={() => setSettingsOpen(true)} aria-label="Open user settings">
-                      {namespace() ? `@${namespace()}` : session()?.user?.name || session()?.user?.sub || "User settings"}
+                    <Button type="button" variant="secondary" onClick={() => setSettingsOpen(true)} aria-label="Open user profile">
+                      <span>{namespace() ? `@${namespace()}` : session()?.user?.name || session()?.user?.sub || "Profile"}</span>
+                      <Show when={(profileData()?.allGrants?.length || 0) > 0 || profileData()?.isSimulating}>
+                        <Badge variant={profileData()?.isSimulating ? "amber" : "purple"} class="ml-2">
+                          {profileData()?.activeGrants?.length || 0}/{profileData()?.allGrants?.length || 0} groups
+                        </Badge>
+                      </Show>
                     </Button>
+                    <Show when={profileData()?.isSimulating}>
+                      <Button type="button" variant="secondary" size="sm" onClick={quickResetGroups} class="w-full justify-center border-amber-500/50 bg-amber-500/20 text-amber-200">
+                        Reset All Groups
+                      </Button>
+                    </Show>
                     <Button
                       variant="secondary"
                       size="sm"
@@ -518,7 +607,13 @@ export default function Nav() {
       </Show>
     </nav>
       <Show when={settingsOpen()}>
-        <UserNamespaceSettings onClose={() => setSettingsOpen(false)} onSaved={setNamespace} />
+        <UserProfileModal
+          onClose={() => setSettingsOpen(false)}
+          onUpdated={(next) => {
+            setProfileData(next);
+            setNamespace(next.namespace || "");
+          }}
+        />
       </Show>
       {/* Mobile bottom navigation - smartphones only */}
       <div class="fixed bottom-0 left-0 right-0 z-50 bg-zinc-950/95 backdrop-blur-xl border-t border-zinc-800/80 sm:hidden">

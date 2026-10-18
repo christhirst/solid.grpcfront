@@ -32,6 +32,7 @@ import { Input } from "~/components/ui/input";
 import { Button } from "~/components/ui/button";
 import { dashboardId } from "~/lib/dashboard/boardTypes";
 import { publicDashboardPath, slugFromName, SLUG_MAX_LENGTH, urlPartError } from "~/lib/dashboard/publicUrl";
+import { ResourceTagEditor } from "~/components/ResourceTagEditor";
 
 
 import { evaluateNewsRules, newsColorClasses, type NewsRule } from "~/lib/newsRulesEvaluator";
@@ -187,6 +188,7 @@ export default function DashboardBuilder() {
       setSavedPath(publicDashboardPath(json.data));
       setSavedPublished(json.data.isPublic === true);
       setCopied(false);
+      window.dispatchEvent(new CustomEvent("user-groups-changed"));
       if (isNew()) {
         navigate(`/dashboards/${dashboardId(json.data.id)}`);
       } else if (quiet !== true) {
@@ -404,35 +406,8 @@ export default function DashboardBuilder() {
               placeholder="Add a description for this dashboard..."
             />
           </div>
-          <div class="mt-2 flex flex-wrap items-center gap-2">
-            <For each={tags()}>
-              {(tag) => (
-                <Badge variant="purple" class="gap-1 cursor-pointer hover:bg-purple-500/25"
-                  onClick={() => setTags(tags().filter(t => t !== tag))}
-                >
-                  {tag}
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-                  </svg>
-                </Badge>
-              )}
-            </For>
-            <input
-              class="rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-1.5 text-xs text-zinc-300 placeholder:text-zinc-500 focus:border-purple-500 focus:outline-none w-32"
-              placeholder="Add tag..."
-              value={tagInput()}
-              onInput={(e) => setTagInput(e.currentTarget.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === ",") {
-                  e.preventDefault();
-                  const val = tagInput().trim().toLowerCase();
-                  if (val && !tags().includes(val)) {
-                    setTags([...tags(), val]);
-                  }
-                  setTagInput("");
-                }
-              }}
-            />
+          <div class="mt-2.5">
+            <ResourceTagEditor tags={tags()} onChange={setTags} />
           </div>
         </div>
 

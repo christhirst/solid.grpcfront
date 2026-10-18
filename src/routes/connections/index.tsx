@@ -1,6 +1,7 @@
-import { createSignal, createResource, createMemo, For, Show } from "solid-js";
+import { createSignal, createResource, createMemo, onMount, onCleanup, For, Show } from "solid-js";
 import { isServer } from "solid-js/web";
 import { type ConnectionType, type AuthType } from "~/lib/connections";
+import { ResourceTagEditor } from "~/components/ResourceTagEditor";
 
 const fetchConnections = async () => {
   const url = isServer ? `http://127.0.0.1:${process.env.PORT || 3000}/api/connections` : "/api/connections";
@@ -56,6 +57,13 @@ export default function Connections() {
   const [cas] = createResource(fetchCas);
   const [protos] = createResource(fetchProtos);
 
+  onMount(() => {
+    refetch();
+    const onGroupsChanged = () => refetch();
+    window.addEventListener("user-groups-changed", onGroupsChanged);
+    onCleanup(() => window.removeEventListener("user-groups-changed", onGroupsChanged));
+  });
+
   // Filters & Search
   const [activeTab, setActiveTab] = createSignal<"all" | "http" | "grpc" | "surrealdb">("all");
   const [searchQuery, setSearchQuery] = createSignal("");
@@ -69,6 +77,7 @@ export default function Connections() {
   const [connType, setConnType] = createSignal<ConnectionType>("http");
   const [name, setName] = createSignal("");
   const [description, setDescription] = createSignal("");
+  const [tags, setTags] = createSignal<string[]>([]);
 
   // HTTP Fields
   const [url, setUrl] = createSignal("");
@@ -169,6 +178,7 @@ export default function Connections() {
   const resetForm = () => {
     setName("");
     setDescription("");
+    setTags([]);
     setUrl("");
     setMethod("GET");
     setHeaders("{}");
@@ -240,6 +250,7 @@ export default function Connections() {
 
     setName(conn.name || "");
     setDescription(conn.description || "");
+    setTags(Array.isArray(conn.tags) ? conn.tags : []);
 
     // HTTP
     setUrl(conn.url || "");
@@ -301,6 +312,7 @@ export default function Connections() {
       name: name().trim(),
       type,
       description: description().trim() || undefined,
+      tags: tags(),
     };
 
     if (type === "http") {
@@ -537,6 +549,7 @@ export default function Connections() {
       if (json.success) {
         setIsEditing(false);
         setIsNew(false);
+        window.dispatchEvent(new CustomEvent("user-groups-changed"));
         refetch();
       } else {
         alert("Failed to save connection: " + json.error);
@@ -754,18 +767,31 @@ export default function Connections() {
                               </Show>
                             </div>
 
-                            <button
-                              class="text-[#5b5b6e] hover:text-red-400 transition-colors p-1"
-                              onClick={(e) => deleteConnection(conn.id, e)}
-                              disabled={isDeleting() === conn.id}
-                              title="Delete Connection"
-                            >
-                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
-                            </button>
+                            <Show when={conn.permissions?.canDelete !== false}>
+                              <button
+                                class="text-[#5b5b6e] hover:text-red-400 transition-colors p-1"
+                                onClick={(e) => deleteConnection(conn.id, e)}
+                                disabled={isDeleting() === conn.id}
+                                title="Delete Connection"
+                              >
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
+                              </button>
+                            </Show>
                           </div>
 
                           {/* Title & Target Details */}
                           <h3 class="text-base font-bold text-white mb-1 group-hover:text-blue-400 transition-colors">{conn.name}</h3>
+                          <Show when={Array.isArray(conn.tags) && conn.tags.length > 0}>
+                            <div class="mb-2 flex flex-wrap gap-1">
+                              <For each={conn.tags}>
+                                {(tag: string) => (
+                                  <span class="rounded-full border border-purple-500/30 bg-purple-500/15 px-2 py-0.5 font-mono text-[9px] font-semibold text-purple-300">
+                                    {tag}
+                                  </span>
+                                )}
+                              </For>
+                            </div>
+                          </Show>
                           
                           <Show when={type === "http" || type === "oauth"}>
                             <p class="text-xs font-mono text-[#8b8b9e] break-all line-clamp-1 mb-2">{conn.url}</p>
@@ -929,6 +955,10 @@ export default function Connections() {
                     placeholder="Brief description of this connection"
                   />
                 </div>
+              </div>
+              <div>
+                <label class="mb-1.5 block text-xs font-medium text-[#8b8b9e]">Group Tags (Sharing & RBAC)</label>
+                <ResourceTagEditor tags={tags()} onChange={setTags} />
               </div>
 
               {/* ---------------- HTTP CONFIGURATION ---------------- */}

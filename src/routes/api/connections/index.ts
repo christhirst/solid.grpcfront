@@ -2,17 +2,33 @@ import { APIEvent } from "@solidjs/start/server";
 import { getDb } from "~/lib/db";
 import { v4 as uuidv4 } from "uuid";
 import { RecordId } from "surrealdb";
-import { getOwnerFromRequest } from "~/lib/auth";
+import { getEffectiveAccessContext, getOwnerFromRequest } from "~/lib/auth";
 import { normalizeConnection } from "~/lib/connections";
+import { canAccessResource, getResourcePermissions, normalizeGroupName } from "~/lib/groupAuth";
 
 export async function GET(event: APIEvent) {
   try {
     const db = await getDb();
-    let connections: any = [];
+    const ctx = await getEffectiveAccessContext(event.request, db);
+    let connections: any[] = [];
     try {
       const result = await db.query("SELECT * FROM connection ORDER BY updated_at DESC");
       const rawRecords = (result[0] as any[]) || [];
-      connections = rawRecords.map((c: any) => normalizeConnection(c));
+      connections = rawRecords
+        .map((c: any) => normalizeConnection(c))
+        .filter((c: any) => {
+          const hasRealOwner = Boolean(c.owner && c.owner !== "anonymous");
+          const hasTags = Array.isArray(c.tags) && c.tags.length > 0;
+          if (ctx.sub === "anonymous") {
+            return !hasRealOwner && !hasTags;
+          }
+          return canAccessResource(ctx, c, "view");
+        })
+        .map((c: any) => ({
+          ...c,
+          tags: Array.isArray(c.tags) ? c.tags : [],
+          permissions: getResourcePermissions(ctx, c),
+        }));
     } catch (e: any) {
       if (!e.message?.includes("does not exist")) throw e;
     }
@@ -33,28 +49,33 @@ export async function POST(event: APIEvent) {
     const db = await getDb();
     const body = await new Response(event.request.body).json();
     const owner = await getOwnerFromRequest(event.request);
+    const ctx = await getEffectiveAccessContext(event.request, db);
 
-    // Generate ID if not present
     const rawId = body.id || `connection:${uuidv4()}`;
     const dbId = rawId.includes(":") ? rawId.split(":")[1] : rawId;
     const now = new Date().toISOString();
+    const tags = Array.isArray(body.tags)
+      ? body.tags.map((t: unknown) => normalizeGroupName(String(t).split(":")[0] || "")).filter(Boolean)
+      : [];
 
     const normalized = normalizeConnection({
       ...body,
       id: rawId,
       owner,
-      visibility: body.visibility || "public",
+      tags,
+      visibility: body.visibility || (tags.length > 0 ? "group" : "private"),
       created_at: body.created_at || now,
       updated_at: now,
     });
 
-    const { id: _, ...dataWithoutId } = normalized;
+    const { id: _, permissions: _p, ...dataWithoutId } = normalized as any;
     const recordId = new RecordId("connection", dbId);
     const result = await db.query("CREATE $id CONTENT $data", { id: recordId, data: dataWithoutId });
-    const records = Array.isArray(result) ? (result[0] || result) : result;
+    const records = Array.isArray(result) ? result[0] || result : result;
     const record = Array.isArray(records) ? records[0] : records;
-    
+
     const output = normalizeConnection(record ? { ...record, id: `connection:${dbId}` } : normalized);
+    (output as any).permissions = getResourcePermissions(ctx, output);
 
     return new Response(JSON.stringify({ success: true, data: output }), {
       headers: { "Content-Type": "application/json" },

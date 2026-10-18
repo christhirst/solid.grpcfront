@@ -1,6 +1,7 @@
 import { SolidAuth, type SolidAuthConfig } from "@auth/solid-start";
 import { logger } from "~/lib/logger";
-import { createDynamicRequest, getDynamicOrigin } from "~/lib/authUrl";
+import { createDynamicRequest } from "~/lib/authUrl";
+import { decodeJwtPayloadSafe, extractClaimsFromOidcPayload } from "~/lib/groupAuth";
 
 const oidcIssuer = process.env.OIDC_ISSUER || "https://auth.401c6411-20e6-4053-8c2b-062d3c6ffcc0.k8s.civo.com/api/realms/master";
 const clientId = process.env.OIDC_CLIENT_ID || process.env.AUTH_CLIENT_NAME || process.env["AUTH_CLIENT-NAME"] || "solid-grpcfront";
@@ -26,11 +27,14 @@ const config: SolidAuthConfig = {
         token_endpoint_auth_method: "client_secret_post",
       },
       profile(profile: any) {
+        const idpGroups = extractClaimsFromOidcPayload(profile, clientId);
         return {
           id: profile.sub,
           name: profile.name || profile.preferred_username || profile.email || profile.sub,
+          username: profile.preferred_username || profile.username || profile.name || profile.email || profile.sub,
           email: profile.email,
           image: profile.picture || profile.profile_picture,
+          idpGroups,
         };
       },
     } as any,
@@ -50,15 +54,40 @@ const config: SolidAuthConfig = {
       } catch {}
       return baseUrl;
     },
-    async jwt({ token, user, profile }) {
+    async jwt({ token, user, profile, account }) {
       if (user) {
         token.sub = user.id || (profile as any)?.sub || token.sub;
+        token.username = (user as any).username || (profile as any)?.preferred_username || user.name || token.username;
+      }
+      if (!token.sessionId) {
+        token.sessionId = crypto.randomUUID();
+      }
+      if (user || profile || account) {
+        const claimSet = new Set<string>();
+        for (const c of ((user as any)?.idpGroups as string[]) || []) {
+          claimSet.add(c);
+        }
+        for (const c of extractClaimsFromOidcPayload(profile as any, clientId)) {
+          claimSet.add(c);
+        }
+        const idPayload = decodeJwtPayloadSafe((account as any)?.id_token);
+        for (const c of extractClaimsFromOidcPayload(idPayload, clientId)) {
+          claimSet.add(c);
+        }
+        const accessPayload = decodeJwtPayloadSafe((account as any)?.access_token);
+        for (const c of extractClaimsFromOidcPayload(accessPayload, clientId)) {
+          claimSet.add(c);
+        }
+        token.idpGroups = [...claimSet];
       }
       return token;
     },
     async session({ session, token }) {
       if (session.user) {
         (session.user as any).sub = token.sub;
+        (session.user as any).username = token.username || session.user.name || token.sub;
+        (session.user as any).idpGroups = Array.isArray(token.idpGroups) ? token.idpGroups : [];
+        (session.user as any).sessionId = token.sessionId;
       }
       return session;
     },

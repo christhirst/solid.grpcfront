@@ -26,6 +26,7 @@ export interface ConnectionBase {
   type: ConnectionType;
   description?: string;
   owner?: string;
+  tags?: string[];
   visibility?: string;
   created_at?: string;
   updated_at?: string;

@@ -1,10 +1,19 @@
-import { createSignal, createResource, For, Show } from "solid-js";
+import { createSignal, createResource, onMount, onCleanup, For, Show } from "solid-js";
 import { isServer } from "solid-js/web";
+import { ResourceTagEditor } from "~/components/ResourceTagEditor";
 
 export interface ProtoFile {
   id: string;
   name: string;
   content: string;
+  tags?: string[];
+  owner?: string;
+  permissions?: {
+    canView: boolean;
+    canUse: boolean;
+    canWrite: boolean;
+    canDelete: boolean;
+  };
   updated_at: string;
 }
 
@@ -39,6 +48,13 @@ export default function Protos() {
   const [errorMsg, setErrorMsg] = createSignal<string | null>(null);
   const [isDragging, setIsDragging] = createSignal(false);
 
+  onMount(() => {
+    refetch();
+    const onGroupsChanged = () => refetch();
+    window.addEventListener("user-groups-changed", onGroupsChanged);
+    onCleanup(() => window.removeEventListener("user-groups-changed", onGroupsChanged));
+  });
+
   const handleFileUpload = (file: File) => {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -72,12 +88,12 @@ export default function Protos() {
   };
 
   const startCreate = () => {
-    setEditingProto({ name: "New Proto Schema", content: "syntax = \"proto3\";\n\npackage example;\n\n" });
+    setEditingProto({ name: "New Proto Schema", content: "syntax = \"proto3\";\n\npackage example;\n\n", tags: [] });
     setErrorMsg(null);
   };
 
   const startEdit = (proto: ProtoFile) => {
-    setEditingProto({ ...proto });
+    setEditingProto({ ...proto, tags: Array.isArray(proto.tags) ? [...proto.tags] : [] });
     setErrorMsg(null);
   };
 
@@ -109,6 +125,7 @@ export default function Protos() {
       
       if (data.success) {
         setEditingProto(null);
+        window.dispatchEvent(new CustomEvent("user-groups-changed"));
         refetch();
       } else {
         setErrorMsg(data.error || "Failed to save proto");
@@ -125,8 +142,13 @@ export default function Protos() {
     if (!confirm("Are you sure you want to delete this proto?")) return;
     
     try {
-      await fetch(`/api/protos/${id.split(":")[1] || id}`, { method: "DELETE" });
-      refetch();
+      const res = await fetch(`/api/protos/${id.split(":")[1] || id}`, { method: "DELETE" });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || json.success === false) {
+        alert(json.error || "Failed to delete proto");
+      } else {
+        refetch();
+      }
     } catch (e) {
       console.error(e);
     }
@@ -186,6 +208,14 @@ export default function Protos() {
                   onInput={(e) => setEditingProto({ ...editingProto()!, name: e.currentTarget.value })}
                   class="w-full rounded-lg border border-[#1e1e2e] bg-[#12121a] px-4 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors"
                   placeholder="e.g. User Service API"
+                />
+              </div>
+
+              <div>
+                <label class="block text-xs font-medium text-[#5a5a6e] mb-1.5">Group Tags (Sharing & RBAC)</label>
+                <ResourceTagEditor
+                  tags={editingProto()?.tags || []}
+                  onChange={(nextTags) => setEditingProto({ ...editingProto()!, tags: nextTags })}
                 />
               </div>
 
@@ -269,8 +299,8 @@ export default function Protos() {
             >
               <For each={protos()}>
                 {(proto) => (
-                  <div class="card p-5 group cursor-pointer hover:border-indigo-500/50 transition-colors flex flex-col h-[200px]" onClick={() => startEdit(proto)}>
-                    <div class="flex items-start justify-between mb-3">
+                  <div class="card p-5 group cursor-pointer hover:border-indigo-500/50 transition-colors flex flex-col h-[220px]" onClick={() => startEdit(proto)}>
+                    <div class="flex items-start justify-between mb-2">
                       <div class="flex items-center gap-2">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                           <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
@@ -278,16 +308,30 @@ export default function Protos() {
                         </svg>
                         <h3 class="font-semibold text-white truncate max-w-[180px]">{proto.name}</h3>
                       </div>
-                      <button
-                        onClick={(e) => deleteProto(proto.id, e)}
-                        class="p-1 rounded bg-[#1e1e2e] text-[#5a5a6e] opacity-0 group-hover:opacity-100 transition-opacity hover:text-red-400 hover:bg-red-500/10"
-                      >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                          <path d="M3 6h18" />
-                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                        </svg>
-                      </button>
+                      <Show when={proto.permissions?.canDelete !== false}>
+                        <button
+                          onClick={(e) => deleteProto(proto.id, e)}
+                          class="p-1 rounded bg-[#1e1e2e] text-[#5a5a6e] opacity-0 group-hover:opacity-100 transition-opacity hover:text-red-400 hover:bg-red-500/10"
+                          title="Delete Proto Schema"
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M3 6h18" />
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                          </svg>
+                        </button>
+                      </Show>
                     </div>
+                    <Show when={Array.isArray(proto.tags) && proto.tags.length > 0}>
+                      <div class="mb-2 flex flex-wrap gap-1">
+                        <For each={proto.tags}>
+                          {(tag: string) => (
+                            <span class="rounded-full border border-purple-500/30 bg-purple-500/15 px-2 py-0.5 font-mono text-[9px] font-semibold text-purple-300">
+                              {tag}
+                            </span>
+                          )}
+                        </For>
+                      </div>
+                    </Show>
                     
                     <div class="relative flex-1 bg-[#12121a] rounded-lg border border-[#1e1e2e] p-3 overflow-hidden">
                       <pre class="text-[10px] text-[#5a5a6e] font-mono leading-relaxed pointer-events-none">

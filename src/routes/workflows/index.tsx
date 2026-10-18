@@ -1,4 +1,4 @@
-import { createSignal, createResource, onMount, For, Show } from "solid-js";
+import { createSignal, createResource, onMount, onCleanup, For, Show } from "solid-js";
 import { isServer } from "solid-js/web";
 import { A } from "@solidjs/router";
 
@@ -51,6 +51,14 @@ export default function Workflows() {
   onMount(() => {
     refetch();
     refetchDashboards();
+    const onGroupsChanged = () => {
+      refetch();
+      refetchDashboards();
+    };
+    window.addEventListener("user-groups-changed", onGroupsChanged);
+    onCleanup(() => {
+      window.removeEventListener("user-groups-changed", onGroupsChanged);
+    });
   });
 
   const handleSearch = (value: string) => {
@@ -64,8 +72,13 @@ export default function Workflows() {
     
     setIsDeleting(id);
     try {
-      await fetch(`/api/workflows/${id.split(":")[1] || id}`, { method: "DELETE" });
-      refetch();
+      const res = await fetch(`/api/workflows/${id.split(":")[1] || id}`, { method: "DELETE" });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || json.success === false) {
+        alert(json.error || "Failed to delete workflow");
+      } else {
+        refetch();
+      }
     } finally {
       setIsDeleting(null);
     }
@@ -196,28 +209,42 @@ export default function Workflows() {
                         </Show>
 
                         <span class={`rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide ${
-                          (workflow.visibility || "public") === "public"
+                          (workflow.visibility || "private") === "public"
                             ? "border-emerald-500/30 bg-emerald-500/15 text-emerald-300"
                             : "border-[#2a2a3a] bg-[#0a0a0f] text-[#8b8b9e]"
                         }`}>
-                          {workflow.visibility || "public"}
+                          {workflow.tags?.length > 0 ? "Group Shared" : "Private"}
                         </span>
-                        <button 
-                          class="text-[#5b5b6e] transition-colors hover:text-red-400"
-                          onClick={(e) => deleteWorkflow(workflow.id, e)}
-                          disabled={isDeleting() === workflow.id}
-                        >
-                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M3 6h18"></path>
-                            <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
-                            <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
-                          </svg>
-                        </button>
+                        <Show when={workflow.permissions?.canDelete !== false}>
+                          <button 
+                            class="text-[#5b5b6e] transition-colors hover:text-red-400"
+                            onClick={(e) => deleteWorkflow(workflow.id, e)}
+                            disabled={isDeleting() === workflow.id}
+                            title="Delete Workflow"
+                          >
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                              <path d="M3 6h18"></path>
+                              <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
+                              <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
+                            </svg>
+                          </button>
+                        </Show>
                       </div>
                     </div>
 
                   
                   <h3 class="text-lg font-semibold text-white group-hover:text-blue-400 transition-colors">{workflow.name || "Untitled Workflow"}</h3>
+                  <Show when={Array.isArray(workflow.tags) && workflow.tags.length > 0}>
+                    <div class="mt-2 flex flex-wrap gap-1.5">
+                      <For each={workflow.tags}>
+                        {(tag: string) => (
+                          <span class="rounded-full border border-purple-500/30 bg-purple-500/15 px-2 py-0.5 font-mono text-[10px] font-semibold text-purple-300">
+                            {tag}
+                          </span>
+                        )}
+                      </For>
+                    </div>
+                  </Show>
                   <p class="mt-2 text-sm text-[#8b8b9e] line-clamp-2">
                     {workflow.steps?.length || 0} steps connected to {workflow.serverAddress}
                   </p>

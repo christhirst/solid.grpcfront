@@ -1,12 +1,21 @@
 import { getSession } from "@auth/solid-start";
+import { RecordId } from "surrealdb";
 import { authOpts } from "~/routes/api/auth/[...solidauth]";
 import { createDynamicRequest } from "~/lib/authUrl";
+import {
+  buildAccessContext,
+  normalizeGroupName,
+  type EffectiveAccessContext,
+} from "~/lib/groupAuth";
 
 export interface AuthUser {
   sub: string;
   name?: string;
+  username?: string;
   email?: string;
   image?: string;
+  idpGroups: string[];
+  sessionId?: string;
 }
 
 /**
@@ -18,11 +27,15 @@ export async function getAuthUser(request: Request): Promise<AuthUser | null> {
     const session = await getSession(dynamicReq, authOpts);
     if (!session?.user) return null;
     const user = session.user as any;
+    const sub = user.sub || user.id || "anonymous";
     return {
-      sub: user.sub || user.id || "anonymous",
+      sub,
       name: user.name || undefined,
+      username: user.username || user.name || sub,
       email: user.email || undefined,
       image: user.image || undefined,
+      idpGroups: Array.isArray(user.idpGroups) ? user.idpGroups : [],
+      sessionId: user.sessionId || "default",
     };
   } catch {
     return null;
@@ -35,4 +48,91 @@ export async function getAuthUser(request: Request): Promise<AuthUser | null> {
 export async function getOwnerFromRequest(request: Request): Promise<string> {
   const user = await getAuthUser(request);
   return user?.sub || "anonymous";
+}
+
+/**
+ * Resolve the user's full EffectiveAccessContext (combining IdP JWT groups, current session manager grants,
+ * groups tagged on the user's own resources, and active/deactivated group simulation state).
+ */
+export async function getEffectiveAccessContext(
+  request: Request,
+  db?: any
+): Promise<EffectiveAccessContext> {
+  const user = await getAuthUser(request);
+  if (!user || !user.sub || user.sub === "anonymous") {
+    return buildAccessContext({ sub: "anonymous" });
+  }
+
+  let disabledGroups: string[] = [];
+  let disableOwnerBypass = false;
+  const sessionClaims: string[] = [];
+  const taggedGroups = new Set<string>();
+
+  if (db) {
+    try {
+      const profileRes = await db.select(new RecordId("user_profile", user.sub));
+      const profile = Array.isArray(profileRes) ? profileRes[0] : profileRes;
+      if (profile) {
+        if (Array.isArray(profile.disabledGroups)) {
+          disabledGroups = profile.disabledGroups;
+        }
+        if (typeof profile.disableOwnerBypass === "boolean") {
+          disableOwnerBypass = profile.disableOwnerBypass;
+        }
+        if (Array.isArray(profile.sessionGrants)) {
+          for (const g of profile.sessionGrants) {
+            if (g && typeof g.claim === "string") {
+              if (!g.sessionId || g.sessionId === (user.sessionId || "default")) {
+                sessionClaims.push(g.claim);
+              }
+            }
+          }
+        }
+      }
+    } catch {
+      // user_profile table might not exist yet
+    }
+
+    // Collect groups that this user has tagged on their own resources so they can simulate them
+    try {
+      const ownedTagRes = await db.query(
+        `
+        SELECT tags FROM dashboard WHERE owner = $owner;
+        SELECT tags FROM workflow WHERE owner = $owner;
+        SELECT tags FROM connection WHERE owner = $owner;
+        SELECT tags FROM database_meta WHERE owner = $owner;
+        SELECT tags FROM proto_file WHERE owner = $owner;
+        SELECT tags FROM ca_cert WHERE owner = $owner;
+        `,
+        { owner: user.sub }
+      );
+      if (Array.isArray(ownedTagRes)) {
+        for (const tableRows of ownedTagRes) {
+          if (Array.isArray(tableRows)) {
+            for (const row of tableRows) {
+              if (row && Array.isArray(row.tags)) {
+                for (const t of row.tags) {
+                  const norm = normalizeGroupName(String(t).split(":")[0] || "");
+                  if (norm) taggedGroups.add(norm);
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch {
+      // Ignore missing tables
+    }
+  }
+
+  return buildAccessContext({
+    sub: user.sub,
+    username: user.username || user.name || user.sub,
+    email: user.email,
+    jwtClaims: user.idpGroups || [],
+    sessionClaims,
+    taggedGroups: [...taggedGroups],
+    disabledGroups,
+    disableOwnerBypass,
+  });
 }

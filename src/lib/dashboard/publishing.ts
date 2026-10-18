@@ -1,6 +1,12 @@
 import { RecordId } from "surrealdb";
 import { slugFromName, urlPartError } from "./publicUrl";
 import { dashboardId } from "./boardTypes";
+import {
+  canAccessResource,
+  normalizeGroupName,
+  type EffectiveAccessContext,
+  type GroupRight,
+} from "~/lib/groupAuth";
 
 // Structural interface also permits testing against an isolated SurrealDB instance.
 interface PublishingDb {
@@ -19,6 +25,7 @@ export async function ensurePublishingSchema(db: PublishingDb): Promise<void> {
     pending = db.query(`
       DEFINE TABLE IF NOT EXISTS user_profile TYPE NORMAL SCHEMALESS;
       DEFINE TABLE IF NOT EXISTS dashboard TYPE NORMAL SCHEMALESS;
+      DEFINE TABLE IF NOT EXISTS group_namespace TYPE NORMAL SCHEMALESS;
       DEFINE INDEX IF NOT EXISTS user_namespace ON user_profile FIELDS namespace UNIQUE;
       DEFINE INDEX IF NOT EXISTS dashboard_public_url ON dashboard FIELDS namespace, slug UNIQUE;
     `).then(() => {}).catch((err: unknown) => { schemas.delete(db); throw err; });
@@ -50,14 +57,36 @@ export async function saveUserNamespace(db: PublishingDb, sub: string, namespace
   return { namespace: namespace as string };
 }
 
-export function assertDashboardOwner(record: any, sub: string) {
+export function assertDashboardOwner(
+  record: any,
+  sub: string,
+  requiredRight: GroupRight = "write",
+  accessCtx?: EffectiveAccessContext
+) {
+  if (accessCtx) {
+    if (!canAccessResource(accessCtx, record, requiredRight)) {
+      const actionLabel = requiredRight === "delete" ? "delete" : "change";
+      throw new PublishingError(
+        `You do not have permission (${requiredRight}) to ${actionLabel} this dashboard.`,
+        403
+      );
+    }
+    return;
+  }
   // Legacy dashboards may predate ownership, or have lost it to UPDATE CONTENT.
   if (record?.owner && record.owner !== "anonymous" && record.owner !== sub) {
     throw new PublishingError("Only the dashboard owner can change this dashboard.", 403);
   }
 }
 
-export async function saveDashboard(db: PublishingDb, sub: string, id: string, body: any, create = false) {
+export async function saveDashboard(
+  db: PublishingDb,
+  sub: string,
+  id: string,
+  body: any,
+  create = false,
+  accessCtx?: EffectiveAccessContext
+) {
   if (!body || typeof body !== "object" || Array.isArray(body)) throw new PublishingError("Invalid dashboard data.");
   if (body.isPublic !== undefined && typeof body.isPublic !== "boolean") throw new PublishingError("Published must be true or false.");
   if (body.slug !== undefined && typeof body.slug !== "string") throw new PublishingError("Dashboard URL must be text.");
@@ -65,8 +94,12 @@ export async function saveDashboard(db: PublishingDb, sub: string, id: string, b
   const recordId = new RecordId("dashboard", dashboardId(id));
   const existing = create ? undefined : firstRecord(await db.select(recordId));
   if (!create && !existing) throw new PublishingError("Dashboard not found.", 404);
-  assertDashboardOwner(existing, sub);
-  const profile = await getUserProfile(db, sub);
+  if (!create) {
+    assertDashboardOwner(existing, sub, "write", accessCtx);
+  }
+
+  const effectiveOwner = (!create && existing?.owner && existing.owner !== "anonymous") ? existing.owner : sub;
+  const profile = await getUserProfile(db, effectiveOwner);
   if (body.namespace && body.namespace !== profile.namespace) {
     throw new PublishingError("Use the namespace saved in your user settings.");
   }
@@ -77,21 +110,34 @@ export async function saveDashboard(db: PublishingDb, sub: string, id: string, b
     const error = urlPartError(slug, "Dashboard URL");
     if (error) throw new PublishingError(error);
   }
-  const { id: _id, owner: _owner, namespace: _namespace, created_at: _created, ...fields } = body;
+  const { id: _id, owner: _owner, namespace: _namespace, created_at: _created, permissions: _perms, ...fields } = body;
+  if (Array.isArray(fields.tags)) {
+    fields.tags = fields.tags
+      .map((t: unknown) => normalizeGroupName(String(t).split(":")[0] || ""))
+      .filter(Boolean);
+  } else if (create && !fields.tags) {
+    fields.tags = [];
+  }
   const now = new Date().toISOString();
   const data = {
-    ...existing, ...fields, owner: sub, isPublic, slug: slug || undefined,
-    created_at: existing?.created_at || now, updated_at: now,
+    ...existing,
+    ...fields,
+    owner: effectiveOwner,
+    isPublic,
+    slug: slug || undefined,
+    created_at: existing?.created_at || now,
+    updated_at: now,
   };
   delete data.id;
   delete data.namespace;
+  delete data.permissions;
   // Read the authoritative namespace in the same atomic statement as the write, so a
   // profile rename cannot leave a dashboard pointing at a stale namespace.
   const result = await db.query(`
     ${create ? "CREATE" : "UPDATE"} $id CONTENT object::extend($data, {
       namespace: (SELECT namespace FROM ONLY $profileId).namespace
     });
-  `, { id: recordId, profileId: new RecordId("user_profile", sub), data });
+  `, { id: recordId, profileId: new RecordId("user_profile", effectiveOwner), data });
   const record = result.flat().find((item: any) => item?.id?.toString() === recordId.toString());
   if (!record) throw new Error("Dashboard could not be saved.");
   return { ...record, id: `dashboard:${dashboardId(id)}` };

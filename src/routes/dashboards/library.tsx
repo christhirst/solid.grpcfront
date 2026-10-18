@@ -117,9 +117,14 @@ export default function DashboardLibrary() {
   );
 
   onMount(() => {
+    refetch();
     const refreshUrls = () => { refetch(); };
     window.addEventListener("user-namespace-changed", refreshUrls);
-    onCleanup(() => window.removeEventListener("user-namespace-changed", refreshUrls));
+    window.addEventListener("user-groups-changed", refreshUrls);
+    onCleanup(() => {
+      window.removeEventListener("user-namespace-changed", refreshUrls);
+      window.removeEventListener("user-groups-changed", refreshUrls);
+    });
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const t = e.target as HTMLElement | null;

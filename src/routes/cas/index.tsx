@@ -1,10 +1,19 @@
-import { createSignal, createResource, For, Show } from "solid-js";
+import { createSignal, createResource, onMount, onCleanup, For, Show } from "solid-js";
 import { isServer } from "solid-js/web";
+import { ResourceTagEditor } from "~/components/ResourceTagEditor";
 
 export interface CaCert {
   id: string;
   name: string;
   content: string;
+  tags?: string[];
+  owner?: string;
+  permissions?: {
+    canView: boolean;
+    canUse: boolean;
+    canWrite: boolean;
+    canDelete: boolean;
+  };
   updated_at: string;
 }
 
@@ -25,6 +34,13 @@ export default function CaCerts() {
   const [isSaving, setIsSaving] = createSignal(false);
   const [errorMsg, setErrorMsg] = createSignal<string | null>(null);
   const [isDragging, setIsDragging] = createSignal(false);
+
+  onMount(() => {
+    refetch();
+    const onGroupsChanged = () => refetch();
+    window.addEventListener("user-groups-changed", onGroupsChanged);
+    onCleanup(() => window.removeEventListener("user-groups-changed", onGroupsChanged));
+  });
 
   const handleFileUpload = (file: File) => {
     const reader = new FileReader();
@@ -49,12 +65,12 @@ export default function CaCerts() {
   };
 
   const startCreate = () => {
-    setEditing({ name: "New CA Certificate", content: "" });
+    setEditing({ name: "New CA Certificate", content: "", tags: [] });
     setErrorMsg(null);
   };
 
   const startEdit = (cert: CaCert) => {
-    setEditing({ ...cert });
+    setEditing({ ...cert, tags: Array.isArray(cert.tags) ? [...cert.tags] : [] });
     setErrorMsg(null);
   };
 
@@ -84,6 +100,7 @@ export default function CaCerts() {
       const data = await res.json();
       if (data.success) {
         setEditing(null);
+        window.dispatchEvent(new CustomEvent("user-groups-changed"));
         refetch();
       } else {
         setErrorMsg(data.error || "Failed to save certificate");
@@ -99,8 +116,13 @@ export default function CaCerts() {
     e.stopPropagation();
     if (!confirm("Are you sure you want to delete this CA certificate?")) return;
     try {
-      await fetch(`/api/cas/${id.split(":")[1] || id}`, { method: "DELETE" });
-      refetch();
+      const res = await fetch(`/api/cas/${id.split(":")[1] || id}`, { method: "DELETE" });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || json.success === false) {
+        alert(json.error || "Failed to delete CA certificate");
+      } else {
+        refetch();
+      }
     } catch (e) {
       console.error(e);
     }
@@ -170,6 +192,14 @@ export default function CaCerts() {
                   onInput={(e) => setEditing({ ...editing()!, name: e.currentTarget.value })}
                   class="w-full rounded-lg border border-[#1e1e2e] bg-[#12121a] px-4 py-2 text-sm text-white focus:outline-none focus:border-emerald-500 transition-colors"
                   placeholder="e.g. Internal Root CA"
+                />
+              </div>
+
+              <div>
+                <label class="block text-xs font-medium text-[#5a5a6e] mb-1.5">Group Tags (Sharing & RBAC)</label>
+                <ResourceTagEditor
+                  tags={editing()?.tags || []}
+                  onChange={(nextTags) => setEditing({ ...editing()!, tags: nextTags })}
                 />
               </div>
 
@@ -271,10 +301,10 @@ export default function CaCerts() {
               <For each={certs()}>
                 {(cert) => (
                   <div
-                    class="card p-5 group cursor-pointer hover:border-emerald-500/50 transition-colors flex flex-col h-[200px]"
+                    class="card p-5 group cursor-pointer hover:border-emerald-500/50 transition-colors flex flex-col h-[220px]"
                     onClick={() => startEdit(cert)}
                   >
-                    <div class="flex items-start justify-between mb-3">
+                    <div class="flex items-start justify-between mb-2">
                       <div class="flex items-center gap-2 min-w-0">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="shrink-0">
                           <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
@@ -286,17 +316,31 @@ export default function CaCerts() {
                         <Show when={cert.content?.trim().startsWith("-----BEGIN")}>
                           <span class="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded-full">PEM</span>
                         </Show>
-                        <button
-                          onClick={(e) => deleteCert(cert.id, e)}
-                          class="p-1 rounded bg-[#1e1e2e] text-[#5a5a6e] opacity-0 group-hover:opacity-100 transition-opacity hover:text-red-400 hover:bg-red-500/10"
-                        >
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M3 6h18"/>
-                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                          </svg>
-                        </button>
+                        <Show when={cert.permissions?.canDelete !== false}>
+                          <button
+                            onClick={(e) => deleteCert(cert.id, e)}
+                            class="p-1 rounded bg-[#1e1e2e] text-[#5a5a6e] opacity-0 group-hover:opacity-100 transition-opacity hover:text-red-400 hover:bg-red-500/10"
+                            title="Delete CA Certificate"
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                              <path d="M3 6h18"/>
+                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                            </svg>
+                          </button>
+                        </Show>
                       </div>
                     </div>
+                    <Show when={Array.isArray(cert.tags) && cert.tags.length > 0}>
+                      <div class="mb-2 flex flex-wrap gap-1">
+                        <For each={cert.tags}>
+                          {(tag: string) => (
+                            <span class="rounded-full border border-purple-500/30 bg-purple-500/15 px-2 py-0.5 font-mono text-[9px] font-semibold text-purple-300">
+                              {tag}
+                            </span>
+                          )}
+                        </For>
+                      </div>
+                    </Show>
 
                     <div class="relative flex-1 bg-[#12121a] rounded-lg border border-[#1e1e2e] p-3 overflow-hidden">
                       <pre class="text-[10px] text-[#5a5a6e] font-mono leading-relaxed pointer-events-none">

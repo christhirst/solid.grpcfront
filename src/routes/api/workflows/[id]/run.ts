@@ -4,19 +4,22 @@ import { runWorkflowBackground } from "~/lib/workflowEngine";
 import { v4 as uuidv4 } from "uuid";
 import { RecordId } from "surrealdb";
 import { readJsonBody } from "~/lib/requestUtils";
+import { getEffectiveAccessContext } from "~/lib/auth";
+import { canAccessResource } from "~/lib/groupAuth";
 
 export async function POST(event: APIEvent) {
   try {
     const id = event.params.id;
     const db = await getDb();
+    const ctx = await getEffectiveAccessContext(event.request, db);
 
     const dbId = (id || "").replace(/^workflow:/, "").replace(/[⟨⟩]/g, "").trim();
     let records: any = [];
-    
+
     try {
       const recordId = new RecordId("workflow", dbId);
       const result = await db.select(recordId);
-      records = Array.isArray(result) ? result : (result ? [result] : []);
+      records = Array.isArray(result) ? result : result ? [result] : [];
     } catch (e) {
       records = []; // record doesn't exist
     }
@@ -29,6 +32,18 @@ export async function POST(event: APIEvent) {
     }
 
     const workflow = Array.isArray(records) ? records[0] : records;
+    const hasRealOwner = Boolean(workflow.owner && workflow.owner !== "anonymous");
+    const hasTags = Array.isArray(workflow.tags) && workflow.tags.length > 0;
+    if ((hasRealOwner || hasTags) && ctx.sub !== "anonymous" && !canAccessResource(ctx, workflow, "use")) {
+      return Response.json(
+        {
+          success: false,
+          error: "You do not have permission (use) to execute this workflow.",
+        },
+        { status: 403 }
+      );
+    }
+
     const runId = `workflow_run:${uuidv4()}`;
 
     // Read form data from payload if present
@@ -65,13 +80,14 @@ export async function GET(event: APIEvent) {
     const recordId = new RecordId("workflow", dbId);
     const wfIdStr = recordId.toString();
     const cleanWfIdStr = `workflow:${dbId}`;
-    
+
     // Get all runs for this workflow matching RecordId, chevron string, or clean string
-    const query = "SELECT * FROM workflow_run WHERE workflowId = $wfId OR workflowId = $wfIdStr OR workflowId = $cleanWfIdStr OR workflowId = $dbId ORDER BY startTime DESC LIMIT 20";
+    const query =
+      "SELECT * FROM workflow_run WHERE workflowId = $wfId OR workflowId = $wfIdStr OR workflowId = $cleanWfIdStr OR workflowId = $dbId ORDER BY startTime DESC LIMIT 20";
     let results: any = [[]];
     try {
       const raw: any = await db.query(query, { wfId: recordId, wfIdStr, cleanWfIdStr, dbId });
-      results = [ (raw[0] || []).map((r: any) => ({ ...r, id: r.id?.toString().replace(/[⟨⟩]/g, "") })) ];
+      results = [(raw[0] || []).map((r: any) => ({ ...r, id: r.id?.toString().replace(/[⟨⟩]/g, "") }))];
     } catch (e: any) {
       if (!e.message?.includes("does not exist")) throw e;
     }

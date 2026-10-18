@@ -10,6 +10,7 @@ import { createStore, reconcile, produce } from "solid-js/store";
 import { isServer } from "solid-js/web";
 import { useParams, useNavigate } from "@solidjs/router";
 import { parseProtoContent, generateSkeleton, ParsedProto } from "~/lib/protoParser";
+import { ResourceTagEditor } from "~/components/ResourceTagEditor";
 
 // Safe dot-path getter to avoid CJS interop issues in Vite prod builds
 function get(obj: any, path: string | string[], defValue?: any) {
@@ -580,6 +581,7 @@ export default function WorkflowBuilder() {
 
   // Form state
   const [name, setName] = createSignal("New Workflow");
+  const [tags, setTags] = createSignal<string[]>([]);
   const [direction, setDirection] = createSignal<"read" | "write">("read");
   const [viewMode, setViewMode] = createSignal<"graph" | "steps">("graph");
   const [graphData, setGraphData] = createSignal<any>(null);
@@ -834,6 +836,7 @@ export default function WorkflowBuilder() {
     const data = workflow();
     if (data) {
       setName(data.name || "Untitled");
+      setTags(Array.isArray(data.tags) ? data.tags : []);
       setDirection((data.direction as "read" | "write") || "read");
       setProtoId(data.protoId || "");
       setCaId(data.caId || (data.useTls ? ACCEPT_ALL_CA : ""));
@@ -940,6 +943,7 @@ export default function WorkflowBuilder() {
     const payload = {
       id: isNew ? undefined : `workflow:${params.id}`,
       name: name(),
+      tags: tags(),
       direction: direction(),
       protoId: protoId() || undefined,
       caId: caId() || undefined,
@@ -966,6 +970,7 @@ export default function WorkflowBuilder() {
     
     const json = await res.json();
     if (json.success) {
+      window.dispatchEvent(new CustomEvent("user-groups-changed"));
       if (isNew) {
         navigate(`/workflows/${json.data.id.split(":")[1]}`);
       }
@@ -1199,6 +1204,9 @@ export default function WorkflowBuilder() {
                 📤 Write to Source
               </button>
             </div>
+          </div>
+          <div class="mt-2.5 ml-1">
+            <ResourceTagEditor tags={tags()} onChange={setTags} />
           </div>
         </div>
         <div class="flex items-center gap-4">

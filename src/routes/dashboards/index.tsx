@@ -52,7 +52,11 @@ export default function Dashboards() {
     refetch();
     const refreshUrls = () => { refetch(); };
     window.addEventListener("user-namespace-changed", refreshUrls);
-    onCleanup(() => window.removeEventListener("user-namespace-changed", refreshUrls));
+    window.addEventListener("user-groups-changed", refreshUrls);
+    onCleanup(() => {
+      window.removeEventListener("user-namespace-changed", refreshUrls);
+      window.removeEventListener("user-groups-changed", refreshUrls);
+    });
   });
 
   const handleSearch = (value: string) => {
@@ -270,16 +274,18 @@ export default function Dashboards() {
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
                       </a>
                     </Show>
-                    <button 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        deleteDashboard(d.id, e);
-                      }} 
-                      class="rounded-lg p-1.5 text-zinc-500 transition-colors hover:bg-red-500/10 hover:text-red-400"
-                      title="Delete"
-                    >
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                    </button>
+                    <Show when={(d as any).permissions?.canDelete !== false}>
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteDashboard(d.id, e);
+                        }} 
+                        class="rounded-lg p-1.5 text-zinc-500 transition-colors hover:bg-red-500/10 hover:text-red-400"
+                        title="Delete"
+                      >
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                      </button>
+                    </Show>
                   </div>
                 </CardFooter>
               </Card>
