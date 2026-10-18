@@ -182,11 +182,8 @@ export default function Nav() {
       <div class="mx-auto flex max-w-7xl 2xl:max-w-[90rem] items-center justify-between px-4 sm:px-6 py-3.5">
         {/* Logo / Home */}
         <a href="/" class="flex items-center gap-3 group shrink-0" aria-label="Home">
-          <div class="relative flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-violet-600 shadow-lg shadow-blue-500/20 transition-transform group-hover:scale-105">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" />
-              <polyline points="16 7 22 7 22 13" />
-            </svg>
+          <div class="relative flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500/20 to-violet-600/30 border border-blue-500/30 p-0.5 shadow-lg shadow-blue-500/20 transition-transform group-hover:scale-105 overflow-hidden">
+            <img src="/favicon.svg" alt="Home" class="h-full w-full object-contain" />
           </div>
           <span class="text-lg font-bold tracking-tight text-white">
             Ho<span class="gradient-text">me</span>
