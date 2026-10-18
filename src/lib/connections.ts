@@ -1,8 +1,9 @@
 import get from "lodash.get";
 import * as grpc from "@grpc/grpc-js";
 import { Surreal, RecordId } from "surrealdb";
+import { listS3Objects } from "~/lib/s3Executor";
 
-export type ConnectionType = "http" | "grpc" | "surrealdb" | "oauth";
+export type ConnectionType = "http" | "grpc" | "surrealdb" | "oauth" | "s3";
 export type AuthType = "none" | "basic" | "bearer" | "oauth";
 
 export interface OAuthConfig {
@@ -72,7 +73,21 @@ export interface SurrealDbConnection extends ConnectionBase {
   timeoutMs?: number;
 }
 
-export type Connection = HttpConnection | GrpcConnection | SurrealDbConnection;
+export interface S3Connection extends ConnectionBase {
+  type: "s3";
+  endpoint: string;
+  region?: string;
+  bucket: string;
+  accessKeyId?: string;
+  secretAccessKey?: string;
+  sessionToken?: string;
+  prefix?: string;
+  forcePathStyle?: boolean;
+  caId?: string;
+  acceptInvalidCert?: boolean;
+}
+
+export type Connection = HttpConnection | GrpcConnection | SurrealDbConnection | S3Connection;
 
 /**
  * Normalizes connection objects from the database or API requests.
@@ -84,13 +99,33 @@ export function normalizeConnection(raw: any): Connection {
   let type: ConnectionType = raw.type;
 
   if (!type) {
-    if (raw.serverAddress) {
+    if (raw.bucket || raw.accessKeyId) {
+      type = "s3";
+    } else if (raw.serverAddress) {
       type = "grpc";
     } else if (raw.namespace || raw.database || (raw.url && (raw.url.startsWith("ws://") || raw.url.startsWith("wss://")))) {
       type = "surrealdb";
     } else {
       type = "http";
     }
+  }
+
+  if (type === "s3") {
+    return {
+      ...raw,
+      id: rawId,
+      type: "s3",
+      endpoint: raw.endpoint || raw.url || "https://s3.amazonaws.com",
+      region: raw.region || "us-east-1",
+      bucket: (raw.bucket || "").replace(/^s3:\/\//i, "").replace(/\/+$/, ""),
+      accessKeyId: raw.accessKeyId || "",
+      secretAccessKey: raw.secretAccessKey || "",
+      sessionToken: raw.sessionToken || undefined,
+      prefix: raw.prefix || "",
+      forcePathStyle: raw.forcePathStyle !== undefined ? Boolean(raw.forcePathStyle) : true,
+      caId: raw.caId || undefined,
+      acceptInvalidCert: raw.acceptInvalidCert !== undefined ? Boolean(raw.acceptInvalidCert) : undefined,
+    };
   }
 
   // Handle legacy OAuth connection format
@@ -632,3 +667,66 @@ export async function testSurrealDbConnection(config: any): Promise<any> {
     error: `SurrealDB Connection Failed: ${lastError?.message || lastError}`,
   };
 }
+
+/**
+ * Test S3 Connection
+ */
+export async function testS3Connection(config: any): Promise<any> {
+  const endpoint = config.endpoint || config.url || "https://s3.amazonaws.com";
+  const bucket = (config.bucket || "").replace(/^s3:\/\//i, "").replace(/\/+$/, "");
+  const region = config.region || "us-east-1";
+
+  if (!bucket) {
+    return {
+      success: false,
+      type: "s3",
+      error: "S3 Bucket Name is required.",
+    };
+  }
+
+  let caCert: string | undefined;
+  if (config.caId) {
+    caCert = await getCaCertContent(config.caId);
+  }
+
+  const res = await listS3Objects({
+    endpoint,
+    region,
+    bucket,
+    accessKeyId: config.accessKeyId,
+    secretAccessKey: config.secretAccessKey,
+    sessionToken: config.sessionToken,
+    prefix: config.prefix,
+    forcePathStyle: config.forcePathStyle !== undefined ? Boolean(config.forcePathStyle) : true,
+    caCert,
+    acceptInvalidCert: Boolean(config.acceptInvalidCert || config.caId === "accept_all"),
+    maxKeys: 10,
+  });
+
+  if (!res.success) {
+    return {
+      success: false,
+      type: "s3",
+      endpoint,
+      bucket,
+      latencyMs: res.latencyMs,
+      error: res.error,
+    };
+  }
+
+  return {
+    success: true,
+    type: "s3",
+    endpoint,
+    bucket,
+    region,
+    latencyMs: res.latencyMs,
+    response: {
+      bucket: res.bucket,
+      count: res.count,
+      sampleUris: res.uris.slice(0, 5),
+    },
+    message: `Successfully connected to S3 bucket s3://${bucket} (${res.count} file(s) found${config.prefix ? ` under prefix '${config.prefix}'` : ""}).`,
+  };
+}
+

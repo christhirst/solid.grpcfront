@@ -65,7 +65,7 @@ export default function Connections() {
   });
 
   // Filters & Search
-  const [activeTab, setActiveTab] = createSignal<"all" | "http" | "grpc" | "surrealdb">("all");
+  const [activeTab, setActiveTab] = createSignal<"all" | "http" | "grpc" | "surrealdb" | "s3">("all");
   const [searchQuery, setSearchQuery] = createSignal("");
 
   // Form / Editor state
@@ -120,6 +120,19 @@ export default function Connections() {
   const [dbDatabase, setDbDatabase] = createSignal("main");
   const [dbTimeoutMs, setDbTimeoutMs] = createSignal<number>(5000);
 
+  // S3 Fields
+  const [s3Endpoint, setS3Endpoint] = createSignal("https://s3.amazonaws.com");
+  const [s3Region, setS3Region] = createSignal("us-east-1");
+  const [s3Bucket, setS3Bucket] = createSignal("");
+  const [s3AccessKeyId, setS3AccessKeyId] = createSignal("");
+  const [s3SecretAccessKey, setS3SecretAccessKey] = createSignal("");
+  const [s3SessionToken, setS3SessionToken] = createSignal("");
+  const [s3Prefix, setS3Prefix] = createSignal("");
+  const [s3ForcePathStyle, setS3ForcePathStyle] = createSignal(true);
+  const [isBrowsingS3, setIsBrowsingS3] = createSignal(false);
+  const [s3BrowseResult, setS3BrowseResult] = createSignal<any>(null);
+  const [s3BrowseError, setS3BrowseError] = createSignal<string | null>(null);
+
   // Testing & Saving States
   const [testResult, setTestResult] = createSignal<any>(null);
   const [isTesting, setIsTesting] = createSignal(false);
@@ -146,16 +159,17 @@ export default function Connections() {
     const q = searchQuery().toLowerCase().trim();
 
     return list.filter((conn: any) => {
-      const type = conn.type || (conn.serverAddress ? "grpc" : (conn.namespace || conn.database ? "surrealdb" : "http"));
+      const type = conn.type || (conn.bucket ? "s3" : conn.serverAddress ? "grpc" : (conn.namespace || conn.database ? "surrealdb" : "http"));
       const matchesTab = tab === "all" || type === tab || (tab === "http" && type === "oauth");
       if (!matchesTab) return false;
 
       if (!q) return true;
       const matchName = conn.name?.toLowerCase().includes(q);
-      const matchUrl = conn.url?.toLowerCase().includes(q);
+      const matchUrl = conn.url?.toLowerCase().includes(q) || conn.endpoint?.toLowerCase().includes(q);
       const matchAddr = conn.serverAddress?.toLowerCase().includes(q);
       const matchDb = conn.database?.toLowerCase().includes(q) || conn.namespace?.toLowerCase().includes(q);
-      return matchName || matchUrl || matchAddr || matchDb;
+      const matchBucket = conn.bucket?.toLowerCase().includes(q);
+      return matchName || matchUrl || matchAddr || matchDb || matchBucket;
     });
   });
 
@@ -164,15 +178,17 @@ export default function Connections() {
     let httpCount = 0;
     let grpcCount = 0;
     let surrealCount = 0;
+    let s3Count = 0;
 
     for (const c of list) {
-      const type = c.type || (c.serverAddress ? "grpc" : (c.namespace || c.database ? "surrealdb" : "http"));
+      const type = c.type || (c.bucket ? "s3" : c.serverAddress ? "grpc" : (c.namespace || c.database ? "surrealdb" : "http"));
       if (type === "grpc") grpcCount++;
       else if (type === "surrealdb") surrealCount++;
+      else if (type === "s3") s3Count++;
       else httpCount++;
     }
 
-    return { all: list.length, http: httpCount, grpc: grpcCount, surrealdb: surrealCount };
+    return { all: list.length, http: httpCount, grpc: grpcCount, surrealdb: surrealCount, s3: s3Count };
   });
 
   const resetForm = () => {
@@ -210,6 +226,17 @@ export default function Connections() {
     setDbNamespace("solidflow");
     setDbDatabase("main");
     setDbTimeoutMs(5000);
+    setS3Endpoint("https://s3.amazonaws.com");
+    setS3Region("us-east-1");
+    setS3Bucket("");
+    setS3AccessKeyId("");
+    setS3SecretAccessKey("");
+    setS3SessionToken("");
+    setS3Prefix("");
+    setS3ForcePathStyle(true);
+    setIsBrowsingS3(false);
+    setS3BrowseResult(null);
+    setS3BrowseError(null);
     setTestResult(null);
     setIsReflecting(false);
     setReflectionResult(null);
@@ -236,6 +263,12 @@ export default function Connections() {
       setDbNamespace("solidflow");
       setDbDatabase("main");
       setDbTimeoutMs(5000);
+    } else if (type === "s3") {
+      setName("New S3 Storage Connection");
+      setS3Endpoint("https://s3.amazonaws.com");
+      setS3Region("us-east-1");
+      setS3Bucket("my-bucket");
+      setS3ForcePathStyle(true);
     }
   };
 
@@ -245,7 +278,7 @@ export default function Connections() {
     setSelectedConnection(conn);
     resetForm();
 
-    const type: ConnectionType = conn.type || (conn.serverAddress ? "grpc" : (conn.namespace || conn.database ? "surrealdb" : "http"));
+    const type: ConnectionType = conn.type || (conn.bucket ? "s3" : conn.serverAddress ? "grpc" : (conn.namespace || conn.database ? "surrealdb" : "http"));
     setConnType(type);
 
     setName(conn.name || "");
@@ -292,6 +325,16 @@ export default function Connections() {
     setDbNamespace(conn.namespace || "solidflow");
     setDbDatabase(conn.database || "main");
     setDbTimeoutMs(conn.timeoutMs || 5000);
+
+    // S3
+    setS3Endpoint(conn.endpoint || conn.url || "https://s3.amazonaws.com");
+    setS3Region(conn.region || "us-east-1");
+    setS3Bucket(conn.bucket || "");
+    setS3AccessKeyId(conn.accessKeyId || "");
+    setS3SecretAccessKey(conn.secretAccessKey || "");
+    setS3SessionToken(conn.sessionToken || "");
+    setS3Prefix(conn.prefix || "");
+    setS3ForcePathStyle(conn.forcePathStyle !== undefined ? Boolean(conn.forcePathStyle) : true);
 
     setTestResult(null);
   };
@@ -364,6 +407,20 @@ export default function Connections() {
         tokenPath: authType() === "oauth" ? tokenPath() : undefined,
         tokenMetadataKey: authType() === "oauth" ? tokenMetadataKey() : undefined,
         tokenHeaderPrefix: authType() === "oauth" ? tokenHeaderPrefix() : undefined,
+      };
+    } else if (type === "s3") {
+      return {
+        ...base,
+        endpoint: s3Endpoint().trim() || "https://s3.amazonaws.com",
+        region: s3Region().trim() || "us-east-1",
+        bucket: s3Bucket().trim().replace(/^s3:\/\//i, "").replace(/\/+$/, ""),
+        accessKeyId: s3AccessKeyId().trim() || undefined,
+        secretAccessKey: s3SecretAccessKey() || undefined,
+        sessionToken: s3SessionToken().trim() || undefined,
+        prefix: s3Prefix().trim() || undefined,
+        forcePathStyle: s3ForcePathStyle(),
+        caId: caId() || undefined,
+        acceptInvalidCert: acceptInvalidCert(),
       };
     } else {
       return {
@@ -511,6 +568,38 @@ export default function Connections() {
     });
   });
 
+  const browseS3Objects = async () => {
+    setIsBrowsingS3(true);
+    setS3BrowseResult(null);
+    setS3BrowseError(null);
+
+    try {
+      const payload = getPayload();
+      if (!(payload as any).bucket) {
+        setS3BrowseError("Please enter a Bucket Name first.");
+        return;
+      }
+      const connId = selectedConnection()?.id;
+      const targetId = connId ? connId.replace(/^connection:/, "").replace(/[⟨⟩]/g, "").trim() : "adhoc";
+      const res = await fetch(`/api/connections/${encodeURIComponent(targetId)}/s3-objects`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(10000),
+      });
+      const json = await res.json();
+      if (!json.success) {
+        setS3BrowseError(json.error || "Failed to list S3 bucket objects");
+      } else {
+        setS3BrowseResult(json.data);
+      }
+    } catch (e: any) {
+      setS3BrowseError(e.message || "Failed to contact S3 endpoint");
+    } finally {
+      setIsBrowsingS3(false);
+    }
+  };
+
   const saveConnection = async () => {
     if (!name().trim()) {
       alert("Connection Name is required.");
@@ -529,6 +618,11 @@ export default function Connections() {
 
     if (connType() === "surrealdb" && !dbUrl().trim()) {
       alert("Database URL is required for SurrealDB connection.");
+      return;
+    }
+
+    if (connType() === "s3" && !s3Bucket().trim()) {
+      alert("Bucket Name is required for S3 connection.");
       return;
     }
 
@@ -592,11 +686,11 @@ export default function Connections() {
       <div class="mb-8 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
           <h1 class="text-5xl font-extrabold tracking-tight text-white mb-2">Connections</h1>
-          <p class="text-[15px] text-[#8b8b9e]">Manage HTTP, gRPC, and SurrealDB connections with optional pre-request token authentication</p>
+          <p class="text-[15px] text-[#8b8b9e]">Manage HTTP, gRPC, SurrealDB, and S3 storage connections</p>
         </div>
 
         <Show when={!isEditing()}>
-          <div class="flex items-center gap-2">
+          <div class="flex flex-wrap items-center gap-2">
             <button
               onClick={() => startNew("http")}
               class="rounded-xl border border-blue-500/30 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 font-semibold px-4 py-2.5 text-sm flex items-center gap-2 transition-all shadow-lg shadow-blue-500/5 hover:-translate-y-0.5"
@@ -617,6 +711,13 @@ export default function Connections() {
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg>
               + SurrealDB
+            </button>
+            <button
+              onClick={() => startNew("s3")}
+              class="rounded-xl border border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 font-semibold px-4 py-2.5 text-sm flex items-center gap-2 transition-all shadow-lg shadow-amber-500/5 hover:-translate-y-0.5"
+            >
+              <span>🪣</span>
+              + S3 Storage
             </button>
           </div>
         </Show>
@@ -673,6 +774,18 @@ export default function Connections() {
                 {connectionCounts().surrealdb}
               </span>
             </button>
+            <button
+              onClick={() => setActiveTab("s3")}
+              class={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
+                activeTab() === "s3" ? "bg-amber-600 text-white shadow-lg shadow-amber-500/20" : "text-[#8b8b9e] hover:text-white"
+              }`}
+            >
+              <span>🪣</span>
+              S3
+              <span class={`px-1.5 py-0.2 text-[10px] rounded-full ${activeTab() === "s3" ? "bg-white/20 text-white" : "bg-[#1e1e2e] text-[#8b8b9e]"}`}>
+                {connectionCounts().s3}
+              </span>
+            </button>
           </div>
 
           <div class="relative w-full md:w-64">
@@ -714,12 +827,13 @@ export default function Connections() {
                     </div>
                     <h3 class="mb-2 text-xl font-bold text-white">No connections found</h3>
                     <p class="mb-6 max-w-md text-[#8b8b9e] text-sm">
-                      {searchQuery() ? `No connections match "${searchQuery()}".` : "Configure HTTP, gRPC, or SurrealDB connections to use across workflows and testing."}
+                      {searchQuery() ? `No connections match "${searchQuery()}".` : "Configure HTTP, gRPC, SurrealDB, or S3 storage connections to use across workflows."}
                     </p>
-                    <div class="flex items-center gap-3">
+                    <div class="flex flex-wrap items-center justify-center gap-3">
                       <button onClick={() => startNew("http")} class="btn-primary">Add HTTP</button>
                       <button onClick={() => startNew("grpc")} class="btn-secondary">Add gRPC</button>
                       <button onClick={() => startNew("surrealdb")} class="btn-secondary">Add SurrealDB</button>
+                      <button onClick={() => startNew("s3")} class="btn-secondary">Add S3 Storage</button>
                     </div>
                   </div>
                 </Show>
@@ -728,7 +842,7 @@ export default function Connections() {
               <div class={`grid gap-4 ${isEditing() ? "grid-cols-1" : "grid-cols-1 md:grid-cols-2 lg:grid-cols-3"}`}>
                 <For each={filteredConnections()}>
                   {(conn: any) => {
-                    const type = conn.type || (conn.serverAddress ? "grpc" : (conn.namespace || conn.database ? "surrealdb" : "http"));
+                    const type = conn.type || (conn.bucket ? "s3" : conn.serverAddress ? "grpc" : (conn.namespace || conn.database ? "surrealdb" : "http"));
                     const isSelected = () => selectedConnection()?.id === conn.id;
                     const cardTest = () => cardTestResults()[conn.id];
 
@@ -764,6 +878,13 @@ export default function Connections() {
                                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg>
                                 </div>
                                 <span class="text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">SurrealDB</span>
+                              </Show>
+
+                              <Show when={type === "s3"}>
+                                <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 text-amber-400 ring-1 ring-amber-500/20">
+                                  <span class="text-sm">🪣</span>
+                                </div>
+                                <span class="text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider bg-amber-500/10 text-amber-400 border border-amber-500/20">S3 Storage</span>
                               </Show>
                             </div>
 
@@ -841,6 +962,26 @@ export default function Connections() {
                               <Show when={conn.timeoutMs}>
                                 <span class="text-[9px] font-bold px-1.5 py-0.5 bg-[#1e1e2e] text-[#8b8b9e] rounded border border-[#2a2a3a] font-mono">
                                   {conn.timeoutMs}ms
+                                </span>
+                              </Show>
+                            </div>
+                          </Show>
+
+                          <Show when={type === "s3"}>
+                            <p class="text-xs font-mono text-amber-300 break-all line-clamp-1 mb-1">s3://{conn.bucket}{conn.prefix ? `/${conn.prefix.replace(/^\/+/, "")}` : ""}</p>
+                            <p class="text-[11px] font-mono text-[#8b8b9e] break-all line-clamp-1 mb-2">{conn.endpoint}</p>
+                            <div class="flex items-center gap-1.5 flex-wrap">
+                              <span class="text-[9px] font-bold px-1.5 py-0.5 bg-amber-500/10 text-amber-400 rounded border border-amber-500/20 font-mono">
+                                {conn.region || "us-east-1"}
+                              </span>
+                              <Show when={conn.forcePathStyle !== false}>
+                                <span class="text-[9px] font-bold px-1.5 py-0.5 bg-[#1e1e2e] text-[#8b8b9e] rounded border border-[#2a2a3a]">
+                                  Path-Style
+                                </span>
+                              </Show>
+                              <Show when={conn.accessKeyId}>
+                                <span class="text-[9px] font-bold px-1.5 py-0.5 bg-blue-500/10 text-blue-400 rounded border border-blue-500/20">
+                                  SigV4 Keys
                                 </span>
                               </Show>
                             </div>
@@ -927,6 +1068,12 @@ export default function Connections() {
                     class={`px-3 py-1 text-xs font-bold rounded transition-all ${connType() === "surrealdb" ? "bg-emerald-600 text-white" : "text-[#8b8b9e] hover:text-white"}`}
                   >
                     SurrealDB
+                  </button>
+                  <button
+                    onClick={() => setConnType("s3")}
+                    class={`px-3 py-1 text-xs font-bold rounded transition-all ${connType() === "s3" ? "bg-amber-600 text-white" : "text-[#8b8b9e] hover:text-white"}`}
+                  >
+                    S3
                   </button>
                 </div>
               </Show>
@@ -1272,6 +1419,167 @@ export default function Connections() {
                         placeholder="Password"
                       />
                     </div>
+                  </div>
+                </div>
+              </Show>
+
+              {/* ---------------- S3 STORAGE CONFIGURATION ---------------- */}
+              <Show when={connType() === "s3"}>
+                <div class="space-y-4 pt-2 border-t border-[#2a2a3a]/40">
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label class="mb-1 block text-xs font-medium text-[#8b8b9e]">S3 Endpoint URL *</label>
+                      <input
+                        type="text"
+                        class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white font-mono focus:border-amber-500 focus:outline-none"
+                        value={s3Endpoint()}
+                        onInput={(e) => setS3Endpoint(e.currentTarget.value)}
+                        placeholder="https://s3.amazonaws.com or http://localhost:9000"
+                      />
+                    </div>
+                    <div>
+                      <label class="mb-1 block text-xs font-medium text-[#8b8b9e]">Bucket Name *</label>
+                      <input
+                        type="text"
+                        class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white font-mono focus:border-amber-500 focus:outline-none"
+                        value={s3Bucket()}
+                        onInput={(e) => setS3Bucket(e.currentTarget.value)}
+                        placeholder="e.g. my-data-bucket"
+                      />
+                    </div>
+                  </div>
+
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label class="mb-1 block text-xs font-medium text-[#8b8b9e]">Region</label>
+                      <input
+                        type="text"
+                        class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white font-mono focus:border-amber-500 focus:outline-none"
+                        value={s3Region()}
+                        onInput={(e) => setS3Region(e.currentTarget.value)}
+                        placeholder="us-east-1"
+                      />
+                    </div>
+                    <div>
+                      <label class="mb-1 block text-xs font-medium text-[#8b8b9e]">Default Prefix / Folder (Optional)</label>
+                      <input
+                        type="text"
+                        class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white font-mono focus:border-amber-500 focus:outline-none"
+                        value={s3Prefix()}
+                        onInput={(e) => setS3Prefix(e.currentTarget.value)}
+                        placeholder="e.g. datasets/2026/"
+                      />
+                    </div>
+                  </div>
+
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label class="mb-1 block text-xs font-medium text-[#8b8b9e]">Access Key ID</label>
+                      <input
+                        type="text"
+                        class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white font-mono focus:border-amber-500 focus:outline-none"
+                        value={s3AccessKeyId()}
+                        onInput={(e) => setS3AccessKeyId(e.currentTarget.value)}
+                        placeholder="AKIA... or minioadmin"
+                      />
+                    </div>
+                    <div>
+                      <label class="mb-1 block text-xs font-medium text-[#8b8b9e]">Secret Access Key</label>
+                      <input
+                        type="password"
+                        class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white font-mono focus:border-amber-500 focus:outline-none"
+                        value={s3SecretAccessKey()}
+                        onInput={(e) => setS3SecretAccessKey(e.currentTarget.value)}
+                        placeholder="Secret Access Key"
+                      />
+                    </div>
+                  </div>
+
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
+                    <div class="flex items-center gap-2 p-3 rounded-xl bg-[#111118] border border-[#2a2a3a]">
+                      <input
+                        type="checkbox"
+                        id="s3ForcePathStyle"
+                        checked={s3ForcePathStyle()}
+                        onChange={(e) => setS3ForcePathStyle(e.currentTarget.checked)}
+                        class="h-4 w-4 rounded border-[#2a2a3a] bg-[#1e1e2e] text-amber-500 focus:ring-amber-500"
+                      />
+                      <label for="s3ForcePathStyle" class="text-xs text-white cursor-pointer">
+                        Force Path-Style Addressing (<code class="text-amber-300 font-mono">endpoint/bucket/key</code>)
+                      </label>
+                    </div>
+                    <div>
+                      <label class="mb-1 block text-xs font-medium text-[#8b8b9e]">Trusted CA Certificate</label>
+                      <select
+                        class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-amber-500 focus:outline-none"
+                        value={caId()}
+                        onChange={(e) => setCaId(e.currentTarget.value)}
+                      >
+                        <option value="">System Default Root CAs</option>
+                        <option value="accept_all">Accept All / Self-Signed (Dev)</option>
+                        <For each={cas() || []}>
+                          {(c: any) => (
+                            <option value={c.id}>{c.name} ({c.id})</option>
+                          )}
+                        </For>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* S3 Bucket Browser Preview */}
+                  <div class="p-4 rounded-xl bg-[#111118] border border-[#2a2a3a] space-y-3">
+                    <div class="flex items-center justify-between gap-3">
+                      <div>
+                        <h4 class="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+                          <span>🪣</span>
+                          <span>Bucket File Discovery (URI Only)</span>
+                        </h4>
+                        <p class="text-[11px] text-[#8b8b9e]">
+                          List object keys as <code class="text-amber-300 font-mono">s3://bucket/filename</code> without downloading file contents
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={browseS3Objects}
+                        disabled={isBrowsingS3() || !s3Bucket().trim()}
+                        class="px-3 py-1.5 rounded-lg bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 text-xs font-semibold border border-amber-500/30 transition-all flex items-center gap-1.5 disabled:opacity-40 shrink-0"
+                      >
+                        <Show when={isBrowsingS3()} fallback={<span>🪣 Browse Bucket Files</span>}>
+                          <svg class="animate-spin h-3 w-3 text-amber-400" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                          Listing...
+                        </Show>
+                      </button>
+                    </div>
+
+                    <Show when={s3BrowseError()}>
+                      <div class="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-xs text-red-300">
+                        <span class="font-bold text-red-400">Error: </span>
+                        <span class="font-mono">{s3BrowseError()}</span>
+                      </div>
+                    </Show>
+
+                    <Show when={s3BrowseResult()}>
+                      <div class="space-y-2 pt-2 border-t border-[#2a2a3a]/40">
+                        <div class="flex items-center justify-between text-xs">
+                          <span class="text-emerald-400 font-semibold">
+                            ✓ Found {s3BrowseResult().count} file(s) in s3://{s3BrowseResult().bucket}
+                          </span>
+                          <span class="text-[10px] font-mono text-[#8b8b9e]">{s3BrowseResult().latencyMs}ms</span>
+                        </div>
+                        <Show when={(s3BrowseResult().objects || []).length > 0}>
+                          <div class="max-h-48 overflow-y-auto space-y-1 bg-[#0a0a0f] p-2 rounded-lg border border-[#2a2a3a]">
+                            <For each={s3BrowseResult().objects}>
+                              {(obj: any) => (
+                                <div class="flex items-center justify-between gap-2 text-[11px] px-2 py-1 rounded hover:bg-[#161622] font-mono">
+                                  <span class="text-amber-300 truncate">{obj.s3Uri}</span>
+                                  <span class="text-[10px] text-[#6b6b7e] shrink-0">{obj.size} B</span>
+                                </div>
+                              )}
+                            </For>
+                          </div>
+                        </Show>
+                      </div>
+                    </Show>
                   </div>
                 </div>
               </Show>

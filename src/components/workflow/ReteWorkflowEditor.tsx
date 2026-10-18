@@ -142,6 +142,16 @@ export function getStepDisplayInfo(type: string, category?: StepCategory) {
         text: cat === "transform" ? "text-purple-400" : "text-amber-400",
         bg: cat === "transform" ? "bg-purple-500/10" : "bg-amber-500/10"
       };
+    case "s3":
+      return {
+        category: cat,
+        label: cat === "transform" ? "S3 File Selector (Transform)" : "S3 Storage Files",
+        icon: "🪣",
+        color: cat === "transform" ? "purple" : "amber",
+        border: cat === "transform" ? "border-purple-500" : "border-amber-500",
+        text: cat === "transform" ? "text-purple-400" : "text-amber-400",
+        bg: cat === "transform" ? "bg-purple-500/10" : "bg-amber-500/10"
+      };
     case "grpc_stream":
     case "rest_stream":
     case "surreal_live":
@@ -569,6 +579,12 @@ export default function ReteWorkflowEditor(props: ReteWorkflowEditorProps) {
                   >
                     <span>🗄️</span> <span>Database / SurrealQL</span>
                   </button>
+                  <button
+                    onClick={() => handleAddNode("s3", "source")}
+                    class="w-full text-left px-3 py-1.5 hover:bg-[#222234] text-xs text-amber-300 rounded-lg flex items-center gap-2"
+                  >
+                    <span>🪣</span> <span>S3 Storage (Filenames / URIs)</span>
+                  </button>
                 </div>
 
                 {/* 2. TRANSFORMS & SERVICE CALLS */}
@@ -600,6 +616,12 @@ export default function ReteWorkflowEditor(props: ReteWorkflowEditorProps) {
                     class="w-full text-left px-3 py-1.5 hover:bg-[#222234] text-xs text-amber-300 rounded-lg flex items-center gap-2"
                   >
                     <span>🗄️</span> <span>Database Mutation / Query</span>
+                  </button>
+                  <button
+                    onClick={() => handleAddNode("s3", "transform")}
+                    class="w-full text-left px-3 py-1.5 hover:bg-[#222234] text-xs text-amber-300 rounded-lg flex items-center gap-2"
+                  >
+                    <span>🪣</span> <span>S3 File Selector (Transform)</span>
                   </button>
                 </div>
 

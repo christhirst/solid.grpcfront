@@ -8,6 +8,7 @@ import { RecordId } from "surrealdb";
 import * as Sentry from "@sentry/node";
 import { EventEmitter } from "events";
 import { normalizeConnection, fetchPreRequestToken } from "~/lib/connections";
+import { listS3Objects, buildS3ListResult, toS3ObjectItem } from "~/lib/s3Executor";
 import { getStepCategory, type StepCategory, type WorkflowStep, type StepVariable } from "./stepCategories";
 export { getStepCategory, type StepCategory, type WorkflowStep, type StepVariable };
 
@@ -135,7 +136,7 @@ export interface WorkflowDefinition {
 
 export interface WorkflowRunLog {
   stepId: string;
-  stepType?: "grpc" | "table" | "chart" | "database" | "rest" | "grpc_stream" | "rest_stream" | "surreal_live" | "transform" | "infographic";
+  stepType?: "grpc" | "table" | "chart" | "database" | "rest" | "grpc_stream" | "rest_stream" | "surreal_live" | "transform" | "infographic" | "s3";
   status: "success" | "error";
   request: any;
   response?: any;
@@ -1184,6 +1185,171 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
           stepId: step.id,
           response: responseData,
           latencyMs,
+          timestamp: new Date().toISOString(),
+        });
+        return "continue";
+      }
+
+      if (step.type === "s3") {
+        emitWorkflowEvent(runId, workflow.id || "", "step_start", {
+          stepId: step.id,
+          stepType: "s3",
+          timestamp: new Date().toISOString(),
+        });
+
+        let s3Endpoint = interpolateTemplate(step.s3Endpoint || "", context).trim();
+        let s3Region = interpolateTemplate(step.s3Region || "", context).trim();
+        let s3Bucket = interpolateTemplate(step.s3Bucket || "", context).trim();
+        let s3AccessKeyId = interpolateTemplate(step.s3AccessKeyId || "", context).trim();
+        let s3SecretAccessKey = interpolateTemplate(step.s3SecretAccessKey || "", context).trim();
+        let s3SessionToken = "";
+        let s3Prefix = interpolateTemplate(step.s3Prefix || "", context).trim();
+        let s3Pattern = interpolateTemplate(step.s3Pattern || "", context).trim();
+        let s3ForcePathStyle = step.s3ForcePathStyle;
+        let s3CaId = step.caId ?? defaultCaId;
+        let s3AcceptInvalidCert = step.acceptInvalidCert;
+
+        if (step.connectionId) {
+          try {
+            const connDbId = (step.connectionId || "").replace(/^connection:/, "").replace(/[⟨⟩]/g, "").trim();
+            const connRecord = await db.select(new RecordId("connection", connDbId));
+            const rawConn = Array.isArray(connRecord) ? connRecord[0] : connRecord;
+            if (rawConn) {
+              const conn = normalizeConnection(rawConn) as any;
+              if (conn.endpoint && !s3Endpoint) s3Endpoint = conn.endpoint;
+              if (conn.region && !s3Region) s3Region = conn.region;
+              if (conn.bucket && !s3Bucket) s3Bucket = conn.bucket;
+              if (conn.accessKeyId && !s3AccessKeyId) s3AccessKeyId = conn.accessKeyId;
+              if (conn.secretAccessKey && !s3SecretAccessKey) s3SecretAccessKey = conn.secretAccessKey;
+              if (conn.sessionToken && !s3SessionToken) s3SessionToken = conn.sessionToken;
+              if (conn.prefix && !s3Prefix) s3Prefix = conn.prefix;
+              if (s3ForcePathStyle === undefined && conn.forcePathStyle !== undefined) {
+                s3ForcePathStyle = conn.forcePathStyle;
+              }
+              if (conn.caId && !step.caId) s3CaId = conn.caId;
+              if (s3AcceptInvalidCert === undefined && conn.acceptInvalidCert !== undefined) {
+                s3AcceptInvalidCert = conn.acceptInvalidCert;
+              }
+            }
+          } catch (e) {
+            console.error("[WORKFLOW] Could not resolve S3 connection for step:", e);
+          }
+        }
+
+        // Interpolate any selectedKeys
+        const selectedKeys: string[] = Array.isArray(step.s3SelectedKeys)
+          ? step.s3SelectedKeys
+              .map((k) => interpolateTemplate(String(k || ""), context).trim())
+              .filter(Boolean)
+          : [];
+
+        const rawFmt = step.s3OutputFormat || "uri";
+        const outputFormat: "s3_uri" | "key" | "filename" =
+          rawFmt === "key" ? "key" : rawFmt === "filename" ? "filename" : "s3_uri";
+
+        const caCert = await resolveCaCert(s3CaId);
+        const acceptInvalidCert = s3CaId === ACCEPT_ALL_CA || Boolean(s3AcceptInvalidCert);
+
+        const listResult = await listS3Objects({
+          endpoint: s3Endpoint || "https://s3.amazonaws.com",
+          region: s3Region || "us-east-1",
+          bucket: s3Bucket,
+          accessKeyId: s3AccessKeyId || undefined,
+          secretAccessKey: s3SecretAccessKey || undefined,
+          sessionToken: s3SessionToken || undefined,
+          prefix: s3Prefix || undefined,
+          pattern: s3Pattern || undefined,
+          selectedKeys: selectedKeys.length > 0 ? selectedKeys : undefined,
+          maxKeys: step.s3MaxKeys || 200,
+          forcePathStyle: s3ForcePathStyle !== undefined ? s3ForcePathStyle : true,
+          caCert,
+          acceptInvalidCert,
+          outputFormat,
+        });
+
+        let finalResult = listResult;
+        // Fallback: if S3 endpoint is unreachable at runtime or only static selectedKeys were provided,
+        // still allow static selectedKeys + bucket to resolve s3://bucket/key references cleanly.
+        if (!listResult.success && selectedKeys.length > 0 && s3Bucket) {
+          const fallbackObjects = selectedKeys.map((k) => toS3ObjectItem(s3Bucket, k));
+          finalResult = buildS3ListResult(
+            s3Bucket,
+            s3Endpoint || "https://s3.amazonaws.com",
+            s3Prefix || undefined,
+            fallbackObjects,
+            [],
+            outputFormat,
+            listResult.latencyMs,
+          );
+        }
+
+        const responsePayload = finalResult.success
+          ? {
+              bucket: finalResult.bucket,
+              endpoint: finalResult.endpoint,
+              prefix: finalResult.prefix || "",
+              uri: finalResult.uri,
+              uris: finalResult.uris,
+              file: finalResult.file,
+              files: finalResult.files,
+              key: finalResult.key,
+              keys: finalResult.keys,
+              filename: finalResult.filename,
+              filenames: finalResult.filenames,
+              count: finalResult.count,
+              objects: finalResult.objects,
+            }
+          : undefined;
+
+        const requestMeta = {
+          endpoint: s3Endpoint || "https://s3.amazonaws.com",
+          bucket: s3Bucket,
+          prefix: s3Prefix || "",
+          pattern: s3Pattern || "",
+          selectedKeys,
+          outputFormat: rawFmt,
+        };
+
+        context.steps[step.id] = {
+          request: requestMeta,
+          response: responsePayload,
+          error: !finalResult.success ? finalResult.error : undefined,
+        };
+
+        const logRecord: WorkflowRunLog = {
+          stepId: step.id,
+          stepType: "s3",
+          status: finalResult.success ? "success" : "error",
+          request: requestMeta,
+          response: responsePayload,
+          error: finalResult.error,
+          latencyMs: finalResult.latencyMs,
+        };
+        runRecord.logs.push(logRecord);
+
+        runRecord.context = context;
+        const { id: _t_s3, ...data_s3 } = runRecord;
+        const sId_s3 = new RecordId("workflow_run", dbId);
+        await db.query("UPDATE $id CONTENT $data", { id: sId_s3, data: data_s3 });
+
+        if (!finalResult.success) {
+          emitWorkflowEvent(runId, workflow.id || "", "step_failed", {
+            stepId: step.id,
+            error: finalResult.error,
+            timestamp: new Date().toISOString(),
+          });
+          runRecord.status = "failed";
+          runRecord.endTime = new Date().toISOString();
+          const { id: _t_s3_err, ...data_s3_err } = runRecord;
+          const sId_s3_err = new RecordId("workflow_run", dbId);
+          await db.query("UPDATE $id CONTENT $data", { id: sId_s3_err, data: data_s3_err });
+          return "abort";
+        }
+
+        emitWorkflowEvent(runId, workflow.id || "", "step_complete", {
+          stepId: step.id,
+          response: responsePayload,
+          latencyMs: finalResult.latencyMs,
           timestamp: new Date().toISOString(),
         });
         return "continue";

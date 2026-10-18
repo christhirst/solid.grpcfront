@@ -6,6 +6,7 @@ import {
   testHttpConnection,
   testGrpcConnection,
   testSurrealDbConnection,
+  testS3Connection,
 } from "~/lib/connections";
 
 export async function POST(event: APIEvent) {
@@ -14,7 +15,7 @@ export async function POST(event: APIEvent) {
     let config = body;
 
     // If a connectionId was supplied instead of full params, fetch from DB
-    if (body.connectionId && !body.url && !body.serverAddress) {
+    if (body.connectionId && !body.url && !body.serverAddress && !body.bucket) {
       const db = await getDb();
       const rawId = body.connectionId;
       const dbId = rawId.includes(":") ? rawId.split(":")[1] : rawId;
@@ -36,6 +37,8 @@ export async function POST(event: APIEvent) {
       result = await testGrpcConnection(normalized);
     } else if (normalized.type === "surrealdb") {
       result = await testSurrealDbConnection(normalized);
+    } else if (normalized.type === "s3") {
+      result = await testS3Connection(normalized);
     } else {
       // Default to HTTP
       result = await testHttpConnection(normalized);

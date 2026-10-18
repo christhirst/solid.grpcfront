@@ -39,7 +39,7 @@ export interface StepVariable {
 
 export interface WorkflowStep {
   id: string;
-  type?: "grpc" | "table" | "chart" | "database" | "rest" | "grpc_stream" | "rest_stream" | "surreal_live" | "infographic" | "transform";
+  type?: "grpc" | "table" | "chart" | "database" | "rest" | "grpc_stream" | "rest_stream" | "surreal_live" | "infographic" | "transform" | "s3";
   category?: StepCategory;
   /** Data flow direction: "read" fetches data FROM the source, "write" sends data TO the source. */
   direction?: "read" | "write";
@@ -82,4 +82,16 @@ export interface WorkflowStep {
   authPassword?: string;
   connectionId?: string;
   connectionMode?: "saved" | "custom";
+  // S3 storage step overrides & file selector fields (outputs filenames/URIs only, never binary file content)
+  s3Endpoint?: string;
+  s3Region?: string;
+  s3Bucket?: string;
+  s3AccessKeyId?: string;
+  s3SecretAccessKey?: string;
+  s3Prefix?: string;
+  s3Pattern?: string;
+  s3SelectedKeys?: string[];
+  s3ForcePathStyle?: boolean;
+  s3MaxKeys?: number;
+  s3OutputFormat?: "uri" | "key" | "filename";
 }

@@ -1,6 +1,7 @@
 import { getStepCategory, type StepCategory, type StepVariable } from "~/lib/stepCategories";
 import ReteWorkflowEditor from "~/components/workflow/ReteWorkflowEditor";
 import GrpcMethodPicker, { type ReflectionResult } from "~/components/workflow/GrpcMethodPicker";
+import S3FilePicker from "~/components/workflow/S3FilePicker";
 import { createSignal, createEffect, onMount, onCleanup, For, Show, createResource, createMemo, Index } from "solid-js";
 import { extractFormVariables, checkWorkflowConfiguredInDashboards, detectStepVariables, type VariableConfigStatus } from "~/lib/workflowVariableChecker";
 import { collectFieldNames, type FieldInfo } from "~/lib/dashboard/chartSeries";
@@ -541,7 +542,7 @@ function LogChart(props: { data: any[]; xKey?: string; yKey?: string; chartType?
   );
 }
 
-const DATA_SOURCE_STEP_TYPES = new Set(["grpc", "rest", "database"]);
+const DATA_SOURCE_STEP_TYPES = new Set(["grpc", "rest", "database", "s3"]);
 
 function isDataSourceStep(step: any) {
   return !!step && (!step.type || DATA_SOURCE_STEP_TYPES.has(step.type));
@@ -566,7 +567,7 @@ function SourceStepSelect(props: { steps: any[]; currentIndex: number; value: st
       <For each={sourceSteps()}>
         {(s) => (
           <option value={stepResponseTemplate(s)}>
-            {s.type === "rest" ? "🌐" : s.type === "database" ? "🛢️" : "⚡"} {s.id}{s.type === "rest" ? ` (${s.restUrl || "REST"})` : (s.methodName ? ` (${s.methodName})` : "")}
+            {s.type === "rest" ? "🌐" : s.type === "database" ? "🛢️" : s.type === "s3" ? "🪣" : "⚡"} {s.id}{s.type === "rest" ? ` (${s.restUrl || "REST"})` : s.type === "s3" ? ` (s3://${s.s3Bucket || "bucket"})` : (s.methodName ? ` (${s.methodName})` : "")}
           </option>
         )}
       </For>
@@ -1027,6 +1028,12 @@ export default function WorkflowBuilder() {
        const conn = (connections() || []).find((c: any) => c.type === "http");
        newStep.connectionMode = conn ? "saved" : "custom";
        if (conn) newStep.connectionId = conn.id;
+    } else if (type === "s3") {
+       const conn = (connections() || []).find((c: any) => c.type === "s3");
+       newStep.connectionMode = conn ? "saved" : "custom";
+       if (conn) newStep.connectionId = conn.id;
+       newStep.s3OutputFormat = "uri";
+       newStep.s3SelectedKeys = [];
     }
 
     setSteps(produce((s: any[]) => s.push(newStep)));
@@ -1442,6 +1449,9 @@ export default function WorkflowBuilder() {
                     <button type="button" onClick={() => addStep("database", "source")} class="w-full text-left px-3 py-1.5 text-xs text-amber-300 hover:bg-[#222234] rounded-lg flex items-center gap-2 transition-colors">
                       <span>🗄️</span> Database Query (Source)
                     </button>
+                    <button type="button" onClick={() => addStep("s3", "source")} class="w-full text-left px-3 py-1.5 text-xs text-amber-300 hover:bg-[#222234] rounded-lg flex items-center gap-2 transition-colors">
+                      <span>🪣</span> S3 Storage Files (Source)
+                    </button>
                   </div>
 
                   {/* 2. TRANSFORMS & SERVICE CALLS */}
@@ -1461,6 +1471,9 @@ export default function WorkflowBuilder() {
                     </button>
                     <button type="button" onClick={() => addStep("database", "transform")} class="w-full text-left px-3 py-1.5 text-xs text-amber-300 hover:bg-[#222234] rounded-lg flex items-center gap-2 transition-colors">
                       <span>🗄️</span> Database Mutation / Query
+                    </button>
+                    <button type="button" onClick={() => addStep("s3", "transform")} class="w-full text-left px-3 py-1.5 text-xs text-amber-300 hover:bg-[#222234] rounded-lg flex items-center gap-2 transition-colors">
+                      <span>🪣</span> S3 File Selector (Transform)
                     </button>
                   </div>
 
@@ -1715,6 +1728,7 @@ export default function WorkflowBuilder() {
                             <option value="grpc">⚡ gRPC Request</option>
                             <option value="rest">🌐 HTTP / REST Request</option>
                             <option value="database">🛢️ Database Query</option>
+                            <option value="s3">🪣 S3 Storage Files (Filenames / URIs)</option>
                           </optgroup>
                           <optgroup label="🔀 2. Transforms (Processing)">
                             <option value="transform">🔀 JSONata Transformer / Merger</option>
@@ -1757,7 +1771,7 @@ export default function WorkflowBuilder() {
                   </div>
 
                   {/* Step Direction Override (for source/network steps) */}
-                  <Show when={!step.type || step.type === "grpc" || step.type === "rest" || step.type === "database" || step.type === "grpc_stream" || step.type === "rest_stream" || step.type === "surreal_live"}>
+                  <Show when={!step.type || step.type === "grpc" || step.type === "rest" || step.type === "database" || step.type === "s3" || step.type === "grpc_stream" || step.type === "rest_stream" || step.type === "surreal_live"}>
                     <div class="flex items-center gap-3 mt-2 mb-3">
                       <label class="text-[10px] font-bold text-[#8b8b9e] uppercase tracking-wider">Step Direction</label>
                       <div class="flex rounded-md border border-[#2a2a3a] bg-[#0e0e15] overflow-hidden">
@@ -2018,6 +2032,23 @@ export default function WorkflowBuilder() {
                               value={step.requestBodyTemplate}
                               onInput={(e) => updateStep(index(), "requestBodyTemplate", e.currentTarget.value)}
                             />
+                            <S3FilePicker
+                              mode="quick_insert"
+                              connections={connections() || []}
+                              onInsertReference={(ref) => {
+                                const current = step.requestBodyTemplate || "{}";
+                                try {
+                                  const parsed = JSON.parse(current);
+                                  if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+                                    const fileField = Object.keys(parsed).find((k) => /file|uri|path|key|s3|url/i.test(k)) || "file";
+                                    parsed[fileField] = ref;
+                                    updateStep(index(), "requestBodyTemplate", JSON.stringify(parsed, null, 2));
+                                    return;
+                                  }
+                                } catch {}
+                                updateStep(index(), "requestBodyTemplate", `${current}\n"${ref}"`);
+                              }}
+                            />
                           </div>
                         </div>
                       );
@@ -2274,6 +2305,335 @@ export default function WorkflowBuilder() {
                               />
                             </div>
                           </Show>
+
+                          {/* Quick S3 File Reference Picker for HTTP / REST requests */}
+                          <S3FilePicker
+                            mode="quick_insert"
+                            connections={connections() || []}
+                            onInsertReference={(ref) => {
+                              if (step.restMethod === "GET" || step.restMethod === "DELETE") {
+                                const curUrl = step.restUrl || "";
+                                const sep = curUrl.includes("?") ? "&" : "?";
+                                updateStep(index(), "restUrl", `${curUrl}${sep}file=${encodeURIComponent(ref)}`);
+                                return;
+                              }
+                              const current = step.requestBodyTemplate || "{}";
+                              try {
+                                const parsed = JSON.parse(current);
+                                if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+                                  const fileField = Object.keys(parsed).find((k) => /file|uri|path|key|s3|url/i.test(k)) || "file";
+                                  parsed[fileField] = ref;
+                                  updateStep(index(), "requestBodyTemplate", JSON.stringify(parsed, null, 2));
+                                  return;
+                                }
+                              } catch {}
+                              updateStep(index(), "requestBodyTemplate", JSON.stringify({ file: ref }, null, 2));
+                            }}
+                          />
+                        </div>
+                      );
+                    })()}
+                  </Show>
+
+                  {/* S3 Storage Files Step Configuration */}
+                  <Show when={step.type === "s3"}>
+                    {(() => {
+                      const isCustom = () => {
+                        if (step.connectionMode === "custom") return true;
+                        if (step.connectionMode === "saved") return false;
+                        if (step.connectionId) return false;
+                        if (step.s3Endpoint || step.s3Bucket) return true;
+                        return !(connections() || []).some((c: any) => c.type === "s3");
+                      };
+
+                      return (
+                        <div class="mb-4 space-y-4">
+                          {/* Zero-Copy Info Banner */}
+                          <div class="p-3 rounded-xl bg-amber-500/10 border border-amber-500/25 text-xs text-amber-200 flex items-start gap-2.5">
+                            <span class="text-base leading-none mt-0.5">🪣</span>
+                            <div class="space-y-1">
+                              <div class="font-bold text-amber-300">Zero-Copy S3 File Reference Step</div>
+                              <p class="text-[11px] text-amber-200/80">
+                                Lists or selects filenames from S3 and outputs <code class="font-mono text-amber-300">s3://bucket/key</code> URIs and filenames so downstream HTTP/REST &amp; gRPC services can read directly from S3 without streaming binary files through the Node/Bun app.
+                              </p>
+                              <div class="flex flex-wrap gap-1.5 pt-1 font-mono text-[10px] text-amber-300">
+                                <span class="px-1.5 py-0.5 rounded bg-black/40 border border-amber-500/30">{`{{ steps.${step.id}.response.uri }}`}</span>
+                                <span class="px-1.5 py-0.5 rounded bg-black/40 border border-amber-500/30">{`{{ steps.${step.id}.response.uris }}`}</span>
+                                <span class="px-1.5 py-0.5 rounded bg-black/40 border border-amber-500/30">{`{{ steps.${step.id}.response.filename }}`}</span>
+                                <span class="px-1.5 py-0.5 rounded bg-black/40 border border-amber-500/30">{`{{ steps.${step.id}.response.files }}`}</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Connection Mode Toggle */}
+                          <div class="flex flex-wrap items-center justify-between gap-2 p-2 rounded-xl bg-[#141420] border border-[#2a2a3a]">
+                            <div class="flex items-center gap-2">
+                              <span class="text-xs font-semibold text-[#8b8b9e]">Connection Mode:</span>
+                              <span class="text-[10px] text-[#5b5b6e]">
+                                {isCustom() ? "Directly configuring S3 endpoint & credentials for this step" : "Using preconfigured S3 profile from /connections"}
+                              </span>
+                            </div>
+                            <div class="inline-flex rounded-lg border border-[#2a2a3a] bg-[#0a0a0f] p-0.5">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  updateStep(index(), "connectionMode", "saved");
+                                  if (!step.connectionId) {
+                                    const first = (connections() || []).find((c: any) => c.type === "s3");
+                                    if (first) updateStep(index(), "connectionId", first.id);
+                                  }
+                                }}
+                                class={`px-3 py-1 text-xs rounded-md font-medium transition-all ${!isCustom() ? "bg-amber-600 text-white shadow-sm" : "text-[#8b8b9e] hover:text-white"}`}
+                              >
+                                📦 Saved Connection
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  updateStep(index(), "connectionMode", "custom");
+                                  updateStep(index(), "connectionId", undefined);
+                                }}
+                                class={`px-3 py-1 text-xs rounded-md font-medium transition-all ${isCustom() ? "bg-amber-600 text-white shadow-sm" : "text-[#8b8b9e] hover:text-white"}`}
+                              >
+                                ⚙️ Custom Configuration
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Saved Connection View */}
+                          <Show when={!isCustom()}>
+                            <div class="space-y-3">
+                              <div>
+                                <label class="mb-1 block text-xs font-semibold text-[#8b8b9e] uppercase tracking-wider">Select Saved S3 Connection</label>
+                                <Show
+                                  when={(connections() || []).filter((c: any) => c.type === "s3").length > 0}
+                                  fallback={
+                                    <div class="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-xs text-amber-300 flex items-center justify-between">
+                                      <span>No saved S3 connections found in <code>/connections</code>.</span>
+                                      <a href="/connections" target="_blank" class="px-3 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 rounded-lg font-medium transition-colors">
+                                        + Create S3 Connection ↗
+                                      </a>
+                                    </div>
+                                  }
+                                >
+                                  <select
+                                    class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-amber-500 focus:outline-none"
+                                    value={step.connectionId || ""}
+                                    onChange={(e) => updateStep(index(), "connectionId", e.currentTarget.value)}
+                                  >
+                                    <option value="" disabled={Boolean(step.connectionId)}>Choose a saved S3 connection...</option>
+                                    <For each={(connections() || []).filter((c: any) => c.type === "s3")}>
+                                      {(conn: any) => (
+                                        <option value={conn.id}>🪣 {conn.name} (s3://{conn.bucket || "bucket"})</option>
+                                      )}
+                                    </For>
+                                  </select>
+                                </Show>
+                              </div>
+
+                              <Show when={step.connectionId}>
+                                {(() => {
+                                  const conn = () => (connections() || []).find((c: any) => c.id === step.connectionId);
+                                  return (
+                                    <Show when={conn()}>
+                                      <div class="p-3 rounded-xl bg-gradient-to-r from-amber-500/10 to-orange-500/5 border border-amber-500/30 text-xs flex items-center justify-between">
+                                        <div class="flex items-center gap-3">
+                                          <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-500/20 text-amber-400 text-sm">🪣</span>
+                                          <div>
+                                            <div class="font-semibold text-white">{(conn() as any).name}</div>
+                                            <div class="text-[11px] font-mono text-[#8b8b9e]">
+                                              s3://{(conn() as any).bucket}{(conn() as any).prefix ? `/${(conn() as any).prefix}` : ""} • {(conn() as any).endpoint}
+                                            </div>
+                                          </div>
+                                        </div>
+                                        <a href="/connections" target="_blank" class="text-[11px] text-amber-400 hover:text-amber-300 font-medium underline">
+                                          Manage ↗
+                                        </a>
+                                      </div>
+                                    </Show>
+                                  );
+                                })()}
+                              </Show>
+
+                              {/* Collapsible Overrides */}
+                              <details class="group rounded-xl border border-[#2a2a3a]/60 bg-[#12121c] p-3 text-xs">
+                                <summary class="cursor-pointer font-medium text-[#8b8b9e] hover:text-white flex items-center justify-between list-none select-none">
+                                  <span class="flex items-center gap-1.5">
+                                    <span class="text-[10px] group-open:rotate-90 transition-transform">▶</span>
+                                    <span>Advanced S3 Connection Overrides (Optional)</span>
+                                  </span>
+                                  <span class="text-[10px] text-[#5b5b6e]">Leave blank to use connection defaults</span>
+                                </summary>
+                                <div class="mt-3 pt-3 border-t border-[#2a2a3a] space-y-3">
+                                  <div class="grid grid-cols-2 gap-3">
+                                    <div>
+                                      <label class="mb-1 block text-[11px] text-[#8b8b9e]">Override Bucket Name</label>
+                                      <input
+                                        type="text"
+                                        class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2 text-xs text-white font-mono focus:border-amber-500 focus:outline-none"
+                                        placeholder="Inherited from connection (supports {{ variables }})"
+                                        value={step.s3Bucket || ""}
+                                        onInput={(e) => updateStep(index(), "s3Bucket", e.currentTarget.value)}
+                                      />
+                                    </div>
+                                    <div>
+                                      <label class="mb-1 block text-[11px] text-[#8b8b9e]">Override S3 Endpoint URL</label>
+                                      <input
+                                        type="text"
+                                        class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2 text-xs text-white font-mono focus:border-amber-500 focus:outline-none"
+                                        placeholder="Inherited from connection"
+                                        value={step.s3Endpoint || ""}
+                                        onInput={(e) => updateStep(index(), "s3Endpoint", e.currentTarget.value)}
+                                      />
+                                    </div>
+                                  </div>
+                                  <div class="grid grid-cols-2 gap-3">
+                                    <div>
+                                      <label class="mb-1 block text-[11px] text-[#8b8b9e]">Override Access Key ID</label>
+                                      <input
+                                        type="text"
+                                        class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2 text-xs text-white font-mono focus:border-amber-500 focus:outline-none"
+                                        placeholder="Inherited"
+                                        value={step.s3AccessKeyId || ""}
+                                        onInput={(e) => updateStep(index(), "s3AccessKeyId", e.currentTarget.value)}
+                                      />
+                                    </div>
+                                    <div>
+                                      <label class="mb-1 block text-[11px] text-[#8b8b9e]">Override Secret Access Key</label>
+                                      <input
+                                        type="password"
+                                        class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2 text-xs text-white font-mono focus:border-amber-500 focus:outline-none"
+                                        placeholder="Inherited"
+                                        value={step.s3SecretAccessKey || ""}
+                                        onInput={(e) => updateStep(index(), "s3SecretAccessKey", e.currentTarget.value)}
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+                              </details>
+                            </div>
+                          </Show>
+
+                          {/* Custom Manual Configuration View */}
+                          <Show when={isCustom()}>
+                            <div class="space-y-3">
+                              <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                <div class="sm:col-span-2">
+                                  <label class="mb-1 block text-xs text-[#8b8b9e]">S3 Endpoint URL</label>
+                                  <input
+                                    type="text"
+                                    class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2.5 text-sm text-white font-mono focus:border-amber-500 focus:outline-none"
+                                    placeholder="https://s3.amazonaws.com or http://localhost:9000"
+                                    value={step.s3Endpoint || ""}
+                                    onInput={(e) => updateStep(index(), "s3Endpoint", e.currentTarget.value)}
+                                  />
+                                </div>
+                                <div>
+                                  <label class="mb-1 block text-xs text-[#8b8b9e]">Region</label>
+                                  <input
+                                    type="text"
+                                    class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2.5 text-sm text-white font-mono focus:border-amber-500 focus:outline-none"
+                                    placeholder="us-east-1"
+                                    value={step.s3Region || ""}
+                                    onInput={(e) => updateStep(index(), "s3Region", e.currentTarget.value)}
+                                  />
+                                </div>
+                              </div>
+                              <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                <div>
+                                  <label class="mb-1 block text-xs text-[#8b8b9e]">Bucket Name <span class="text-[10px] text-[#5b5b6e]">(supports {'{{ vars }}'})</span></label>
+                                  <input
+                                    type="text"
+                                    class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2.5 text-sm text-white font-mono focus:border-amber-500 focus:outline-none"
+                                    placeholder="my-data-bucket"
+                                    value={step.s3Bucket || ""}
+                                    onInput={(e) => updateStep(index(), "s3Bucket", e.currentTarget.value)}
+                                  />
+                                </div>
+                                <div>
+                                  <label class="mb-1 block text-xs text-[#8b8b9e]">Access Key ID</label>
+                                  <input
+                                    type="text"
+                                    class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2.5 text-sm text-white font-mono focus:border-amber-500 focus:outline-none"
+                                    placeholder="AKIA..."
+                                    value={step.s3AccessKeyId || ""}
+                                    onInput={(e) => updateStep(index(), "s3AccessKeyId", e.currentTarget.value)}
+                                  />
+                                </div>
+                                <div>
+                                  <label class="mb-1 block text-xs text-[#8b8b9e]">Secret Access Key</label>
+                                  <input
+                                    type="password"
+                                    class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2.5 text-sm text-white font-mono focus:border-amber-500 focus:outline-none"
+                                    placeholder="••••••••"
+                                    value={step.s3SecretAccessKey || ""}
+                                    onInput={(e) => updateStep(index(), "s3SecretAccessKey", e.currentTarget.value)}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          </Show>
+
+                          {/* Common S3 Filter & Output Format Controls */}
+                          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                            <div>
+                              <label class="mb-1 block text-xs font-semibold text-[#8b8b9e]">
+                                Folder Prefix <span class="text-[10px] text-[#5b5b6e]">(supports {'{{ vars }}'})</span>
+                              </label>
+                              <input
+                                type="text"
+                                class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2.5 text-sm text-white font-mono focus:border-amber-500 focus:outline-none"
+                                placeholder="e.g. incoming/2026/"
+                                value={step.s3Prefix || ""}
+                                onInput={(e) => updateStep(index(), "s3Prefix", e.currentTarget.value)}
+                              />
+                            </div>
+                            <div>
+                              <label class="mb-1 block text-xs font-semibold text-[#8b8b9e]">
+                                Filename / Pattern Filter <span class="text-[10px] text-[#5b5b6e]">(glob or substring)</span>
+                              </label>
+                              <input
+                                type="text"
+                                class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2.5 text-sm text-white font-mono focus:border-amber-500 focus:outline-none"
+                                placeholder="e.g. *.csv or {{ form.filename }}"
+                                value={step.s3Pattern || ""}
+                                onInput={(e) => updateStep(index(), "s3Pattern", e.currentTarget.value)}
+                              />
+                            </div>
+                            <div>
+                              <label class="mb-1 block text-xs font-semibold text-[#8b8b9e]">
+                                Primary <code class="font-mono text-amber-300">.file / .files</code> Format
+                              </label>
+                              <select
+                                class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-amber-500 focus:outline-none"
+                                value={step.s3OutputFormat || "uri"}
+                                onChange={(e) => updateStep(index(), "s3OutputFormat", e.currentTarget.value)}
+                              >
+                                <option value="uri">S3 URI (s3://bucket/folder/file.ext)</option>
+                                <option value="key">Object Key (folder/file.ext)</option>
+                                <option value="filename">Basename Only (file.ext)</option>
+                              </select>
+                            </div>
+                          </div>
+
+                          {/* Interactive S3 Bucket Browser & File Selector */}
+                          <S3FilePicker
+                            mode="step"
+                            connections={connections() || []}
+                            connectionId={step.connectionId}
+                            endpoint={step.s3Endpoint}
+                            region={step.s3Region}
+                            bucket={step.s3Bucket}
+                            accessKeyId={step.s3AccessKeyId}
+                            secretAccessKey={step.s3SecretAccessKey}
+                            prefix={step.s3Prefix}
+                            pattern={step.s3Pattern}
+                            forcePathStyle={step.s3ForcePathStyle}
+                            caId={step.caId}
+                            acceptInvalidCert={step.acceptInvalidCert}
+                            selectedKeys={step.s3SelectedKeys || []}
+                            onChangeSelectedKeys={(keys) => updateStep(index(), "s3SelectedKeys", keys)}
+                          />
                         </div>
                       );
                     })()}
@@ -2966,7 +3326,7 @@ export default function WorkflowBuilder() {
                                   </Show>
                                 </div>
                                 
-                                <Show when={!step.type || step.type === "grpc" || step.type === "rest" || step.type === "database" || step.type === "transform"}>
+                                <Show when={!step.type || step.type === "grpc" || step.type === "rest" || step.type === "database" || step.type === "transform" || step.type === "s3"}>
                                   <div class="flex p-0.5 bg-[#12121a] border border-[#2a2a3a] rounded-lg shadow-sm">
                                     <button
                                       type="button"
@@ -2997,7 +3357,7 @@ export default function WorkflowBuilder() {
                               </div>
                               
                               <div class="flex-1 flex flex-col justify-start overflow-hidden">
-                                <Show when={!step.type || step.type === "grpc" || step.type === "rest" || step.type === "database" || step.type === "transform"}>
+                                <Show when={!step.type || step.type === "grpc" || step.type === "rest" || step.type === "database" || step.type === "transform" || step.type === "s3"}>
                                   <Show when={resultTab() === "payload"}>
                                     <pre class="text-[11px] text-blue-300 font-mono overflow-auto max-h-[140px] bg-[#0a0a0f] p-2.5 rounded-lg border border-[#2a2a3a]/40 custom-scrollbar whitespace-pre-wrap break-all flex-1">
                                       {JSON.stringify(log()!.request, null, 2)}

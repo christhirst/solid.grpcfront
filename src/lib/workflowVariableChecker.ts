@@ -54,6 +54,9 @@ export function detectStepVariables(step: any): StepVariable[] {
     step.databasePass,
     step.databaseNs,
     step.transformExpression,
+    step.s3Bucket,
+    step.s3Prefix,
+    step.s3Pattern,
   ].filter(Boolean) as string[];
 
   const detectedTokens: StepVariable[] = [];
