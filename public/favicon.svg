@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="165 170 670 670" width="100%" height="100%">
+  <defs>
+    <!-- Subtle drop shadow matching the image style -->
+    <filter id="soft-shadow" x="-20%" y="-20%" width="150%" height="150%">
+      <feDropShadow dx="2" dy="5" stdDeviation="6" flood-color="#555" flood-opacity="0.28" />
+    </filter>
+
+    <!-- Clip path to keep grid strictly inside the main face circle -->
+    <clipPath id="circle-clip">
+      <circle cx="500" cy="505" r="325" />
+    </clipPath>
+
+    <!-- Repeated background grid pattern -->
+    <pattern id="grid" width="22" height="22" patternUnits="userSpaceOnUse">
+      <path d="M 22 0 L 0 0 0 22" fill="none" stroke="#C6C8CB" stroke-width="2.5" />
+    </pattern>
+
+    <!-- Data / Chart pattern for inside the smile -->
+    <pattern id="data-icons" width="80" height="60" patternUnits="userSpaceOnUse">
+      <!-- Mini bar charts -->
+      <rect x="5" y="18" width="3" height="12" fill="#B3B7BB" />
+      <rect x="10" y="12" width="3" height="18" fill="#9AA0A6" />
+      <rect x="15" y="8" width="3" height="22" fill="#B3B7BB" />
+
+      <!-- Mini table / grid icon -->
+      <rect x="25" y="8" width="18" height="14" fill="none" stroke="#9AA0A6" stroke-width="1.2" />
+      <line x1="25" y1="13" x2="43" y2="13" stroke="#9AA0A6" stroke-width="1.2" />
+      <line x1="31" y1="8" x2="31" y2="22" stroke="#9AA0A6" stroke-width="1.2" />
+      <line x1="37" y1="8" x2="37" y2="22" stroke="#9AA0A6" stroke-width="1.2" />
+
+      <!-- Mini pie chart icon -->
+      <circle cx="58" cy="15" r="8" fill="none" stroke="#9AA0A6" stroke-width="1.5" />
+      <path d="M 58 15 L 58 7 A 8 8 0 0 1 65 19 Z" fill="#B3B7BB" />
+
+      <!-- Mini line chart -->
+      <polyline points="5,48 14,40 22,46 32,36" fill="none" stroke="#9AA0A6" stroke-width="1.5" />
+      <circle cx="32" cy="36" r="1.5" fill="#9AA0A6" />
+
+      <!-- Mini network icon -->
+      <circle cx="55" cy="45" r="3" fill="#B3B7BB" />
+      <circle cx="43" cy="38" r="2" fill="#9AA0A6" />
+      <circle cx="67" cy="38" r="2" fill="#9AA0A6" />
+      <circle cx="55" cy="56" r="2" fill="#9AA0A6" />
+      <line x1="55" y1="45" x2="43" y2="38" stroke="#B3B7BB" stroke-width="1.2" />
+      <line x1="55" y1="45" x2="67" y2="38" stroke="#B3B7BB" stroke-width="1.2" />
+      <line x1="55" y1="45" x2="55" y2="56" stroke="#B3B7BB" stroke-width="1.2" />
+    </pattern>
+  </defs>
+
+  <!-- 1. Circular Grid Base -->
+  <g clip-path="url(#circle-clip)">
+    <!-- Optional: pure white background only inside the circle -->
+    <circle cx="500" cy="505" r="325" fill="#FFFFFF" />
+    <!-- Grid overlay -->
+    <rect x="150" y="150" width="700" height="700" fill="url(#grid)" />
+  </g>
+
+  <!-- Face Outline Ring -->
+  <circle cx="500" cy="505" r="325" fill="none" stroke="#C6C8CB" stroke-width="5" />
+
+  <!-- 2. Left Eye: 5-Point Star -->
+  <polygon points="360,250 404,342 505,355 432,425 450,525 360,477 270,525 288,425 215,355 316,342" fill="#FFFFFF" stroke="#D1D3D6" stroke-width="3" stroke-linejoin="round" filter="url(#soft-shadow)" />
+
+  <!-- 3. Right Eye: Central Node & Satellite Network -->
+  <g filter="url(#soft-shadow)">
+    <!-- Network Connector Spokes -->
+    <line x1="650" y1="385" x2="650" y2="280" stroke="#FFFFFF" stroke-width="14" stroke-linecap="round" />
+    <line x1="650" y1="385" x2="540" y2="355" stroke="#FFFFFF" stroke-width="14" stroke-linecap="round" />
+    <line x1="650" y1="385" x2="585" y2="480" stroke="#FFFFFF" stroke-width="14" stroke-linecap="round" />
+    <line x1="650" y1="385" x2="715" y2="480" stroke="#FFFFFF" stroke-width="14" stroke-linecap="round" />
+    <line x1="650" y1="385" x2="760" y2="355" stroke="#FFFFFF" stroke-width="14" stroke-linecap="round" />
+
+    <!-- Outer Nodes -->
+    <circle cx="650" cy="280" r="25" fill="#FFFFFF" stroke="#D1D3D6" stroke-width="2.5" />
+    <circle cx="540" cy="355" r="25" fill="#FFFFFF" stroke="#D1D3D6" stroke-width="2.5" />
+    <circle cx="585" cy="480" r="25" fill="#FFFFFF" stroke="#D1D3D6" stroke-width="2.5" />
+    <circle cx="715" cy="480" r="25" fill="#FFFFFF" stroke="#D1D3D6" stroke-width="2.5" />
+    <circle cx="760" cy="355" r="25" fill="#FFFFFF" stroke="#D1D3D6" stroke-width="2.5" />
+
+    <!-- Center Hub Node -->
+    <circle cx="650" cy="385" r="38" fill="#FFFFFF" stroke="#D1D3D6" stroke-width="2.5" />
+  </g>
+
+  <!-- 4. Smile Mouth with Analytics Texture -->
+  <g filter="url(#soft-shadow)">
+    <!-- Base Semi-Circle -->
+    <path d="M 285 535 C 295 750, 705 750, 715 535 Z" fill="#FFFFFF" />
+    <!-- Data Texture Overlay -->
+    <path d="M 285 535 C 295 750, 705 750, 715 535 Z" fill="url(#data-icons)" fill-opacity="0.85" />
+    <!-- Crisp Border Around Mouth -->
+    <path d="M 285 535 C 295 750, 705 750, 715 535 Z" fill="none" stroke="#B8BCC0" stroke-width="4" stroke-linejoin="round" />
+  </g>
+</svg>
