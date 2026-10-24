@@ -1,4 +1,4 @@
-import { createSignal, createEffect, Show, For, onMount, createResource } from "solid-js";
+import { createSignal, createEffect, Show, For, Index, onMount, createResource } from "solid-js";
 import { isServer } from "solid-js/web";
 import { parseProtoContent, generateSkeleton, type ParsedProto, type ProtoMethod } from "~/lib/protoParser";
 import { Line } from "solid-chartjs";
@@ -904,16 +904,16 @@ export default function RequestsClient() {
               </div>
 
               <div class="space-y-2">
-                <For each={headers()}>
+                <Index each={headers()}>
                   {(header, index) => (
                     <div class="flex gap-2">
                       <input
                         type="text"
                         placeholder="Key"
-                        value={header.key}
+                        value={header().key}
                         onInput={(e) => {
                           const newHeaders = [...headers()];
-                          newHeaders[index()] = { ...newHeaders[index()], key: e.currentTarget.value };
+                          newHeaders[index] = { ...newHeaders[index], key: e.currentTarget.value };
                           setHeaders(newHeaders);
                         }}
                         class="flex-1 rounded-lg border border-[#1e1e2e] bg-[#12121a] px-2 py-1.5 text-xs text-white placeholder-[#3a3a4e] focus:outline-none focus:border-[#3b82f6]"
@@ -921,10 +921,10 @@ export default function RequestsClient() {
                       <input
                         type="text"
                         placeholder="Value"
-                        value={header.value}
+                        value={header().value}
                         onInput={(e) => {
                           const newHeaders = [...headers()];
-                          newHeaders[index()] = { ...newHeaders[index()], value: e.currentTarget.value };
+                          newHeaders[index] = { ...newHeaders[index], value: e.currentTarget.value };
                           setHeaders(newHeaders);
                         }}
                         class="flex-1 rounded-lg border border-[#1e1e2e] bg-[#12121a] px-2 py-1.5 text-xs text-white placeholder-[#3a3a4e] focus:outline-none focus:border-[#3b82f6]"
@@ -932,7 +932,7 @@ export default function RequestsClient() {
                       <button
                         onClick={() => {
                           const newHeaders = [...headers()];
-                          newHeaders.splice(index(), 1);
+                          newHeaders.splice(index, 1);
                           setHeaders(newHeaders);
                         }}
                         class="text-[#5a5a6e] hover:text-red-400 transition-colors px-1"
@@ -941,7 +941,7 @@ export default function RequestsClient() {
                       </button>
                     </div>
                   )}
-                </For>
+                </Index>
                 <Show when={headers().length === 0}>
                   <p class="text-[10px] text-[#3a3a4e] text-center py-2 italic">No custom headers defined</p>
                 </Show>
@@ -1259,16 +1259,16 @@ export default function RequestsClient() {
                     {/* Column Mapping UI */}
                     <div class="flex items-center gap-2 mt-2">
                       <span class="text-sm text-[#c8c8d8]">Columns:</span>
-                      <For each={tableHeaders()}>
+                      <Index each={tableHeaders()}>
                         {(col, i) => (
                           <div class="flex gap-2 items-center">
                             <input
                               type="text"
                               placeholder="Header"
-                              value={col.header}
+                              value={col().header}
                               onInput={(e) => {
                                 const newHeaders = [...tableHeaders()];
-                                newHeaders[i()] = { ...newHeaders[i()], header: e.currentTarget.value };
+                                newHeaders[i] = { ...newHeaders[i], header: e.currentTarget.value };
                                 setTableHeaders(newHeaders);
                               }}
                               class="rounded-lg border border-[#1e1e2e] bg-[#12121a] px-2 py-1.5 text-xs text-white placeholder-[#3a3a4e] focus:outline-none focus:border-[#3b82f6]"
@@ -1276,10 +1276,10 @@ export default function RequestsClient() {
                             <input
                               type="text"
                               placeholder="JSON Key"
-                              value={col.key}
+                              value={col().key}
                               onInput={(e) => {
                                 const newHeaders = [...tableHeaders()];
-                                newHeaders[i()] = { ...newHeaders[i()], key: e.currentTarget.value };
+                                newHeaders[i] = { ...newHeaders[i], key: e.currentTarget.value };
                                 setTableHeaders(newHeaders);
                               }}
                               class="rounded-lg border border-[#1e1e2e] bg-[#12121a] px-2 py-1.5 text-xs text-white placeholder-[#3a3a4e] focus:outline-none focus:border-[#3b82f6]"
@@ -1287,7 +1287,7 @@ export default function RequestsClient() {
                             <button
                               onClick={() => {
                                 const newHeaders = [...tableHeaders()];
-                                newHeaders.splice(i(), 1);
+                                newHeaders.splice(i, 1);
                                 setTableHeaders(newHeaders);
                               }}
                               class="text-[#5a5a6e] hover:text-red-400 transition-colors"
@@ -1296,7 +1296,7 @@ export default function RequestsClient() {
                             </button>
                           </div>
                         )}
-                      </For>
+                      </Index>
                       <button
                         onClick={() => setTableHeaders([...tableHeaders(), { header: "", key: "" }])}
                         class="text-[10px] font-medium text-emerald-400 hover:text-emerald-300 transition-colors"

@@ -31,7 +31,10 @@ export async function POST(event: APIEvent) {
       });
     }
 
-    const workflow = Array.isArray(records) ? records[0] : records;
+    const workflow = {
+      ...(Array.isArray(records) ? records[0] : records),
+      id: `workflow:${dbId}`,
+    };
     const hasRealOwner = Boolean(workflow.owner && workflow.owner !== "anonymous");
     const hasTags = Array.isArray(workflow.tags) && workflow.tags.length > 0;
     if ((hasRealOwner || hasTags) && ctx.sub !== "anonymous" && !canAccessResource(ctx, workflow, "use")) {

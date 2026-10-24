@@ -5,6 +5,7 @@ import { RecordId } from "surrealdb";
 import { scheduleWorkflow } from "~/lib/workflowScheduler";
 import { getEffectiveAccessContext, getOwnerFromRequest } from "~/lib/auth";
 import { canAccessResource, getResourcePermissions, normalizeGroupName } from "~/lib/groupAuth";
+import { readJsonBody } from "~/lib/requestUtils";
 
 export async function GET(event: APIEvent) {
   try {
@@ -61,7 +62,7 @@ export async function GET(event: APIEvent) {
 export async function POST(event: APIEvent) {
   try {
     const db = await getDb();
-    const body = await new Response(event.request.body).json();
+    const body = await readJsonBody(event);
     const owner = await getOwnerFromRequest(event.request);
     const ctx = await getEffectiveAccessContext(event.request, db);
 

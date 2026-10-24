@@ -46,8 +46,11 @@ export function detectStepVariables(step: any): StepVariable[] {
 
   const textsToScan = [
     step.requestBodyTemplate,
+    typeof step.body === "string" ? step.body : undefined,
     step.headersTemplate,
+    typeof step.headers === "string" ? step.headers : undefined,
     step.restUrl,
+    step.url,
     step.databaseName,
     step.databaseUrl,
     step.databaseUser,

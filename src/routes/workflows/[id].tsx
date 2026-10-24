@@ -578,7 +578,7 @@ function SourceStepSelect(props: { steps: any[]; currentIndex: number; value: st
 export default function WorkflowBuilder() {
   const params = useParams();
   const navigate = useNavigate();
-  const isNew = params.id === "new";
+  const isNew = () => params.id === "new";
 
   // Form state
   const [name, setName] = createSignal("New Workflow");
@@ -598,7 +598,7 @@ export default function WorkflowBuilder() {
     
     // Fallback: If createResource didn't load during SSR properly, force fetch
     if (!savedProtos()) refetchProtos();
-    if (!isNew && !workflow()) refetchWorkflow();
+    if (!isNew() && !workflow()) refetchWorkflow();
 
     document.addEventListener('focusin', (e) => {
       const t = e.target as HTMLElement;
@@ -751,57 +751,70 @@ export default function WorkflowBuilder() {
   const [runId, setRunId] = createSignal<string | null>(null);
   const [runData, setRunData] = createSignal<any>(null);
   const [isRunning, setIsRunning] = createSignal(false);
+  const [isSaving, setIsSaving] = createSignal(false);
+  const [actionMessage, setActionMessage] = createSignal<{ type: "success" | "error"; text: string } | null>(null);
   const [liveStreamEvents, setLiveStreamEvents] = createSignal<any[]>([]);
 
   const runWorkflowStreaming = async () => {
-    await saveWorkflow();
-    if (isNew) return;
-
     setIsRunning(true);
     setRunData(null);
     setLiveStreamEvents([]);
+    setActionMessage(null);
 
-    const res = await fetch(`/api/workflows/${params.id}/run`, { method: "POST" });
-    const json = await res.json();
-
-    if (json.success) {
-      setRunId(json.runId);
-      const es = new EventSource(`/api/workflows/runs/${json.runId}/stream`);
-
-      const appendEvent = (e: MessageEvent) => {
-        try {
-          const payload = JSON.parse(e.data);
-          setLiveStreamEvents((prev) => [...prev, payload]);
-        } catch {}
-      };
-
-      es.onmessage = appendEvent;
-      ["workflow_start", "step_start", "step_chunk", "step_complete", "step_failed", "workflow_complete", "workflow_failed"].forEach((evtName) => {
-        es.addEventListener(evtName, appendEvent as any);
-      });
-
-      const handleEnd = () => {
-        es.close();
-        pollRunData(json.runId);
-      };
-
-      es.addEventListener("workflow_complete", handleEnd);
-      es.addEventListener("workflow_failed", handleEnd);
-
-      es.onerror = () => {
-        es.close();
+    try {
+      const savedId = await saveWorkflow();
+      const targetId = savedId || (!isNew() ? params.id : null);
+      if (!targetId || targetId === "new") {
         setIsRunning(false);
-      };
-    } else {
-      alert("Failed to start stream run: " + json.error);
+        return;
+      }
+
+      const res = await fetch(`/api/workflows/${targetId}/run`, { method: "POST" });
+      const json = await res.json();
+
+      if (json.success) {
+        setRunId(json.runId);
+        const es = new EventSource(`/api/workflows/runs/${json.runId}/stream`);
+
+        const appendEvent = (e: MessageEvent) => {
+          try {
+            const payload = JSON.parse(e.data);
+            setLiveStreamEvents((prev) => [...prev, payload]);
+          } catch {}
+        };
+
+        es.onmessage = appendEvent;
+        ["workflow_start", "step_start", "step_chunk", "step_complete", "step_failed", "workflow_complete", "workflow_failed"].forEach((evtName) => {
+          es.addEventListener(evtName, appendEvent as any);
+        });
+
+        const handleEnd = () => {
+          es.close();
+          pollRunData(json.runId);
+        };
+
+        es.addEventListener("workflow_complete", handleEnd);
+        es.addEventListener("workflow_failed", handleEnd);
+
+        es.onerror = () => {
+          es.close();
+          setIsRunning(false);
+        };
+      } else {
+        setActionMessage({ type: "error", text: "Failed to start stream run: " + (json.error || `HTTP ${res.status}`) });
+        setIsRunning(false);
+      }
+    } catch (e: any) {
+      setActionMessage({ type: "error", text: "Failed to start stream run: " + (e.message || String(e)) });
       setIsRunning(false);
     }
   };
 
 
-  const fetchWorkflow = async () => {
-    const url = isServer ? `http://127.0.0.1:${process.env.PORT || 3000}/api/workflows/${params.id}` : `/api/workflows/${params.id}`;
-    if (isNew) return null;
+  const fetchWorkflow = async (idParam?: string) => {
+    const targetId = idParam || params.id;
+    if (!targetId || targetId === "new") return null;
+    const url = isServer ? `http://127.0.0.1:${process.env.PORT || 3000}/api/workflows/${targetId}` : `/api/workflows/${targetId}`;
     try {
       const res = await fetch(url);
       const json = await res.json();
@@ -814,7 +827,7 @@ export default function WorkflowBuilder() {
     return null;
   };
 
-  const [workflow, { refetch: refetchWorkflow }] = createResource(params.id, fetchWorkflow);
+  const [workflow, { refetch: refetchWorkflow }] = createResource(() => params.id, fetchWorkflow);
 
   const varConfigStatus = createMemo(() => {
     const data = workflow();
@@ -885,18 +898,25 @@ export default function WorkflowBuilder() {
             sources = [];
           }
         }
+        const isRestStep = s.type === "rest" || s.type === "rest_stream";
         return {
           ...s,
           category: cat,
           sourceStepIds: sources,
+          ...(isRestStep ? {
+            restUrl: s.restUrl || s.url || "",
+            restMethod: s.restMethod || s.method || (s.direction === "write" ? "POST" : "GET"),
+            headersTemplate: s.headersTemplate || (typeof s.headers === "string" ? s.headers : s.headers ? JSON.stringify(s.headers, null, 2) : "{}"),
+            requestBodyTemplate: s.requestBodyTemplate || (typeof s.body === "string" ? s.body : s.body ? JSON.stringify(s.body, null, 2) : "{}"),
+          } : {}),
           columns: Array.isArray(s.columns) ? s.columns.filter((c: string) => typeof c === "string" && c.trim().length > 0) : s.columns,
         };
       });
       
       setSteps(reconcile(normalizedSteps));
 
-      if (!isServer && !isNew && !runData()) {
-        const cleanId = (data.id || params.id).replace(/[⟨⟩]/g, "").replace(/^workflow:/, "");
+      if (!isServer && !isNew() && !runData()) {
+        const cleanId = String(data.id || params.id).replace(/[⟨⟩]/g, "").replace(/^workflow:/, "");
         fetch(`/api/workflows/${cleanId}/run`)
           .then((res) => res.json())
           .then((json) => {
@@ -940,43 +960,64 @@ export default function WorkflowBuilder() {
     }
   });
 
-  const saveWorkflow = async () => {
-    const payload = {
-      id: isNew ? undefined : `workflow:${params.id}`,
-      name: name(),
-      tags: tags(),
-      direction: direction(),
-      protoId: protoId() || undefined,
-      caId: caId() || undefined,
-      serverAddress: serverAddress(),
-      useTls: useTls(), // retained for backward compatibility; caId is the source of truth
-      schedule: schedule(),
-      connectionId: connectionId() || undefined,
-      graph: graphData() || workflow()?.graph || undefined,
-      steps: steps.map(s => ({
-        ...s,
-        type: s.type || "grpc",
-        columns: Array.isArray(s.columns) ? s.columns.filter((c: string) => typeof c === "string" && c.trim().length > 0) : s.columns,
-      })),
-    };
+  const saveWorkflow = async (): Promise<string | null> => {
+    setIsSaving(true);
+    setActionMessage(null);
+    try {
+      const currentIsNew = isNew();
+      const payload = {
+        id: currentIsNew ? undefined : `workflow:${params.id}`,
+        name: name(),
+        tags: tags(),
+        direction: direction(),
+        protoId: protoId() || undefined,
+        caId: caId() || undefined,
+        serverAddress: serverAddress(),
+        useTls: useTls(), // retained for backward compatibility; caId is the source of truth
+        schedule: schedule(),
+        connectionId: connectionId() || undefined,
+        graph: graphData() || workflow()?.graph || undefined,
+        steps: steps.map(s => ({
+          ...s,
+          type: s.type || "grpc",
+          columns: Array.isArray(s.columns) ? s.columns.filter((c: string) => typeof c === "string" && c.trim().length > 0) : s.columns,
+        })),
+      };
 
-    const endpoint = isNew ? "/api/workflows" : `/api/workflows/${params.id}`;
-    const method = isNew ? "POST" : "PUT";
+      const endpoint = currentIsNew ? "/api/workflows" : `/api/workflows/${params.id}`;
+      const method = currentIsNew ? "POST" : "PUT";
 
-    const res = await fetch(endpoint, {
-      method,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    
-    const json = await res.json();
-    if (json.success) {
-      window.dispatchEvent(new CustomEvent("user-groups-changed"));
-      if (isNew) {
-        navigate(`/workflows/${json.data.id.split(":")[1]}`);
+      const res = await fetch(endpoint, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      
+      const json = await res.json();
+      if (json.success) {
+        window.dispatchEvent(new CustomEvent("user-groups-changed"));
+        const rawSavedId = String(json.data?.id || params.id || "");
+        const cleanId = rawSavedId.includes(":")
+          ? rawSavedId.split(":").slice(1).join(":").replace(/[⟨⟩]/g, "")
+          : rawSavedId.replace(/[⟨⟩]/g, "");
+        if (currentIsNew && cleanId && cleanId !== "new") {
+          navigate(`/workflows/${cleanId}`);
+        }
+        setActionMessage({ type: "success", text: "Workflow saved." });
+        setTimeout(() => {
+          setActionMessage((prev) => (prev?.type === "success" ? null : prev));
+        }, 3000);
+        return cleanId && cleanId !== "new" ? cleanId : null;
+      } else {
+        const errMsg = json.error || `HTTP ${res.status}`;
+        setActionMessage({ type: "error", text: `Failed to save workflow: ${errMsg}` });
+        return null;
       }
-    } else {
-      alert("Failed to save: " + json.error);
+    } catch (e: any) {
+      setActionMessage({ type: "error", text: `Failed to save workflow: ${e.message || String(e)}` });
+      return null;
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -1063,23 +1104,32 @@ export default function WorkflowBuilder() {
   };
 
   const runWorkflow = async () => {
-    // 1. Save it first
-    await saveWorkflow();
-    const targetId = isNew ? "temp" : params.id; // Ideally block run on new until saved
-    if (isNew) return; // For simplicity, we navigate on save so user can hit run on the new URL
-
     setIsRunning(true);
     setRunData(null);
+    setActionMessage(null);
 
-    // 2. Trigger run
-    const res = await fetch(`/api/workflows/${params.id}/run`, { method: "POST" });
-    const json = await res.json();
+    try {
+      // 1. Save it first and obtain the target workflow ID
+      const savedId = await saveWorkflow();
+      const targetId = savedId || (!isNew() ? params.id : null);
+      if (!targetId || targetId === "new") {
+        setIsRunning(false);
+        return;
+      }
 
-    if (json.success) {
-      setRunId(json.runId);
-      pollRunData(json.runId);
-    } else {
-      alert("Failed to start run: " + json.error);
+      // 2. Trigger run
+      const res = await fetch(`/api/workflows/${targetId}/run`, { method: "POST" });
+      const json = await res.json();
+
+      if (json.success) {
+        setRunId(json.runId);
+        pollRunData(json.runId);
+      } else {
+        setActionMessage({ type: "error", text: "Failed to start run: " + (json.error || `HTTP ${res.status}`) });
+        setIsRunning(false);
+      }
+    } catch (e: any) {
+      setActionMessage({ type: "error", text: "Failed to start run: " + (e.message || String(e)) });
       setIsRunning(false);
     }
   };
@@ -1237,8 +1287,10 @@ export default function WorkflowBuilder() {
             Settings
           </button>
           
-          <button onClick={saveWorkflow} class="btn-secondary">Save Flow</button>
-          <button onClick={runWorkflow} class="btn-primary flex items-center gap-2" disabled={isNew || isRunning()}>
+          <button onClick={() => saveWorkflow()} class="btn-secondary" disabled={isSaving() || isRunning()}>
+            {isSaving() ? "Saving..." : "Save Flow"}
+          </button>
+          <button onClick={runWorkflow} class="btn-primary flex items-center gap-2" disabled={isRunning() || isSaving()}>
             {isRunning() ? (
               <svg class="animate-spin h-4 w-4 text-white" viewBox="0 0 24 24" fill="none">
                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -1249,11 +1301,30 @@ export default function WorkflowBuilder() {
             )}
             Run
           </button>
-          <button onClick={runWorkflowStreaming} class="btn-primary bg-purple-600 hover:bg-purple-700 shadow-purple-500/20 flex items-center gap-2" disabled={isNew || isRunning()}>
+          <button onClick={runWorkflowStreaming} class="btn-primary bg-purple-600 hover:bg-purple-700 shadow-purple-500/20 flex items-center gap-2" disabled={isRunning() || isSaving()}>
             <span>📡</span> Stream Run
           </button>
         </div>
       </div>
+
+      <Show when={actionMessage()}>
+        <div
+          class={`mb-6 p-3.5 rounded-xl border flex items-center justify-between text-xs font-semibold ${
+            actionMessage()!.type === "error"
+              ? "bg-red-500/10 border-red-500/30 text-red-300"
+              : "bg-emerald-500/10 border-emerald-500/30 text-emerald-300"
+          }`}
+        >
+          <span>{actionMessage()!.type === "error" ? "⚠️ " : "✓ "}{actionMessage()!.text}</span>
+          <button
+            type="button"
+            onClick={() => setActionMessage(null)}
+            class="text-[11px] opacity-70 hover:opacity-100 ml-3"
+          >
+            ✕
+          </button>
+        </div>
+      </Show>
 
       {/* Translucent Dashboard Variable Status Banner */}
       <Show when={varConfigStatus().hasVariables}>
@@ -1345,46 +1416,61 @@ export default function WorkflowBuilder() {
           <Show when={runData()}>
             {(() => {
               const authError = (runData()?.logs || []).find((l: any) => l.stepId === "auth" && l.status === "error");
+              const stepErrors = (runData()?.logs || []).filter((l: any) => l.stepId !== "auth" && l.status === "error" && l.error);
               return (
-                <div class={`card p-4 flex flex-col md:flex-row md:items-center justify-between gap-3 border ${
+                <div class={`card p-4 flex flex-col gap-3 border ${
                   runData().status === "completed" 
                     ? "border-emerald-500/20 bg-emerald-500/5 text-emerald-400" 
                     : runData().status === "failed" 
                       ? "border-red-500/20 bg-red-500/5 text-red-400" 
                       : "border-blue-500/20 bg-blue-500/5 text-blue-400"
                 }`}>
-                  <div class="flex items-center gap-3">
-                    <span class="flex h-2 w-2 relative">
-                      <span class={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
-                        runData().status === "completed" ? "bg-emerald-400" : runData().status === "failed" ? "bg-red-400" : "bg-blue-400"
-                      }`}></span>
-                      <span class={`relative inline-flex rounded-full h-2 w-2 ${
-                        runData().status === "completed" ? "bg-emerald-500" : runData().status === "failed" ? "bg-red-500" : "bg-blue-500"
-                      }`}></span>
-                    </span>
-                    <span class="text-xs font-bold uppercase tracking-wider">
-                      Workflow Run Status: {runData().status}
-
-                    </span>
-                    <Show when={runData().endTime}>
-                      <span class="text-[10px] text-[#5b5b6e]">
-                        (Finished in {Math.max(0, new Date(runData().endTime!).getTime() - new Date(runData().startTime).getTime())}ms)
+                  <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                    <div class="flex items-center gap-3">
+                      <span class="flex h-2 w-2 relative">
+                        <span class={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
+                          runData().status === "completed" ? "bg-emerald-400" : runData().status === "failed" ? "bg-red-400" : "bg-blue-400"
+                        }`}></span>
+                        <span class={`relative inline-flex rounded-full h-2 w-2 ${
+                          runData().status === "completed" ? "bg-emerald-500" : runData().status === "failed" ? "bg-red-500" : "bg-blue-500"
+                        }`}></span>
                       </span>
+                      <span class="text-xs font-bold uppercase tracking-wider">
+                        Workflow Run Status: {runData().status}
+                      </span>
+                      <Show when={runData().endTime}>
+                        <span class="text-[10px] text-[#5b5b6e]">
+                          (Finished in {Math.max(0, new Date(runData().endTime!).getTime() - new Date(runData().startTime).getTime())}ms)
+                        </span>
+                      </Show>
+                    </div>
+                    
+                    <Show when={authError}>
+                      <div class="text-xs font-bold text-red-400 bg-red-500/10 border border-red-500/20 px-3 py-1.5 rounded-lg flex items-center gap-1.5">
+                        ⚠️ Authentication Failed: {authError.error}
+                      </div>
                     </Show>
+                    
+                    <button 
+                      onClick={() => setRunData(null)}
+                      class="text-[10px] font-semibold text-[#8b8b9e] hover:text-white transition-colors self-start md:self-auto"
+                    >
+                      Clear Results
+                    </button>
                   </div>
-                  
-                  <Show when={authError}>
-                    <div class="text-xs font-bold text-red-400 bg-red-500/10 border border-red-500/20 px-3 py-1.5 rounded-lg flex items-center gap-1.5">
-                      ⚠️ Authentication Failed: {authError.error}
+
+                  <Show when={stepErrors.length > 0}>
+                    <div class="space-y-1.5 border-t border-red-500/20 pt-2">
+                      <For each={stepErrors}>
+                        {(errLog) => (
+                          <div class="text-xs font-mono text-red-300 bg-red-950/30 border border-red-500/20 px-3 py-2 rounded-lg flex items-start gap-2">
+                            <span class="font-bold text-red-400 shrink-0">[{errLog.stepId}]</span>
+                            <span class="break-all">{errLog.error}</span>
+                          </div>
+                        )}
+                      </For>
                     </div>
                   </Show>
-                  
-                  <button 
-                    onClick={() => setRunData(null)}
-                    class="text-[10px] font-semibold text-[#8b8b9e] hover:text-white transition-colors self-start md:self-auto"
-                  >
-                    Clear Results
-                  </button>
                 </div>
               );
             })()}

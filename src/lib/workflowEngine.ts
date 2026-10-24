@@ -30,6 +30,25 @@ export function emitWorkflowEvent(runId: string, workflowId: string, type: strin
   }
 }
 
+function normalizeStepHttpUrl(url: string): string {
+  const trimmed = (url || "").trim();
+  if (!trimmed) return "";
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+    return trimmed;
+  }
+  const firstSegment = trimmed.split("/")[0];
+  if (
+    !trimmed.startsWith("/") &&
+    firstSegment.toLowerCase() !== "api" &&
+    /^[a-zA-Z0-9._-]+(:\d+)?$/.test(firstSegment)
+  ) {
+    return `http://${trimmed}`;
+  }
+  const separator = trimmed.startsWith("/") ? "" : "/";
+  const port = process.env.PORT || 3000;
+  return `http://127.0.0.1:${port}${separator}${trimmed}`;
+}
+
 async function getStepAuthHeader(step: any, db: any): Promise<string | undefined> {
   const authType = step.authType || "none";
   if (authType === "basic" && (step.authUsername || step.authPassword || step.username || step.password)) {
@@ -507,22 +526,13 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
             headers["Authorization"] = `Basic ${auth}`;
           }
 
-          let authUrl = authConfig.url || "";
-          if (authUrl && !authUrl.startsWith("http://") && !authUrl.startsWith("https://")) {
-            if (/^[a-zA-Z0-9._-]+(:\d+)/.test(authUrl.split("/")[0])) {
-              authUrl = `http://${authUrl}`;
-            } else {
-              const separator = authUrl.startsWith("/") ? "" : "/";
-              const port = process.env.PORT || 3000;
-              authUrl = `http://127.0.0.1:${port}${separator}${authUrl}`;
-            }
-          }
-
+          let authUrl = normalizeStepHttpUrl(authConfig.url || "");
 
           const res = await fetch(authUrl, {
             method: authConfig.method || "POST",
             headers,
             body: authConfig.method !== "GET" ? (authConfig.body || "{}") : undefined,
+            signal: AbortSignal.timeout(15000),
           });
 
           if (!res.ok) {
@@ -686,31 +696,21 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
       }
 
       if (step.type === "rest_stream") {
-        let requestPayload: any;
-        let evaluatedUrl = step.restUrl || "";
+        const rawRestUrl = step.restUrl || (step as any).url || "";
+        let evaluatedUrl = rawRestUrl;
         try {
-          evaluatedUrl = interpolateTemplate(step.restUrl || "", context);
+          evaluatedUrl = interpolateTemplate(rawRestUrl, context).trim();
         } catch {
-          evaluatedUrl = step.restUrl || "";
-        }
-
-        if (evaluatedUrl && !evaluatedUrl.startsWith("http://") && !evaluatedUrl.startsWith("https://")) {
-          if (/^[a-zA-Z0-9._-]+(:\d+)/.test(evaluatedUrl.split("/")[0])) {
-            evaluatedUrl = `http://${evaluatedUrl}`;
-          } else {
-            const separator = evaluatedUrl.startsWith("/") ? "" : "/";
-            const port = process.env.PORT || 3000;
-            evaluatedUrl = `http://127.0.0.1:${port}${separator}${evaluatedUrl}`;
-          }
+          evaluatedUrl = rawRestUrl.trim();
         }
 
         const chunks: any[] = [];
         let streamError: string | undefined = undefined;
 
-        // Resolve HTTP connection details from saved connection
+        // Resolve HTTP connection details from saved connection BEFORE applying local URL fallback
         if (step.connectionId) {
           try {
-            const connDbId = step.connectionId.includes(":") ? step.connectionId.split(":")[1] : step.connectionId;
+            const connDbId = (step.connectionId.includes(":") ? step.connectionId.split(":")[1] : step.connectionId).replace(/[⟨⟩]/g, "").trim();
             const connRecord = await db.select(new RecordId("connection", connDbId));
             const rawConn = Array.isArray(connRecord) ? connRecord[0] : connRecord;
             if (rawConn) {
@@ -726,6 +726,8 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
             console.error("[WORKFLOW] Could not resolve HTTP connection for stream step:", e);
           }
         }
+
+        evaluatedUrl = normalizeStepHttpUrl(evaluatedUrl);
 
         const stepCaId = step.caId ?? defaultCaId;
         const stepCaCert = await resolveCaCert(stepCaId);
@@ -1363,49 +1365,47 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
         });
 
         let requestPayload;
-        let evaluatedUrl = step.restUrl || "";
+        const rawRestUrl = step.restUrl || (step as any).url || "";
+        let evaluatedUrl = rawRestUrl;
         
         try {
-          evaluatedUrl = interpolateTemplate(step.restUrl || "", context);
+          evaluatedUrl = interpolateTemplate(rawRestUrl, context).trim();
         } catch(e) {
-          evaluatedUrl = step.restUrl || "";
+          evaluatedUrl = rawRestUrl.trim();
         }
 
-        if (evaluatedUrl && !evaluatedUrl.startsWith("http://") && !evaluatedUrl.startsWith("https://")) {
-          // If the URL looks like a host:port or hostname (e.g. localhost:4000, 0.0.0.0:8080)
-          // add http:// scheme rather than treating it as a relative path on the local server.
-          if (/^[a-zA-Z0-9._-]+(:\d+)/.test(evaluatedUrl.split("/")[0])) {
-            evaluatedUrl = `http://${evaluatedUrl}`;
-          } else {
-            const separator = evaluatedUrl.startsWith("/") ? "" : "/";
-            const port = process.env.PORT || 3000;
-            evaluatedUrl = `http://127.0.0.1:${port}${separator}${evaluatedUrl}`;
-          }
-        }
-
-        const method = step.restMethod || "GET";
+        const method = String(step.restMethod || (step as any).method || (step.direction === "write" ? "POST" : "GET")).toUpperCase();
         const hasBody = method !== "GET" && method !== "DELETE";
+        const rawBodyTemplate =
+          step.requestBodyTemplate ??
+          (typeof (step as any).body === "string"
+            ? (step as any).body
+            : (step as any).body
+              ? JSON.stringify((step as any).body)
+              : "");
 
         if (hasBody) {
-          const exactMatch = (step.requestBodyTemplate || "").trim().match(/^\{\{\s*([^{}]+?)\s*\}\}$/);
+          const exactMatch = (rawBodyTemplate || "").trim().match(/^\{\{\s*([^{}]+?)\s*\}\}$/);
           if (exactMatch) {
              requestPayload = get(context, exactMatch[1].trim());
           } else {
              try {
-                const parsedTemplate = JSON.parse(step.requestBodyTemplate || "{}");
+                const parsedTemplate = JSON.parse(rawBodyTemplate || "{}");
                 requestPayload = evaluatePayload(parsedTemplate, context);
              } catch(e) {
-                requestPayload = interpolateTemplate(step.requestBodyTemplate || "", context);
+                requestPayload = interpolateTemplate(rawBodyTemplate || "", context);
              }
           }
         }
 
         let metadata: Record<string, string> = {};
+        let authHeaderName = "Authorization";
+        let connTimeoutMs: number | undefined;
 
-        // Resolve HTTP connection details from saved connection
+        // Resolve HTTP connection details from saved connection BEFORE applying local URL fallback
         if (step.connectionId) {
           try {
-            const connDbId = step.connectionId.includes(":") ? step.connectionId.split(":")[1] : step.connectionId;
+            const connDbId = (step.connectionId.includes(":") ? step.connectionId.split(":")[1] : step.connectionId).replace(/[⟨⟩]/g, "").trim();
             const connRecord = await db.select(new RecordId("connection", connDbId));
             const rawConn = Array.isArray(connRecord) ? connRecord[0] : connRecord;
             if (rawConn) {
@@ -1417,10 +1417,12 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
                 evaluatedUrl = conn.url;
               }
               if (conn.caId && !step.caId) step.caId = conn.caId;
+              if (conn.tokenHeaderName) authHeaderName = conn.tokenHeaderName;
+              if (conn.timeoutMs) connTimeoutMs = Number(conn.timeoutMs);
               if (conn.headers) {
                 try {
-                  const connHeaders = JSON.parse(conn.headers);
-                  for (const [k, v] of Object.entries(connHeaders)) {
+                  const connHeaders = typeof conn.headers === "string" ? JSON.parse(conn.headers) : conn.headers;
+                  for (const [k, v] of Object.entries(connHeaders || {})) {
                     metadata[k] = String(v);
                   }
                 } catch {}
@@ -1431,13 +1433,22 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
           }
         }
 
+        evaluatedUrl = normalizeStepHttpUrl(evaluatedUrl);
+
         if (stepAuthHeader) {
-          metadata["Authorization"] = stepAuthHeader;
+          metadata[authHeaderName] = stepAuthHeader;
         }
 
-        if (step.headersTemplate) {
+        const rawHeadersTemplate =
+          step.headersTemplate ??
+          (typeof (step as any).headers === "string"
+            ? (step as any).headers
+            : (step as any).headers
+              ? JSON.stringify((step as any).headers)
+              : "");
+        if (rawHeadersTemplate) {
           try {
-            const parsedHeaders = JSON.parse(step.headersTemplate);
+            const parsedHeaders = JSON.parse(rawHeadersTemplate);
             const evaluatedHeaders = evaluatePayload(parsedHeaders, context);
             for (const [key, value] of Object.entries(evaluatedHeaders)) {
               metadata[key] = String(value);
@@ -1449,11 +1460,16 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
 
         let execResult;
         let latencyMs = 0;
+        const startTimeMs = Date.now();
         try {
-          const startTimeMs = Date.now();
+          if (!evaluatedUrl) {
+            throw new Error("REST URL is empty");
+          }
+          const timeoutMs = Number((step as any).timeoutMs || connTimeoutMs || 15000);
           const fetchOptions: RequestInit = {
             method,
             headers: metadata,
+            signal: AbortSignal.timeout(timeoutMs),
           };
           const stepCaId = step.caId ?? defaultCaId;
           const stepCaCert = await resolveCaCert(stepCaId);
@@ -1488,7 +1504,13 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
           }
           execResult = { success: true, data, latencyMs };
         } catch(err: any) {
-          execResult = { success: false, error: err.message, latencyMs };
+          latencyMs = Date.now() - startTimeMs;
+          const rawErr = err?.cause?.message ? `${err.message} (${err.cause.message})` : (err?.message || String(err));
+          execResult = {
+            success: false,
+            error: rawErr.startsWith("HTTP ") ? rawErr : `REST ${method} ${evaluatedUrl || "(empty URL)"} failed: ${rawErr}`,
+            latencyMs,
+          };
         }
 
         context.steps[step.id] = {

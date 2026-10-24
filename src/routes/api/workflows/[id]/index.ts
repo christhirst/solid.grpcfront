@@ -4,6 +4,7 @@ import { RecordId } from "surrealdb";
 import { scheduleWorkflow, unscheduleWorkflow } from "~/lib/workflowScheduler";
 import { getEffectiveAccessContext } from "~/lib/auth";
 import { canAccessResource, getResourcePermissions, normalizeGroupName } from "~/lib/groupAuth";
+import { readJsonBody } from "~/lib/requestUtils";
 
 export async function GET(event: APIEvent) {
   try {
@@ -48,7 +49,7 @@ export async function PUT(event: APIEvent) {
     const id = event.params.id;
     const db = await getDb();
     const ctx = await getEffectiveAccessContext(event.request, db);
-    const body = await new Response(event.request.body).json();
+    const body = await readJsonBody(event);
 
     const dbId = (id.includes(":") ? id.split(":")[1] : id).replace(/[⟨⟩]/g, "").trim();
     const sId = new RecordId("workflow", dbId);
