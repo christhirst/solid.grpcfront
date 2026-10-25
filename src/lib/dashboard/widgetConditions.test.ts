@@ -223,4 +223,99 @@ describe("extractRunOutcome", () => {
     const resFalse = applyWidgetConditions(widget, outcomeFalse);
     expect(resFalse.formHidden).toBe(true);
   });
+
+  it("evaluates wildcard pattern matching with * in equals", () => {
+    expect(evaluateCondition({ email: "admin@example.com" }, { id: "1", path: "email", operator: "equals", value: "*test*", action: "showWidget" })).toBe(false);
+    expect(evaluateCondition({ email: "test@example.com" }, { id: "2", path: "email", operator: "equals", value: "*test*", action: "showWidget" })).toBe(true);
+    expect(evaluateCondition({ email: "admin@example.com" }, { id: "3", path: "email", operator: "equals", value: "*@example.com", action: "showWidget" })).toBe(true);
+    expect(evaluateCondition({ email: "admin@example.com" }, { id: "4", path: "email", operator: "equals", value: "admin*", action: "showWidget" })).toBe(true);
+    expect(evaluateCondition({ email: "admin@example.com" }, { id: "5", path: "email", operator: "equals", value: "*user*", action: "showWidget" })).toBe(false);
+  });
+
+  it("extracts and evaluates bracket paths and nested step response envelope", () => {
+    const logs = [
+      {
+        stepId: "step_8m6qd1ynu",
+        status: "success",
+        response: {
+          status: 200,
+          data: {
+            data: [
+              { id: "1", username: "admin", email: "admin@example.com" },
+              { id: "2", username: "tester", email: "tester@company.org" }
+            ],
+            metadata: { total: 2 }
+          }
+        }
+      }
+    ];
+
+    const outcome = extractRunOutcome(logs);
+    // Path with double braces
+    expect(evaluateCondition(outcome, {
+      id: "r_wild",
+      path: "{{ steps.step_8m6qd1ynu.response.email }}",
+      operator: "equals",
+      value: "*tester*",
+      action: "showWidget"
+    })).toBe(true);
+
+    expect(evaluateCondition(outcome, {
+      id: "r_wild2",
+      path: "{{ steps.step_8m6qd1ynu.response.email }}",
+      operator: "equals",
+      value: "*nonexistent*",
+      action: "showWidget"
+    })).toBe(false);
+  });
+
+  it("defaults to hidden when widget has showWidget rule and condition fails", () => {
+    const widget: WidgetConfig = {
+      id: "btn_1",
+      label: "My Button",
+      widgetType: "button",
+      workflowId: "workflow:2ad9cfda",
+      conditionRules: [
+        {
+          id: "r_show",
+          path: "{{ steps.step_8m6qd1ynu.response.email }}",
+          operator: "equals",
+          value: "test",
+          action: "showWidget"
+        }
+      ]
+    };
+
+    const outcomeNotMatched = {
+      steps: {
+        step_8m6qd1ynu: {
+          response: {
+            data: {
+              data: [{ email: "admin@example.com" }]
+            }
+          }
+        }
+      }
+    };
+
+    // When condition fails to match, button MUST be hidden!
+    const effectiveFail = applyWidgetConditions(widget, outcomeNotMatched);
+    expect(effectiveFail.hidden).toBe(true);
+
+    // When condition matches with wildcard *admin*, button MUST be shown!
+    const widgetMatching: WidgetConfig = {
+      ...widget,
+      conditionRules: [
+        {
+          id: "r_show",
+          path: "{{ steps.step_8m6qd1ynu.response.email }}",
+          operator: "equals",
+          value: "*admin*",
+          action: "showWidget"
+        }
+      ]
+    };
+    const effectiveMatch = applyWidgetConditions(widgetMatching, outcomeNotMatched);
+    expect(effectiveMatch.hidden).toBe(false);
+  });
 });

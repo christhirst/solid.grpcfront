@@ -454,6 +454,24 @@ export default function ReteWorkflowEditor(props: ReteWorkflowEditorProps) {
 
   onMount(() => {
     initializeEditor();
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Delete" || e.key === "Backspace") {
+        const active = document.activeElement;
+        if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || (active as HTMLElement).isContentEditable)) {
+          return;
+        }
+        if (selectedNodeId()) {
+          e.preventDefault();
+          handleDeleteSelected();
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    onCleanup(() => {
+      window.removeEventListener("keydown", handleKeyDown);
+    });
   });
 
   onCleanup(() => {

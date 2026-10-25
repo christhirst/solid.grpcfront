@@ -1191,7 +1191,19 @@ export default function WorkflowBuilder() {
   };
 
   const removeStep = (index: number) => {
-    setSteps(produce((s: any[]) => s.splice(index, 1)));
+    const target = steps[index];
+    if (!target) return;
+    const targetId = target.id;
+    const remaining = steps
+      .filter((_, i) => i !== index)
+      .map((s) => ({
+        ...s,
+        sourceStepIds: (s.sourceStepIds || []).filter((id: string) => id !== targetId),
+      }));
+    setSteps(reconcile(remaining));
+    if (selectedStepId() === targetId) {
+      setSelectedStepId(null);
+    }
   };
 
   const runWorkflow = async () => {
@@ -1963,7 +1975,7 @@ export default function WorkflowBuilder() {
                         />
                       </div>
                     </div>
-                    <button onClick={() => removeStep(index())} class="text-[#5b5b6e] hover:text-red-400 ml-4">
+                    <button type="button" onClick={() => removeStep(index())} title="Delete step" class="text-[#5b5b6e] hover:text-red-400 ml-4 transition-colors p-1 rounded hover:bg-red-500/10">
                       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
                     </button>
                   </div>

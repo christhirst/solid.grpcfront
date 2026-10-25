@@ -7,24 +7,82 @@ import type {
   WidgetConfig,
 } from "./widgetTypes";
 
+/** Match a text against a wildcard pattern supporting * (any sequence) and ? (single char). */
+export function matchWildcard(pattern: string, text: string, caseInsensitive = true): boolean {
+  if (pattern === "*") return true;
+  if (!pattern.includes("*") && !pattern.includes("?")) {
+    return caseInsensitive
+      ? text.toLowerCase() === pattern.toLowerCase()
+      : text === pattern;
+  }
+  const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+  const regexString = "^" + escaped.replace(/\*/g, ".*").replace(/\?/g, ".") + "$";
+  const regex = new RegExp(regexString, caseInsensitive ? "i" : "");
+  return regex.test(text);
+}
+
+/** Recursively resolve a subPath from an object or envelope (e.g. data.data arrays). */
+function resolveSubPath(obj: any, subPath: string): any {
+  if (obj === null || obj === undefined) return undefined;
+  const direct = get(obj, subPath);
+  if (direct !== undefined) return direct;
+
+  const inData = get(obj, `data.${subPath}`) ?? get(obj, `data.data.${subPath}`);
+  if (inData !== undefined) return inData;
+
+  let arr: any[] | undefined;
+  if (Array.isArray(obj)) {
+    arr = obj;
+  } else if (Array.isArray(obj?.data)) {
+    arr = obj.data;
+  } else if (Array.isArray(obj?.data?.data)) {
+    arr = obj.data.data;
+  }
+
+  if (arr) {
+    const items = arr
+      .map((item) => get(item, subPath))
+      .filter((v) => v !== undefined);
+    if (items.length > 0) return items;
+  }
+
+  return undefined;
+}
+
 /** Fetch a value from an object by dot-separated path. Empty path returns the root. */
 export function getValueAtPath(data: unknown, path?: string): unknown {
   if (!path || path.trim() === "") return data;
-  const trimmed = path.trim();
+  const clean = path.replace(/^\{\{\s*|\s*\}\}$/g, "").trim();
+  if (!clean) return data;
   if (data === null || data === undefined) return undefined;
+
   if (typeof data !== "object") {
-    if (trimmed === "response" || trimmed === "data" || trimmed === "value") return data;
+    if (clean === "response" || clean === "data" || clean === "value") return data;
     return undefined;
   }
-  const direct = get(data, trimmed);
+
+  const direct = get(data, clean);
   if (direct !== undefined) return direct;
-  const inVars = get(data, `variables.${trimmed}`);
+
+  const inVars = get(data, `variables.${clean}`);
   if (inVars !== undefined) return inVars;
-  const inResp = get(data, `response.${trimmed}`);
+  const inResp = get(data, `response.${clean}`);
   if (inResp !== undefined) return inResp;
-  const inData = get(data, `data.${trimmed}`);
+  const inData = get(data, `data.${clean}`);
   if (inData !== undefined) return inData;
-  return undefined;
+
+  const stepMatch = clean.match(/^steps\.([^.]+)(?:\.response)?\.(.+)$/);
+  if (stepMatch) {
+    const stepId = stepMatch[1];
+    const subPath = stepMatch[2];
+    const stepObj = get(data, `steps.${stepId}.response`) ?? get(data, `steps.${stepId}`);
+    if (stepObj !== undefined) {
+      const stepVal = resolveSubPath(stepObj, subPath);
+      if (stepVal !== undefined) return stepVal;
+    }
+  }
+
+  return resolveSubPath(data, clean);
 }
 
 /** Coerce a value to a number, returning undefined when not possible. */
@@ -71,32 +129,61 @@ function compareNumeric(left: unknown, right: unknown, cmp: "gt" | "lt" | "gte" 
 /** Check whether a single condition is satisfied by the provided data. */
 export function evaluateCondition(data: unknown, rule: ConditionRule): boolean {
   const value = getValueAtPath(data, rule.path);
+  const ruleVal = rule.value;
+  const isWildcard = typeof ruleVal === "string" && (ruleVal.includes("*") || ruleVal.includes("?"));
 
   switch (rule.operator) {
-    case "equals":
-      return value == coerceTo(rule.value, value);
-    case "notEquals":
-      return value != coerceTo(rule.value, value);
-    case "contains":
-      if (typeof value === "string" && typeof rule.value === "string") {
-        return value.includes(rule.value);
+    case "equals": {
+      if (isWildcard) {
+        if (Array.isArray(value)) {
+          return value.some((v) => matchWildcard(ruleVal as string, String(v ?? "")));
+        }
+        return matchWildcard(ruleVal as string, String(value ?? ""));
       }
       if (Array.isArray(value)) {
-        return value.includes(rule.value);
+        return value.some((v) => v == coerceTo(ruleVal, v));
+      }
+      return value == coerceTo(ruleVal, value);
+    }
+    case "notEquals": {
+      if (isWildcard) {
+        if (Array.isArray(value)) {
+          return !value.some((v) => matchWildcard(ruleVal as string, String(v ?? "")));
+        }
+        return !matchWildcard(ruleVal as string, String(value ?? ""));
+      }
+      if (Array.isArray(value)) {
+        return !value.some((v) => v == coerceTo(ruleVal, v));
+      }
+      return value != coerceTo(ruleVal, value);
+    }
+    case "contains": {
+      if (isWildcard) {
+        if (Array.isArray(value)) {
+          return value.some((v) => matchWildcard(ruleVal as string, String(v ?? "")));
+        }
+        return matchWildcard(ruleVal as string, String(value ?? ""));
+      }
+      if (typeof value === "string" && typeof ruleVal === "string") {
+        return value.toLowerCase().includes(ruleVal.toLowerCase());
+      }
+      if (Array.isArray(value)) {
+        return value.some((v) => String(v ?? "").toLowerCase().includes(String(ruleVal ?? "").toLowerCase()));
       }
       return false;
+    }
     case "truthy":
-      return !!value;
+      return Array.isArray(value) ? value.length > 0 : !!value;
     case "falsy":
-      return !value;
+      return Array.isArray(value) ? value.length === 0 : !value;
     case "gt":
-      return compareNumeric(value, rule.value, "gt");
+      return compareNumeric(Array.isArray(value) ? value[0] : value, ruleVal, "gt");
     case "lt":
-      return compareNumeric(value, rule.value, "lt");
+      return compareNumeric(Array.isArray(value) ? value[0] : value, ruleVal, "lt");
     case "gte":
-      return compareNumeric(value, rule.value, "gte");
+      return compareNumeric(Array.isArray(value) ? value[0] : value, ruleVal, "gte");
     case "lte":
-      return compareNumeric(value, rule.value, "lte");
+      return compareNumeric(Array.isArray(value) ? value[0] : value, ruleVal, "lte");
     default:
       return false;
   }
@@ -134,9 +221,14 @@ export function applyAction(
 
 /** Default effective config for a widget before any rules are evaluated. */
 export function defaultEffectiveConfig(widget: WidgetConfig): EffectiveWidgetConfig {
+  const rules = widget.conditionRules ?? [];
+  const hasShowRule = rules.some(
+    (r) => r.action === "showWidget" || r.elseAction === "showWidget"
+  );
+
   return {
-    hidden: false,
-    formHidden: false,
+    hidden: hasShowRule,
+    formHidden: rules.some((r) => r.action === "showForm" || r.elseAction === "showForm"),
     label: widget.label ?? "",
     workflowId: widget.workflowId ?? "",
   };
@@ -174,11 +266,41 @@ export function extractRunOutcome(logs: any[]): unknown {
   if (!last) return undefined;
   const raw = last.response ?? last.meta ?? undefined;
   const vars = (last as any).variables || {};
-  if (typeof raw === "object" && raw !== null && !Array.isArray(raw)) {
-    return { ...vars, ...raw };
+
+  const steps: Record<string, any> = {};
+  let hasSteps = false;
+  for (const log of logs) {
+    if (log && log.stepId) {
+      hasSteps = true;
+      steps[log.stepId] = {
+        response: log.response,
+        meta: log.meta,
+        status: log.status,
+        ...(typeof log.response === "object" && log.response !== null && !Array.isArray(log.response)
+          ? log.response
+          : {}),
+      };
+    }
   }
+
+  const base = typeof raw === "object" && raw !== null && !Array.isArray(raw)
+    ? { ...raw }
+    : { response: raw, data: raw, value: raw };
+
+  if (hasSteps) {
+    return {
+      ...vars,
+      ...base,
+      steps,
+    };
+  }
+
   if (Object.keys(vars).length > 0) {
-    return { ...vars, response: raw, data: raw, value: raw };
+    return {
+      ...vars,
+      ...base,
+    };
   }
+
   return raw;
 }
