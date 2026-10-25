@@ -236,7 +236,7 @@ export default function Workflows() {
                       
                       <div class="flex items-center gap-2">
                         <Show when={vStatus().hasVariables}>
-                          <span class={`rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide ${
+                          <span class={`rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide backdrop-blur-sm ${
                             vStatus().allConfigured
                               ? "border-emerald-500/40 bg-emerald-500/20 text-emerald-300"
                               : "border-red-500/40 bg-red-500/20 text-red-300"

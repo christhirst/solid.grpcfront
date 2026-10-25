@@ -722,7 +722,7 @@ export default function DashboardBuilder() {
                                   class={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
                                     varStatus().allConfigured
                                       ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
-                                      : "bg-rose-500/20 text-rose-300 border-rose-500/40"
+                                      : "bg-red-500/20 text-red-300 border-red-500/40"
                                   }`}
                                 >
                                   {varStatus().allConfigured
@@ -747,7 +747,7 @@ export default function DashboardBuilder() {
                                     }
                                     updateButton(index(), "formConfig", copy);
                                   }}
-                                  class="text-[10px] font-semibold px-2 py-1 rounded bg-rose-600/20 text-rose-300 hover:bg-rose-600/40 border border-rose-500/30 transition-colors"
+                                  class="text-[10px] font-semibold px-2 py-1 rounded bg-red-600/20 text-red-300 hover:bg-red-600/40 border border-red-500/30 transition-colors"
                                   title="Add all missing variables to form fields"
                                 >
                                   + Add All Missing to Form
@@ -756,7 +756,7 @@ export default function DashboardBuilder() {
                             </div>
 
                             <p class="text-[11px] text-[#8b8b9e]">
-                              Downstream variables required by the workflow. Unset variables appear in <strong class="text-rose-400">red</strong>; once configured they turn <strong class="text-emerald-400">green</strong>.
+                              Downstream variables required by the workflow. Unset variables appear in <strong class="text-red-400">red</strong>; once configured they turn <strong class="text-emerald-400">green</strong>.
                             </p>
 
                             <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
@@ -766,7 +766,7 @@ export default function DashboardBuilder() {
                                     class={`p-2 rounded-lg border flex items-center justify-between gap-2 transition-all ${
                                       item.isConfigured
                                         ? "bg-emerald-950/20 border-emerald-500/40 text-emerald-200"
-                                        : "bg-rose-950/25 border-rose-500/50 text-rose-200 shadow-sm shadow-rose-950/50"
+                                        : "bg-red-950/25 border-red-500/50 text-red-200 shadow-sm shadow-red-950/50"
                                     }`}
                                   >
                                     <div class="flex items-center gap-2 overflow-hidden min-w-0">
@@ -790,7 +790,7 @@ export default function DashboardBuilder() {
                                           <Show
                                             when={wt() === "button" || wt() === "form"}
                                             fallback={
-                                              <span class="text-[10px] font-semibold px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                                              <span class="text-[10px] font-semibold px-2 py-0.5 rounded bg-red-500/20 text-red-300 border border-red-500/30">
                                                 Needs Value
                                               </span>
                                             }
@@ -807,7 +807,7 @@ export default function DashboardBuilder() {
                                                 });
                                                 updateButton(index(), "formConfig", copy);
                                               }}
-                                              class="text-[10px] font-bold px-2 py-1 rounded bg-rose-600/30 hover:bg-rose-600/50 text-rose-200 border border-rose-500/40 transition-colors flex items-center gap-1"
+                                              class="text-[10px] font-bold px-2 py-1 rounded bg-red-600/30 hover:bg-red-600/50 text-red-200 border border-red-500/40 transition-colors flex items-center gap-1"
                                             >
                                               <span>+ Add to Form</span>
                                             </button>

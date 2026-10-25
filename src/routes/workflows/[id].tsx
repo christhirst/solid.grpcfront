@@ -1555,7 +1555,7 @@ export default function WorkflowBuilder() {
                   class={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono border transition-all ${
                     v.isConfigured
                       ? "bg-emerald-950/50 border-emerald-500/50 text-emerald-200"
-                      : "bg-rose-950/60 border-rose-500/60 text-rose-200"
+                      : "bg-red-950/50 border-red-500/50 text-red-200"
                   }`}
                 >
                   <span>{v.isConfigured ? "🟢" : "🔴"}</span>
@@ -1564,7 +1564,7 @@ export default function WorkflowBuilder() {
                     <span class="text-[10px] opacity-80">({v.alias})</span>
                   </Show>
                   <span class={`text-[9px] font-sans font-semibold px-1.5 py-0.5 rounded ${
-                    v.isConfigured ? "bg-emerald-500/30 text-emerald-300" : "bg-rose-500/30 text-rose-300"
+                    v.isConfigured ? "bg-emerald-500/30 text-emerald-300" : "bg-red-500/30 text-red-300"
                   }`}>
                     {v.isConfigured ? "Configured" : "Missing in Dashboards"}
                   </span>
@@ -3577,7 +3577,7 @@ export default function WorkflowBuilder() {
                                 </span>
                               </Show>
                               <Show when={downVars().length > 0}>
-                                <span class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/30">
+                                <span class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/30">
                                   ↓ {downVars().length} Down
                                 </span>
                               </Show>
@@ -3596,7 +3596,7 @@ export default function WorkflowBuilder() {
                             <div class="rounded-lg border border-dashed border-[#2a2a3a] bg-[#0a0a0f]/60 p-3 text-center">
                               <p class="text-[11px] text-[#8b8b9e]">No variables in brackets <code class="text-purple-400">{"{{ ... }}"}</code> detected.</p>
                               <p class="text-[10px] text-[#5b5b6e] mt-1">
-                                Type <span class="text-emerald-400 font-mono">{"{{ count(...) > 0 }}"}</span> for Upstream (Upload) or <span class="text-rose-400 font-mono">{"{{ DB_Table }}"}</span> for Downstream (Download).
+                                Type <span class="text-emerald-400 font-mono">{"{{ count(...) > 0 }}"}</span> for Upstream (Upload) or <span class="text-red-400 font-mono">{"{{ DB_Table }}"}</span> for Downstream (Download).
                               </p>
                             </div>
                           </Show>
@@ -3618,7 +3618,7 @@ export default function WorkflowBuilder() {
                                             <button
                                               type="button"
                                               onClick={() => toggleVarDirection(v().name)}
-                                              class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 hover:bg-rose-500/20 hover:text-rose-300 transition-colors shrink-0"
+                                              class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 hover:bg-red-500/20 hover:text-red-300 transition-colors shrink-0"
                                               title="Click to toggle to Downstream (Red)"
                                             >
                                               ↑ UP
@@ -3655,8 +3655,8 @@ export default function WorkflowBuilder() {
                               {/* 🔴 DOWNSTREAM (Download / Incoming from Dashboard) */}
                               <Show when={downVars().length > 0}>
                                 <div class="space-y-1.5 pt-1">
-                                  <div class="flex items-center gap-1.5 text-[10px] font-bold text-rose-400 uppercase tracking-wider">
-                                    <span class="h-1.5 w-1.5 rounded-full bg-rose-400"></span>
+                                  <div class="flex items-center gap-1.5 text-[10px] font-bold text-red-400 uppercase tracking-wider">
+                                    <span class="h-1.5 w-1.5 rounded-full bg-red-400"></span>
                                     <span>🔴 Downstream (Download from Dashboard)</span>
                                   </div>
                                   <Index each={downVars()}>
@@ -3673,7 +3673,7 @@ export default function WorkflowBuilder() {
                                           class={`p-2 rounded-lg border space-y-1.5 transition-all ${
                                             isSetInDash()
                                               ? "border-emerald-500/40 bg-emerald-950/20"
-                                              : "border-rose-500/30 bg-rose-950/15"
+                                              : "border-red-500/30 bg-red-950/20"
                                           }`}
                                         >
                                           <div class="flex items-center justify-between gap-2">
@@ -3681,14 +3681,14 @@ export default function WorkflowBuilder() {
                                               <button
                                                 type="button"
                                                 onClick={() => toggleVarDirection(v().name)}
-                                                class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 hover:bg-emerald-500/20 hover:text-emerald-300 transition-colors shrink-0"
+                                                class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-red-500/20 text-red-300 hover:bg-emerald-500/20 hover:text-emerald-300 transition-colors shrink-0"
                                                 title="Click to toggle to Upstream (Green)"
                                               >
                                                 ↓ DOWN
                                               </button>
                                               <span
                                                 class={`text-[11px] font-mono truncate ${
-                                                  isSetInDash() ? "text-emerald-200" : "text-rose-200"
+                                                  isSetInDash() ? "text-emerald-200" : "text-red-200"
                                                 }`}
                                                 title={v().name}
                                               >
@@ -3699,7 +3699,7 @@ export default function WorkflowBuilder() {
                                               <Show
                                                 when={isSetInDash()}
                                                 fallback={
-                                                  <span class="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                                                  <span class="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-red-500/20 text-red-300 border border-red-500/30">
                                                     🔴 Needs Dash
                                                   </span>
                                                 }
@@ -3719,13 +3719,13 @@ export default function WorkflowBuilder() {
                                             </div>
                                           </div>
                                           <div class="flex items-center gap-2">
-                                            <label class={`text-[10px] font-semibold shrink-0 ${isSetInDash() ? "text-emerald-400/80" : "text-rose-400/80"}`}>Alias:</label>
+                                            <label class={`text-[10px] font-semibold shrink-0 ${isSetInDash() ? "text-emerald-400/80" : "text-red-400/80"}`}>Alias:</label>
                                             <input
                                               type="text"
                                               class={`flex-1 bg-[#0a0a0f] border rounded px-2 py-0.5 text-xs text-white placeholder-[#5b5b6e] outline-none ${
                                                 isSetInDash()
                                                   ? "border-emerald-500/30 focus:border-emerald-400"
-                                                  : "border-rose-500/30 focus:border-rose-400"
+                                                  : "border-red-500/30 focus:border-red-400"
                                               }`}
                                               placeholder="e.g. Target Table"
                                               value={v().alias || ""}
