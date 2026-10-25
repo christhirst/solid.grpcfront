@@ -599,6 +599,17 @@ export default function WorkflowBuilder() {
     // Fallback: If createResource didn't load during SSR properly, force fetch
     if (!savedProtos()) refetchProtos();
     if (!isNew() && !workflow()) refetchWorkflow();
+    refetchConnections();
+
+    const handleConnectionsRefresh = () => {
+      refetchConnections();
+    };
+    window.addEventListener("user-groups-changed", handleConnectionsRefresh);
+    window.addEventListener("focus", handleConnectionsRefresh);
+    onCleanup(() => {
+      window.removeEventListener("user-groups-changed", handleConnectionsRefresh);
+      window.removeEventListener("focus", handleConnectionsRefresh);
+    });
 
     document.addEventListener('focusin', (e) => {
       const t = e.target as HTMLElement;
@@ -721,10 +732,10 @@ export default function WorkflowBuilder() {
   
   const [connectionId, setConnectionId] = createSignal<string>("");
   const [showSettings, setShowSettings] = createSignal(false);
-  const [connections] = createResource(async () => {
+  const [connections, { refetch: refetchConnections }] = createResource(async () => {
     try {
       const url = isServer ? `http://127.0.0.1:${process.env.PORT || 3000}/api/connections` : "/api/connections";
-      const res = await fetch(url);
+      const res = await fetch(url, isServer ? undefined : { credentials: "include" });
       const json = await res.json();
       return json.success ? json.data : [];
     } catch (e) {
@@ -2171,12 +2182,14 @@ export default function WorkflowBuilder() {
                                 </div>
                               </div>
 
-                              <StepAuthSettings 
-                                step={step} 
-                                index={index()} 
-                                updateStep={updateStep} 
-                                connections={connections() || []} 
+                              <StepAuthSettings
+                                step={step}
+                                index={index()}
+                                updateStep={updateStep}
+                                connections={connections() || []}
                                 onPrefetch={(cId) => prefetchConnectionToken(cId, true)}
+                                onRefresh={() => refetchConnections()}
+                                isLoading={connections.loading}
                               />
 
                               <IdpTokenInsertBar
@@ -2472,12 +2485,14 @@ export default function WorkflowBuilder() {
                                 </div>
                               </div>
 
-                              <StepAuthSettings 
-                                step={step} 
-                                index={index()} 
-                                updateStep={updateStep} 
-                                connections={connections() || []} 
+                              <StepAuthSettings
+                                step={step}
+                                index={index()}
+                                updateStep={updateStep}
+                                connections={connections() || []}
                                 onPrefetch={(cId) => prefetchConnectionToken(cId, true)}
+                                onRefresh={() => refetchConnections()}
+                                isLoading={connections.loading}
                               />
 
                               <IdpTokenInsertBar
@@ -2883,17 +2898,40 @@ export default function WorkflowBuilder() {
                           </div>
 
                           <div class="space-y-3">
-                            <label class="block text-xs font-semibold text-[#8b8b9e] uppercase tracking-wider">
-                              Select OAuth Provider Connection
-                            </label>
+                            <div class="flex items-center justify-between">
+                              <label class="block text-xs font-semibold text-[#8b8b9e] uppercase tracking-wider">
+                                Select OAuth Provider Connection
+                              </label>
+                              <button
+                                type="button"
+                                onClick={() => refetchConnections()}
+                                class="px-2 py-0.5 text-[10px] font-semibold rounded bg-[#1e1e2e] hover:bg-[#2a2a3a] text-[#8b8b9e] hover:text-white border border-[#2a2a3a] transition-colors flex items-center gap-1"
+                                title="Reload connections from server"
+                              >
+                                ↻ Refresh Connections
+                              </button>
+                            </div>
                             <Show
                               when={oauthConns().length > 0}
                               fallback={
-                                <div class="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-xs text-amber-300 flex items-center justify-between">
-                                  <span>No OAuth provider connections found in <code>/connections</code>.</span>
-                                  <a href="/connections" target="_blank" class="px-3 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 rounded-lg font-medium transition-colors">
-                                    + Create Connection ↗
-                                  </a>
+                                <div class="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-xs text-amber-300 flex items-center justify-between gap-2">
+                                  <span>
+                                    {connections.loading
+                                      ? "Loading connections..."
+                                      : "No OAuth provider connections found in /connections."}
+                                  </span>
+                                  <div class="flex items-center gap-2 shrink-0">
+                                    <button
+                                      type="button"
+                                      onClick={() => refetchConnections()}
+                                      class="px-2.5 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 rounded-lg font-medium transition-colors"
+                                    >
+                                      ↻ Refresh
+                                    </button>
+                                    <a href="/connections" target="_blank" class="px-3 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 rounded-lg font-medium transition-colors">
+                                      + Create Connection ↗
+                                    </a>
+                                  </div>
                                 </div>
                               }
                             >
@@ -4139,6 +4177,8 @@ function StepAuthSettings(props: {
   updateStep: (idx: number, key: string, val: any) => void;
   connections: any[];
   onPrefetch?: (connId: string) => void;
+  onRefresh?: () => void;
+  isLoading?: boolean;
 }) {
   const currentAuthType = () => props.step?.authType || "none";
   const oauthConnections = () => (props.connections || []).filter((c: any) => isOAuthProvider(c));
@@ -4175,7 +4215,7 @@ function StepAuthSettings(props: {
         </button>
         <button
           onClick={() => props.updateStep(props.index, "authType", "oauth")}
-          class={`flex-1 py-1 text-xs font-bold rounded transition-all ${currentAuthType() === "oauth" ? "bg-blue-600 text-white shadow" : "text-[#8b8b9e] hover:text-white"}`}
+          class={`flex-1 py-1 text-xs font-bold rounded transition-all ${currentAuthType() === "oauth" ? "bg-amber-600 text-white shadow" : "text-[#8b8b9e] hover:text-white"}`}
         >
           OAuth
         </button>
@@ -4221,15 +4261,40 @@ function StepAuthSettings(props: {
 
       <Show when={currentAuthType() === "oauth"}>
         <div class="max-w-md space-y-2">
-          <label class="mb-1 block text-[10px] text-[#8b8b9e]">Select OAuth Provider Connection</label>
+          <div class="flex items-center justify-between mb-1">
+            <label class="block text-[10px] text-[#8b8b9e]">Select OAuth Provider Connection</label>
+            <Show when={props.onRefresh}>
+              <button
+                type="button"
+                onClick={() => props.onRefresh?.()}
+                class="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-[#1e1e2e] hover:bg-[#2a2a3e] text-[#8b8b9e] hover:text-white border border-[#2a2a3a] transition-colors flex items-center gap-1"
+                title="Reload connections from server"
+              >
+                ↻ Refresh
+              </button>
+            </Show>
+          </div>
           <Show
             when={oauthConnections().length > 0}
             fallback={
-              <div class="p-2.5 rounded-lg border border-amber-500/20 bg-amber-500/5 text-amber-300 text-xs flex items-center justify-between">
-                <span>No OAuth provider connections found in <code>/connections</code>.</span>
-                <a href="/connections" target="_blank" class="px-2 py-0.5 rounded bg-amber-500/20 text-amber-200 text-[10px] underline">
-                  + Create Connection ↗
-                </a>
+              <div class="p-2.5 rounded-lg border border-amber-500/20 bg-amber-500/5 text-amber-300 text-xs flex items-center justify-between gap-2">
+                <span>
+                  {props.isLoading ? "Loading connections..." : "No OAuth provider connections found in /connections."}
+                </span>
+                <div class="flex items-center gap-1.5 shrink-0">
+                  <Show when={props.onRefresh}>
+                    <button
+                      type="button"
+                      onClick={() => props.onRefresh?.()}
+                      class="px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 text-[10px] font-medium"
+                    >
+                      ↻ Refresh
+                    </button>
+                  </Show>
+                  <a href="/connections" target="_blank" class="px-2 py-0.5 rounded bg-amber-500/20 text-amber-200 text-[10px] underline">
+                    + Create Connection ↗
+                  </a>
+                </div>
               </div>
             }
           >

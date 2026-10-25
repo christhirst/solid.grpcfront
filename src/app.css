@@ -797,8 +797,91 @@ svg.connection:hover path, .connection:hover path, [data-testid="connection"]:ho
 :root[data-theme="light"] [class~="text-white"][class*="bg-teal-600"],
 :root[data-theme="light"] [class~="text-white"][class*="bg-red-600"],
 :root[data-theme="light"] [class~="text-white"][class*="bg-rose-600"],
-:root[data-theme="light"] [class~="text-white"][class*="bg-orange-600"] {
+:root[data-theme="light"] [class~="text-white"][class*="bg-orange-600"],
+:root[data-theme="light"] [class~="text-white"][class*="bg-amber-600"] {
   color: #ffffff !important;
+}
+
+/* High contrast for pale accent text in light theme */
+:root[data-theme="light"] [class*="text-amber-100"],
+:root[data-theme="light"] [class*="text-amber-200"],
+:root[data-theme="light"] [class*="text-amber-300"] {
+  color: #92400e !important; /* amber-800 */
+}
+
+:root[data-theme="light"] [class*="text-amber-400"] {
+  color: #b45309 !important; /* amber-700 */
+}
+
+:root[data-theme="light"] [class*="text-emerald-200"],
+:root[data-theme="light"] [class*="text-emerald-300"] {
+  color: #065f46 !important; /* emerald-800 */
+}
+
+:root[data-theme="light"] [class*="text-emerald-400"] {
+  color: #047857 !important; /* emerald-700 */
+}
+
+:root[data-theme="light"] [class*="text-blue-200"],
+:root[data-theme="light"] [class*="text-blue-300"] {
+  color: #1e40af !important; /* blue-800 */
+}
+
+:root[data-theme="light"] [class*="text-red-200"],
+:root[data-theme="light"] [class*="text-red-300"] {
+  color: #991b1b !important; /* red-800 */
+}
+
+:root[data-theme="light"] [class*="text-purple-200"],
+:root[data-theme="light"] [class*="text-purple-300"] {
+  color: #6b21a8 !important; /* purple-800 */
+}
+
+:root[data-theme="light"] [class*="text-cyan-200"],
+:root[data-theme="light"] [class*="text-cyan-300"] {
+  color: #0e7490 !important; /* cyan-700 */
+}
+
+:root[data-theme="light"] [class*="text-pink-200"],
+:root[data-theme="light"] [class*="text-pink-300"] {
+  color: #9d174d !important; /* pink-800 */
+}
+
+:root[data-theme="light"] [class*="text-rose-200"],
+:root[data-theme="light"] [class*="text-rose-300"] {
+  color: #9f1239 !important; /* rose-800 */
+}
+
+/* Light theme adjustments for dark overlay pills/cards */
+:root[data-theme="light"] [class*="bg-black/"] {
+  background-color: var(--theme-surface-hover) !important;
+}
+
+:root[data-theme="light"] [class*="bg-red-950/"] {
+  background-color: #fef2f2 !important;
+  border-color: #fecaca !important;
+}
+
+:root[data-theme="light"] [class*="bg-amber-500/5"],
+:root[data-theme="light"] [class*="bg-amber-500/10"],
+:root[data-theme="light"] [class*="bg-amber-500/15"],
+:root[data-theme="light"] [class*="bg-amber-500/20"] {
+  background-color: #fefce8 !important; /* amber-50 */
+  border-color: #fef08a !important; /* amber-200 */
+}
+
+:root[data-theme="light"] [class*="bg-emerald-500/10"],
+:root[data-theme="light"] [class*="bg-emerald-500/15"],
+:root[data-theme="light"] [class*="bg-emerald-500/20"] {
+  background-color: #f0fdf4 !important; /* emerald-50 */
+  border-color: #bbf7d0 !important; /* emerald-200 */
+}
+
+:root[data-theme="light"] [class*="bg-blue-500/10"],
+:root[data-theme="light"] [class*="bg-blue-500/15"],
+:root[data-theme="light"] [class*="bg-blue-500/20"] {
+  background-color: #eff6ff !important; /* blue-50 */
+  border-color: #bfdbfe !important; /* blue-200 */
 }
 
 :root[data-theme="light"] [class*="placeholder-[#5b5b6e]"]::placeholder,
