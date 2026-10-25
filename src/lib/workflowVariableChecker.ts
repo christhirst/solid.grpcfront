@@ -18,6 +18,8 @@ export function parseBracketTokens(text?: string): StepVariable[] {
     const isStepRef =
       raw.startsWith("steps.") ||
       raw.startsWith("auth.") ||
+      raw.startsWith("oauth.") ||
+      raw.startsWith("oauth_token.") ||
       raw.startsWith("connections.") ||
       raw.startsWith("connection.") ||
       raw === "access_token" ||

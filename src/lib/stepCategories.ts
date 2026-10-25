@@ -5,6 +5,17 @@
 
 export type StepCategory = "source" | "transform" | "target";
 
+/**
+ * Checks if a connection is designated as an OAuth token provider.
+ * Client-safe helper (no backend/node dependencies).
+ */
+export function isOAuthProvider(conn: any): boolean {
+  if (!conn) return false;
+  if (conn.oauthProvider === true) return true;
+  if (conn.oauthProvider === false) return false;
+  return (conn.authType === "oauth" || conn.type === "oauth") && Boolean(conn.tokenUrl);
+}
+
 export function getStepCategory(type?: string, explicitCategory?: StepCategory, sourceStepIds?: string[]): StepCategory {
   // If explicitly set, respect it (except terminal visual targets which can only be targets)
   if (type === "table" || type === "chart" || type === "infographic") {
@@ -39,7 +50,7 @@ export interface StepVariable {
 
 export interface WorkflowStep {
   id: string;
-  type?: "grpc" | "table" | "chart" | "database" | "rest" | "grpc_stream" | "rest_stream" | "surreal_live" | "infographic" | "transform" | "s3";
+  type?: "grpc" | "table" | "chart" | "database" | "rest" | "grpc_stream" | "rest_stream" | "surreal_live" | "infographic" | "transform" | "s3" | "oauth_token";
   category?: StepCategory;
   /** Data flow direction: "read" fetches data FROM the source, "write" sends data TO the source. */
   direction?: "read" | "write";
@@ -77,9 +88,12 @@ export interface WorkflowStep {
   yKey?: string;
   chartType?: "bar" | "line";
   columns?: string[];
-  authType?: "none" | "basic" | "oauth";
+  authType?: "none" | "basic" | "bearer" | "oauth";
   authUsername?: string;
   authPassword?: string;
+  bearerToken?: string;
+  /** Specific connection to use strictly for authentication / tokens (leaving endpoint URL intact). */
+  authConnectionId?: string;
   connectionId?: string;
   connectionMode?: "saved" | "custom";
   // S3 storage step overrides & file selector fields (outputs filenames/URIs only, never binary file content)

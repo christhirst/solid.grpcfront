@@ -1,4 +1,4 @@
-import { getStepCategory, type StepCategory, type StepVariable } from "~/lib/stepCategories";
+import { getStepCategory, type StepCategory, type StepVariable, isOAuthProvider } from "~/lib/stepCategories";
 import ReteWorkflowEditor from "~/components/workflow/ReteWorkflowEditor";
 import GrpcMethodPicker, { type ReflectionResult } from "~/components/workflow/GrpcMethodPicker";
 import S3FilePicker from "~/components/workflow/S3FilePicker";
@@ -542,7 +542,7 @@ function LogChart(props: { data: any[]; xKey?: string; yKey?: string; chartType?
   );
 }
 
-const DATA_SOURCE_STEP_TYPES = new Set(["grpc", "rest", "database", "s3"]);
+const DATA_SOURCE_STEP_TYPES = new Set(["grpc", "rest", "database", "s3", "oauth_token"]);
 
 function isDataSourceStep(step: any) {
   return !!step && (!step.type || DATA_SOURCE_STEP_TYPES.has(step.type));
@@ -1143,6 +1143,13 @@ export default function WorkflowBuilder() {
        if (conn) newStep.connectionId = conn.id;
        newStep.s3OutputFormat = "uri";
        newStep.s3SelectedKeys = [];
+    } else if (type === "oauth_token") {
+       const conn = (connections() || []).find((c: any) => isOAuthProvider(c));
+       newStep.connectionMode = conn ? "saved" : "custom";
+       if (conn) {
+         newStep.authConnectionId = conn.id;
+         newStep.connectionId = conn.id;
+       }
     }
 
     setSteps(produce((s: any[]) => s.push(newStep)));
@@ -1623,6 +1630,9 @@ export default function WorkflowBuilder() {
                     <button type="button" onClick={() => addStep("s3", "source")} class="w-full text-left px-3 py-1.5 text-xs text-amber-300 hover:bg-[#222234] rounded-lg flex items-center gap-2 transition-colors">
                       <span>🪣</span> S3 Storage Files (Source)
                     </button>
+                    <button type="button" onClick={() => addStep("oauth_token", "source")} class="w-full text-left px-3 py-1.5 text-xs text-amber-300 hover:bg-[#222234] rounded-lg flex items-center gap-2 transition-colors">
+                      <span>🔑</span> OAuth Token (Source)
+                    </button>
                   </div>
 
                   {/* 2. TRANSFORMS & SERVICE CALLS */}
@@ -1900,6 +1910,7 @@ export default function WorkflowBuilder() {
                             <option value="rest">🌐 HTTP / REST Request</option>
                             <option value="database">🛢️ Database Query</option>
                             <option value="s3">🪣 S3 Storage Files (Filenames / URIs)</option>
+                            <option value="oauth_token">🔑 OAuth Token (Fetch &amp; Output)</option>
                           </optgroup>
                           <optgroup label="🔀 2. Transforms (Processing)">
                             <option value="transform">🔀 JSONata Transformer / Merger</option>
@@ -2165,6 +2176,7 @@ export default function WorkflowBuilder() {
                                 index={index()} 
                                 updateStep={updateStep} 
                                 connections={connections() || []} 
+                                onPrefetch={(cId) => prefetchConnectionToken(cId, true)}
                               />
 
                               <IdpTokenInsertBar
@@ -2465,6 +2477,7 @@ export default function WorkflowBuilder() {
                                 index={index()} 
                                 updateStep={updateStep} 
                                 connections={connections() || []} 
+                                onPrefetch={(cId) => prefetchConnectionToken(cId, true)}
                               />
 
                               <IdpTokenInsertBar
@@ -2835,6 +2848,117 @@ export default function WorkflowBuilder() {
                             selectedKeys={step.s3SelectedKeys || []}
                             onChangeSelectedKeys={(keys) => updateStep(index(), "s3SelectedKeys", keys)}
                           />
+                        </div>
+                      );
+                    })()}
+                  </Show>
+
+                  {/* Dedicated OAuth Token Step Configuration */}
+                  <Show when={step.type === "oauth_token"}>
+                    {(() => {
+                      const oauthConns = () => (connections() || []).filter((c: any) => isOAuthProvider(c));
+                      const selectedConnId = () => step.authConnectionId || step.connectionId || oauthConns()[0]?.id;
+                      const selectedConn = () => (connections() || []).find((c: any) => c.id === selectedConnId());
+                      const tokState = () => {
+                        const id = selectedConnId();
+                        if (!id) return undefined;
+                        const cleanId = String(id).replace(/^connection:/, "").replace(/[⟨⟩]/g, "").trim();
+                        return prefetchedTokens()[cleanId] || prefetchedTokens()[id];
+                      };
+
+                      return (
+                        <div class="mb-4 space-y-4">
+                          <div class="p-3 rounded-xl bg-amber-500/10 border border-amber-500/25 text-xs text-amber-200 flex items-start gap-2.5">
+                            <span class="text-base leading-none mt-0.5">🔑</span>
+                            <div class="space-y-1">
+                              <div class="font-bold text-amber-300">Dedicated OAuth Token Step</div>
+                              <p class="text-[11px] text-amber-200/80">
+                                Fetches an access token from the selected IDP / OAuth provider so downstream REST, gRPC, or Database steps can reference it anywhere.
+                              </p>
+                              <div class="flex flex-wrap gap-1.5 pt-1 font-mono text-[10px] text-amber-300">
+                                <span class="px-1.5 py-0.5 rounded bg-black/40 border border-amber-500/30">{`{{ steps.${step.id}.response.access_token }}`}</span>
+                                <span class="px-1.5 py-0.5 rounded bg-black/40 border border-amber-500/30">{`{{ auth.access_token }}`}</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div class="space-y-3">
+                            <label class="block text-xs font-semibold text-[#8b8b9e] uppercase tracking-wider">
+                              Select OAuth Provider Connection
+                            </label>
+                            <Show
+                              when={oauthConns().length > 0}
+                              fallback={
+                                <div class="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-xs text-amber-300 flex items-center justify-between">
+                                  <span>No OAuth provider connections found in <code>/connections</code>.</span>
+                                  <a href="/connections" target="_blank" class="px-3 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 rounded-lg font-medium transition-colors">
+                                    + Create Connection ↗
+                                  </a>
+                                </div>
+                              }
+                            >
+                              <select
+                                class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-amber-500 focus:outline-none"
+                                value={selectedConnId() || ""}
+                                onChange={(e) => {
+                                  const val = e.currentTarget.value;
+                                  updateStep(index(), "authConnectionId", val);
+                                  updateStep(index(), "connectionId", val);
+                                  prefetchConnectionToken(val, true);
+                                }}
+                              >
+                                <option value="" disabled>Choose an OAuth Connection...</option>
+                                <For each={oauthConns()}>
+                                  {(conn: any) => (
+                                    <option value={conn.id}>
+                                      🔑 {conn.name} {conn.oauthVerifiedAt ? "(✓ Verified)" : "(⚠ Not tested)"}
+                                    </option>
+                                  )}
+                                </For>
+                              </select>
+                            </Show>
+
+                            <Show when={selectedConn()}>
+                              <div class="p-3 rounded-xl bg-black/30 border border-amber-500/20 space-y-2 text-xs">
+                                <div class="flex items-center justify-between">
+                                  <div class="flex items-center gap-2">
+                                    <span class="font-bold text-white">{selectedConn()?.name}</span>
+                                    <Show when={selectedConn()?.oauthVerifiedAt}>
+                                      <span class="text-[10px] text-emerald-400 font-mono bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
+                                        ✓ Verified
+                                      </span>
+                                    </Show>
+                                    <Show when={!selectedConn()?.oauthVerifiedAt}>
+                                      <span class="text-[10px] text-amber-400 font-mono bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20">
+                                        ⚠ Not tested
+                                      </span>
+                                    </Show>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => prefetchConnectionToken(selectedConn()!.id, true)}
+                                    disabled={tokState()?.loading}
+                                    class="px-2.5 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 text-xs font-semibold border border-amber-500/30 transition-colors disabled:opacity-40"
+                                  >
+                                    {tokState()?.loading ? "Fetching..." : "↻ Test / Fetch Token"}
+                                  </button>
+                                </div>
+                                <div class="text-[11px] font-mono text-[#8b8b9e] break-all">
+                                  Endpoint: {selectedConn()?.tokenUrl || selectedConn()?.url}
+                                </div>
+                                <Show when={tokState()?.token}>
+                                  <div class="p-2 rounded bg-black/60 border border-emerald-500/20 font-mono text-[11px] text-emerald-300 break-all">
+                                    <span class="text-[#8b8b9e]">Token:</span> {tokState()!.token!.slice(0, 48)}...
+                                  </div>
+                                </Show>
+                                <Show when={tokState()?.error}>
+                                  <div class="p-2 rounded bg-red-950/40 border border-red-500/20 font-mono text-[11px] text-red-300 break-all">
+                                    Error: {tokState()!.error}
+                                  </div>
+                                </Show>
+                              </div>
+                            </Show>
+                          </div>
                         </div>
                       );
                     })()}
@@ -3832,10 +3956,14 @@ function IdpTokenInsertBar(props: {
   const [copied, setCopied] = createSignal(false);
 
   const oauthConnections = () =>
-    (props.connections || []).filter((c: any) => c.authType === "oauth" || c.tokenUrl || c.authType === "bearer");
+    (props.connections || []).filter((c: any) => isOAuthProvider(c));
 
   const activeOauthConn = () => {
     const all = oauthConnections();
+    if (props.step?.authConnectionId) {
+      const match = all.find((c: any) => c.id === props.step.authConnectionId);
+      if (match) return match;
+    }
     if (props.step?.connectionId) {
       const match = all.find((c: any) => c.id === props.step.connectionId);
       if (match) return match;
@@ -3852,11 +3980,9 @@ function IdpTokenInsertBar(props: {
 
   const insertBearerHeader = (useLiteralToken: boolean) => {
     const conn = activeOauthConn();
-    if (conn && !props.step?.connectionId) {
-      props.updateStep(props.index, "connectionId", conn.id);
-      if (props.step?.connectionMode === "custom") {
-        props.updateStep(props.index, "authType", "oauth");
-      }
+    if (conn) {
+      props.updateStep(props.index, "authConnectionId", conn.id);
+      props.updateStep(props.index, "authType", "oauth");
     }
     const literal = tokenState()?.token;
     const headerValue = useLiteralToken && literal ? `Bearer ${literal}` : "Bearer {{ auth.access_token }}";
@@ -3885,12 +4011,16 @@ function IdpTokenInsertBar(props: {
                 value={activeOauthConn()?.id || ""}
                 onChange={(e) => {
                   const id = e.currentTarget.value;
-                  props.updateStep(props.index, "connectionId", id);
+                  props.updateStep(props.index, "authConnectionId", id);
                   props.onPrefetch(id);
                 }}
               >
                 <For each={oauthConnections()}>
-                  {(c: any) => <option value={c.id}>{c.name}</option>}
+                  {(c: any) => (
+                    <option value={c.id}>
+                      {c.name} {c.oauthVerifiedAt ? "(✓ Verified)" : "(⚠ Not tested)"}
+                    </option>
+                  )}
                 </For>
               </select>
             </Show>
@@ -3968,7 +4098,7 @@ function IdpTokenInsertBar(props: {
             type="button"
             onClick={() => insertBearerHeader(false)}
             class="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 text-emerald-200 text-[11px] font-semibold transition-colors"
-            title='Adds "Authorization": "Bearer {{ auth.access_token }}" to Step Headers and links connection'
+            title='Sets "Authorization": "Bearer {{ auth.access_token }}" in Step Headers and links OAuth connection'
           >
             + Insert Bearer Header (<code class="font-mono text-[10px]">{`{{ auth.access_token }}`}</code>)
           </button>
@@ -4003,11 +4133,21 @@ function IdpTokenInsertBar(props: {
   );
 }
 
-function StepAuthSettings(props: { step: any, index: number, updateStep: (idx: number, key: string, val: any) => void, connections: any[] }) {
+function StepAuthSettings(props: {
+  step: any;
+  index: number;
+  updateStep: (idx: number, key: string, val: any) => void;
+  connections: any[];
+  onPrefetch?: (connId: string) => void;
+}) {
   const currentAuthType = () => props.step?.authType || "none";
+  const oauthConnections = () => (props.connections || []).filter((c: any) => isOAuthProvider(c));
+  const currentAuthConnId = () =>
+    props.step?.authConnectionId || (props.step?.authType === "oauth" ? props.step?.connectionId : "");
   const selectedConnection = () => {
-    if (!props.step || !props.connections) return undefined;
-    return props.connections.find((c: any) => c.id === props.step.connectionId);
+    if (!props.connections) return undefined;
+    const targetId = currentAuthConnId();
+    return (props.connections || []).find((c: any) => c.id === targetId);
   };
 
   return (
@@ -4081,25 +4221,53 @@ function StepAuthSettings(props: { step: any, index: number, updateStep: (idx: n
 
       <Show when={currentAuthType() === "oauth"}>
         <div class="max-w-md space-y-2">
-          <label class="mb-1 block text-[10px] text-[#8b8b9e]">Select OAuth Connection</label>
-          <select
-            class="w-full rounded border border-[#2a2a3a] bg-[#1a1a26] p-2 text-xs text-white focus:border-blue-500 focus:outline-none"
-            value={props.step?.connectionId || ""}
-            onChange={(e) => props.updateStep(props.index, "connectionId", e.currentTarget.value)}
+          <label class="mb-1 block text-[10px] text-[#8b8b9e]">Select OAuth Provider Connection</label>
+          <Show
+            when={oauthConnections().length > 0}
+            fallback={
+              <div class="p-2.5 rounded-lg border border-amber-500/20 bg-amber-500/5 text-amber-300 text-xs flex items-center justify-between">
+                <span>No OAuth provider connections found in <code>/connections</code>.</span>
+                <a href="/connections" target="_blank" class="px-2 py-0.5 rounded bg-amber-500/20 text-amber-200 text-[10px] underline">
+                  + Create Connection ↗
+                </a>
+              </div>
+            }
           >
-            <option value="" disabled>Select Connection...</option>
-            <For each={props.connections || []}>
-              {(conn) => (
-                <option value={conn.id}>{conn.name}</option>
-              )}
-            </For>
-          </select>
+            <select
+              class="w-full rounded border border-[#2a2a3a] bg-[#1a1a26] p-2 text-xs text-white focus:border-amber-500 focus:outline-none"
+              value={currentAuthConnId() || ""}
+              onChange={(e) => {
+                const val = e.currentTarget.value;
+                props.updateStep(props.index, "authConnectionId", val);
+                if (props.onPrefetch) props.onPrefetch(val);
+              }}
+            >
+              <option value="" disabled>Select OAuth Connection...</option>
+              <For each={oauthConnections()}>
+                {(conn) => (
+                  <option value={conn.id}>
+                    🔑 {conn.name} {conn.oauthVerifiedAt ? "(✓ Verified)" : "(⚠ Not tested)"}
+                  </option>
+                )}
+              </For>
+            </select>
+          </Show>
           
           <Show when={selectedConnection()}>
-            <p class="text-[10px] text-emerald-400 font-mono mt-1 flex items-center gap-1.5">
-              <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-              Returns token key: <span class="bg-[#1e1e2e] px-1.5 py-0.5 rounded border border-[#2a2a3a] text-white font-bold">{selectedConnection()?.tokenPath || "access_token"}</span>
-            </p>
+            <div class="space-y-1 pt-1">
+              <Show when={selectedConnection()?.oauthVerifiedAt}>
+                <div class="text-[10px] text-emerald-400 font-mono flex items-center gap-1.5">
+                  <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                  Verified IDP connection (Token path: <span class="font-bold text-white">{selectedConnection()?.tokenPath || "access_token"}</span>)
+                </div>
+              </Show>
+              <Show when={!selectedConnection()?.oauthVerifiedAt}>
+                <div class="text-[10px] text-amber-400 font-mono flex items-center gap-1.5 bg-amber-500/10 p-1.5 rounded border border-amber-500/20">
+                  <span>⚠</span>
+                  <span>Warning: This OAuth connection has not been tested in <code>/connections</code> yet.</span>
+                </div>
+              </Show>
+            </div>
           </Show>
         </div>
       </Show>

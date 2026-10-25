@@ -44,6 +44,20 @@ export async function POST(event: APIEvent) {
       result = await testHttpConnection(normalized);
     }
 
+    if (result.success && body.connectionId && (normalized.authType === "oauth" || normalized.oauthProvider)) {
+      try {
+        const db = await getDb();
+        const rawId = String(body.connectionId);
+        const dbId = (rawId.includes(":") ? rawId.split(":")[1] : rawId).replace(/[⟨⟩]/g, "").trim();
+        const verifiedAt = new Date().toISOString();
+        await db.query("UPDATE $id MERGE $data", {
+          id: new RecordId("connection", dbId),
+          data: { oauthVerifiedAt: verifiedAt, oauthLastError: null, oauthProvider: true, updated_at: verifiedAt },
+        });
+        result.oauthVerifiedAt = verifiedAt;
+      } catch {}
+    }
+
     return new Response(JSON.stringify(result), {
       status: 200,
       headers: { "Content-Type": "application/json" },

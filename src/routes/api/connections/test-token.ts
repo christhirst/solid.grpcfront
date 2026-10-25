@@ -2,14 +2,20 @@ import { APIEvent } from "@solidjs/start/server";
 import { RecordId } from "surrealdb";
 import { getDb } from "~/lib/db";
 import { fetchPreRequestToken, normalizeConnection } from "~/lib/connections";
+import { getEffectiveAccessContext } from "~/lib/auth";
+import { canAccessResource } from "~/lib/groupAuth";
 
 export async function POST(event: APIEvent) {
   try {
     const body = await new Response(event.request.body).json();
     let config: any = body;
+    let targetDbId: string | undefined;
+    let canEditTarget = false;
+    let db: any;
 
     if (body.connectionId) {
-      const db = await getDb();
+      db = await getDb();
+      const ctx = await getEffectiveAccessContext(event.request, db);
       const rawId = String(body.connectionId);
       const dbId = (rawId.includes(":") ? rawId.split(":")[1] : rawId).replace(/[⟨⟩]/g, "").trim();
       const record = await db.select(new RecordId("connection", dbId));
@@ -21,6 +27,8 @@ export async function POST(event: APIEvent) {
         );
       }
       const normalized = normalizeConnection(connRecord) as any;
+      canEditTarget = ctx.sub === "anonymous" || canAccessResource(ctx, normalized, "edit");
+      targetDbId = dbId;
       config = { ...normalized, ...body };
 
       // If this connection uses static bearer auth instead of dynamic OAuth pre-request
@@ -34,6 +42,7 @@ export async function POST(event: APIEvent) {
             headerPrefix: normalized.tokenHeaderPrefix ?? "Bearer ",
             connectionName: normalized.name,
             latencyMs: 0,
+            oauthVerifiedAt: normalized.oauthVerifiedAt,
           }),
           { headers: { "Content-Type": "application/json" } }
         );
@@ -70,6 +79,14 @@ export async function POST(event: APIEvent) {
     });
 
     if (!result.success) {
+      if (targetDbId && db && canEditTarget) {
+        try {
+          await db.query("UPDATE $id MERGE $data", {
+            id: new RecordId("connection", targetDbId),
+            data: { oauthLastError: result.error, updated_at: new Date().toISOString() },
+          });
+        } catch {}
+      }
       return new Response(
         JSON.stringify({
           success: false,
@@ -79,6 +96,21 @@ export async function POST(event: APIEvent) {
         }),
         { headers: { "Content-Type": "application/json" } }
       );
+    }
+
+    const verifiedAt = new Date().toISOString();
+    if (targetDbId && db && canEditTarget) {
+      try {
+        await db.query("UPDATE $id MERGE $data", {
+          id: new RecordId("connection", targetDbId),
+          data: {
+            oauthVerifiedAt: verifiedAt,
+            oauthLastError: null,
+            oauthProvider: true,
+            updated_at: verifiedAt,
+          },
+        });
+      } catch {}
     }
 
     return new Response(
@@ -91,6 +123,7 @@ export async function POST(event: APIEvent) {
         connectionName: config.name,
         response: result.response,
         latencyMs: result.latencyMs,
+        oauthVerifiedAt: verifiedAt,
       }),
       { headers: { "Content-Type": "application/json" } }
     );

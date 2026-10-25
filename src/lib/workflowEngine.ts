@@ -53,7 +53,7 @@ async function getStepAuthHeader(
   step: any,
   db: any,
   context?: any,
-  tokenCache?: Map<string, { header?: string; token?: string; response?: any }>
+  tokenCache?: Map<string, { header?: string; token?: string; response?: any; name?: string }>
 ): Promise<string | undefined> {
   const authType = step.authType || "none";
   if (authType === "basic" && (step.authUsername || step.authPassword || step.username || step.password)) {
@@ -74,8 +74,9 @@ async function getStepAuthHeader(
     return `Bearer ${step.bearerToken}`;
   }
   
-  if ((authType === "oauth" || step.connectionId) && step.connectionId) {
-    const connDbId = (step.connectionId || "").replace(/^connection:/, "").replace(/[⟨⟩]/g, "").trim();
+  const authConnId = step.authConnectionId || (authType === "oauth" ? step.connectionId : step.connectionId);
+  if (authConnId) {
+    const connDbId = (authConnId || "").replace(/^connection:/, "").replace(/[⟨⟩]/g, "").trim();
     if (tokenCache?.has(connDbId)) {
       const cached = tokenCache.get(connDbId)!;
       if (cached.token && context) {
@@ -85,11 +86,16 @@ async function getStepAuthHeader(
         context.connections = context.connections || {};
         context.connections[connDbId] = { token: cached.token, access_token: cached.token, response: cached.response };
         context.connections[`connection:${connDbId}`] = { token: cached.token, access_token: cached.token, response: cached.response };
+        if (cached.name) {
+          const nameSlug = cached.name.toLowerCase().replace(/[^a-z0-9_]/g, "_");
+          context.oauth = context.oauth || {};
+          context.oauth[nameSlug] = { token: cached.token, access_token: cached.token, response: cached.response };
+        }
       }
       return cached.header;
     }
 
-    console.log(`[STEP AUTH] Fetching connection details for ID: ${step.connectionId}`);
+    console.log(`[STEP AUTH] Fetching connection details for ID: ${authConnId}`);
     try {
       const connRecord = await db.select(new RecordId("connection", connDbId));
       const rawConnection = Array.isArray(connRecord) ? connRecord[0] : connRecord;
@@ -102,7 +108,7 @@ async function getStepAuthHeader(
         if (conn.authType === "basic" && (conn.username || conn.password)) {
           const auth = Buffer.from(`${conn.username || ""}:${conn.password || ""}`).toString("base64");
           const header = `Basic ${auth}`;
-          tokenCache?.set(connDbId, { header, token: auth });
+          tokenCache?.set(connDbId, { header, token: auth, name: connection.name });
           if (context) {
             context.auth = { ...(context.auth || {}), token: auth, access_token: auth };
             if (!context.access_token) context.access_token = auth;
@@ -113,7 +119,7 @@ async function getStepAuthHeader(
 
         if (conn.authType === "bearer" && conn.bearerToken) {
           const header = `Bearer ${conn.bearerToken}`;
-          tokenCache?.set(connDbId, { header, token: conn.bearerToken });
+          tokenCache?.set(connDbId, { header, token: conn.bearerToken, name: connection.name });
           if (context) {
             context.auth = { ...(context.auth || {}), token: conn.bearerToken, access_token: conn.bearerToken };
             context.access_token = conn.bearerToken;
@@ -125,7 +131,7 @@ async function getStepAuthHeader(
           return header;
         }
 
-        if (conn.authType === "oauth" || conn.tokenUrl) {
+        if (conn.authType === "oauth" || conn.tokenUrl || conn.oauthProvider) {
           const tokenRes = await fetchPreRequestToken({
             tokenUrl: conn.tokenUrl,
             tokenMethod: conn.tokenMethod,
@@ -151,7 +157,7 @@ async function getStepAuthHeader(
 
           const prefix = conn.tokenHeaderPrefix !== undefined ? conn.tokenHeaderPrefix : "Bearer ";
           const header = `${prefix}${tokenRes.token}`;
-          tokenCache?.set(connDbId, { header, token: tokenRes.token, response: tokenRes.response });
+          tokenCache?.set(connDbId, { header, token: tokenRes.token, response: tokenRes.response, name: connection.name });
           if (context && tokenRes.token) {
             context.auth = {
               ...(context.auth || {}),
@@ -172,11 +178,20 @@ async function getStepAuthHeader(
               access_token: tokenRes.token,
               response: tokenRes.response,
             };
+            const nameSlug = (connection.name || "").toLowerCase().replace(/[^a-z0-9_]/g, "_");
+            if (nameSlug) {
+              context.oauth = context.oauth || {};
+              context.oauth[nameSlug] = {
+                token: tokenRes.token,
+                access_token: tokenRes.token,
+                response: tokenRes.response,
+              };
+            }
           }
           return header;
         }
       } else {
-        throw new Error(`Connection ${step.connectionId} not found in database`);
+        throw new Error(`Connection ${authConnId} not found in database`);
       }
     } catch (err: any) {
       throw new Error(`Step Connection Setup Error: ${err.message}`);
@@ -654,18 +669,22 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
 
     // 1b. Prefetch tokens for any step connections (or fallback OAuth connection if a step uses {{ access_token }} / {{ auth.access_token }})
     const executionSteps = sortStepsTopologically(steps || []);
-    const stepConnIds = Array.from(
+    const stepAuthConnIds = Array.from(
       new Set(
         executionSteps
-          .map((s: any) => s.connectionId)
+          .flatMap((s: any) => [
+            s.authConnectionId,
+            s.type === "oauth_token" ? s.connectionId : undefined,
+            s.authType === "oauth" ? s.connectionId : undefined,
+          ])
           .filter((id: any): id is string => typeof id === "string" && id.trim().length > 0)
       )
     );
-    for (const sConnId of stepConnIds) {
+    for (const sConnId of stepAuthConnIds) {
       try {
-        await getStepAuthHeader({ connectionId: sConnId, authType: "oauth" }, db, context, tokenCache);
+        await getStepAuthHeader({ authConnectionId: sConnId, authType: "oauth" }, db, context, tokenCache);
       } catch (e: any) {
-        console.warn(`[AUTH PREFETCH] Step connection ${sConnId} prefetch notice: ${e.message}`);
+        console.warn(`[AUTH PREFETCH] Step auth connection ${sConnId} prefetch notice: ${e.message}`);
       }
     }
     if (!context.access_token) {
@@ -1501,6 +1520,151 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
           const { id: _t_s3_err, ...data_s3_err } = runRecord;
           const sId_s3_err = new RecordId("workflow_run", dbId);
           await db.query("UPDATE $id CONTENT $data", { id: sId_s3_err, data: data_s3_err });
+          return "abort";
+        }
+
+        emitWorkflowEvent(runId, workflow.id || "", "step_complete", {
+          stepId: step.id,
+          response: responsePayload,
+          latencyMs: finalResult.latencyMs,
+          timestamp: new Date().toISOString(),
+        });
+        return "continue";
+      }
+
+      if (step.type === "oauth_token") {
+        emitWorkflowEvent(runId, workflow.id || "", "step_start", {
+          stepId: step.id,
+          stepType: "oauth_token",
+          timestamp: new Date().toISOString(),
+        });
+
+        const startTimeMs = Date.now();
+        let targetConn: any = null;
+        const authConnId = step.authConnectionId || step.connectionId;
+        if (authConnId) {
+          try {
+            const connDbId = String(authConnId).replace(/^connection:/, "").replace(/[⟨⟩]/g, "").trim();
+            const connRecord = await db.select(new RecordId("connection", connDbId));
+            const rawConn = Array.isArray(connRecord) ? connRecord[0] : connRecord;
+            if (rawConn) targetConn = normalizeConnection(rawConn);
+          } catch (e: any) {
+            console.error("[OAUTH STEP] Failed to load connection:", e);
+          }
+        }
+
+        const tokenUrl = interpolateTemplate(step.tokenUrl || targetConn?.tokenUrl || targetConn?.url || "", context).trim();
+        const tokenMethod = step.tokenMethod || targetConn?.tokenMethod || "POST";
+        const tokenAuthScheme = step.tokenAuthScheme || targetConn?.tokenAuthScheme || "none";
+        const tokenUsername = interpolateTemplate(step.tokenUsername || targetConn?.tokenUsername || "", context);
+        const tokenPassword = interpolateTemplate(step.tokenPassword || targetConn?.tokenPassword || "", context);
+        const tokenBearerToken = interpolateTemplate(step.tokenBearerToken || targetConn?.tokenBearerToken || "", context);
+        const tokenGrantType = step.tokenGrantType || targetConn?.tokenGrantType;
+        const tokenClientId = interpolateTemplate(step.tokenClientId || targetConn?.tokenClientId || "", context);
+        const tokenClientSecret = interpolateTemplate(step.tokenClientSecret || targetConn?.tokenClientSecret || "", context);
+        const tokenScope = interpolateTemplate(step.tokenScope || targetConn?.tokenScope || "", context);
+        const tokenContentType = step.tokenContentType || targetConn?.tokenContentType;
+        const tokenBody = step.tokenBody !== undefined
+          ? (typeof step.tokenBody === "string" ? interpolateTemplate(step.tokenBody, context) : JSON.stringify(step.tokenBody))
+          : targetConn?.tokenBody;
+        const tokenHeaders = step.tokenHeaders !== undefined
+          ? (typeof step.tokenHeaders === "string" ? interpolateTemplate(step.tokenHeaders, context) : JSON.stringify(step.tokenHeaders))
+          : targetConn?.tokenHeaders;
+        const tokenPath = step.tokenPath || targetConn?.tokenPath || "access_token";
+        const caId = step.caId ?? targetConn?.caId ?? defaultCaId;
+        const acceptInvalidCert = step.acceptInvalidCert ?? targetConn?.acceptInvalidCert ?? (caId === ACCEPT_ALL_CA);
+
+        let finalResult: any;
+        let latencyMs = 0;
+        try {
+          if (!tokenUrl) {
+            throw new Error(`Token Endpoint URL is empty for step ${step.id}`);
+          }
+          const res = await fetchPreRequestToken({
+            tokenUrl,
+            tokenMethod,
+            tokenAuthScheme,
+            tokenUsername,
+            tokenPassword,
+            tokenBearerToken,
+            tokenGrantType,
+            tokenClientId,
+            tokenClientSecret,
+            tokenScope,
+            tokenContentType,
+            tokenBody,
+            tokenHeaders,
+            tokenPath,
+            caId,
+            acceptInvalidCert,
+          });
+          latencyMs = Date.now() - startTimeMs;
+          if (!res.success) {
+            throw new Error(res.error || "Token fetch failed");
+          }
+          finalResult = { success: true, token: res.token, response: res.response, latencyMs };
+        } catch (err: any) {
+          latencyMs = Date.now() - startTimeMs;
+          finalResult = { success: false, error: err.message || String(err), latencyMs };
+        }
+
+        const tokenVal = finalResult.token;
+        const responsePayload = finalResult.success ? {
+          access_token: tokenVal,
+          token: tokenVal,
+          token_type: "Bearer",
+          raw: finalResult.response,
+        } : undefined;
+
+        context.steps[step.id] = {
+          request: { url: tokenUrl, method: tokenMethod },
+          response: responsePayload,
+          error: finalResult.error,
+        };
+
+        if (finalResult.success && tokenVal) {
+          context.access_token = tokenVal;
+          context.token = tokenVal;
+          context.auth = {
+            ...(context.auth || {}),
+            token: tokenVal,
+            access_token: tokenVal,
+            response: finalResult.response,
+          };
+          if (targetConn?.name) {
+            const nameSlug = targetConn.name.toLowerCase().replace(/[^a-z0-9_]/g, "_");
+            context.oauth = context.oauth || {};
+            context.oauth[nameSlug] = { token: tokenVal, access_token: tokenVal, response: finalResult.response };
+          }
+        }
+
+        const maskedToken = tokenVal ? (tokenVal.length > 20 ? `${tokenVal.slice(0, 10)}...${tokenVal.slice(-6)}` : "***") : undefined;
+        runRecord.logs.push({
+          stepId: step.id,
+          stepType: "oauth_token" as any,
+          status: finalResult.success ? "success" : "error",
+          request: { url: tokenUrl, method: tokenMethod },
+          response: finalResult.success ? { access_token: maskedToken, token_type: "Bearer" } : undefined,
+          error: finalResult.error,
+          latencyMs: finalResult.latencyMs,
+        });
+
+        runRecord.context = context;
+        const { id: _t_oauth, ...data_oauth } = runRecord;
+        const sId_oauth = new RecordId("workflow_run", dbId);
+        await db.query("UPDATE $id CONTENT $data", { id: sId_oauth, data: data_oauth });
+
+        if (!finalResult.success) {
+          emitWorkflowEvent(runId, workflow.id || "", "step_failed", {
+            stepId: step.id,
+            error: finalResult.error,
+            timestamp: new Date().toISOString(),
+          });
+          runRecord.status = "failed";
+          runRecord.endTime = new Date().toISOString();
+          const { id: _t_oauth_err, ...data_oauth_err } = runRecord;
+          const sId_oauth_err = new RecordId("workflow_run", dbId);
+          await db.query("UPDATE $id CONTENT $data", { id: sId_oauth_err, data: data_oauth_err });
           return "abort";
         }
 

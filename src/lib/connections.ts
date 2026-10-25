@@ -34,6 +34,9 @@ export interface ConnectionBase {
   owner?: string;
   tags?: string[];
   visibility?: string;
+  oauthProvider?: boolean;
+  oauthVerifiedAt?: string;
+  oauthLastError?: string;
   created_at?: string;
   updated_at?: string;
 }
@@ -177,11 +180,19 @@ export function normalizeConnection(raw: any): Connection {
     } catch {}
   }
 
+  const oauthProvider =
+    raw.oauthProvider !== undefined
+      ? Boolean(raw.oauthProvider)
+      : Boolean((authType === "oauth" || type === "oauth") && tokenUrl);
+
   return {
     ...raw,
     id: rawId,
     type: type === "oauth" ? "http" : type,
     authType,
+    oauthProvider,
+    oauthVerifiedAt: raw.oauthVerifiedAt || undefined,
+    oauthLastError: raw.oauthLastError || undefined,
     tokenUrl,
     tokenMethod,
     tokenAuthScheme,
@@ -201,6 +212,8 @@ export function normalizeConnection(raw: any): Connection {
     timeoutMs: raw.timeoutMs !== undefined ? Number(raw.timeoutMs) : undefined,
   };
 }
+
+export { isOAuthProvider } from "./stepCategories";
 
 /**
  * Helper to fetch a CA cert content from DB by caId

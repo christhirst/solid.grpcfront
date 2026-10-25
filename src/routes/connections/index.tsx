@@ -1,6 +1,7 @@
 import { createSignal, createResource, createMemo, onMount, onCleanup, For, Show } from "solid-js";
 import { isServer } from "solid-js/web";
 import { type ConnectionType, type AuthType } from "~/lib/connections";
+import { isOAuthProvider } from "~/lib/stepCategories";
 import { ResourceTagEditor } from "~/components/ResourceTagEditor";
 
 const fetchConnections = async () => {
@@ -109,6 +110,7 @@ export default function Connections() {
   const [tokenHeaderName, setTokenHeaderName] = createSignal("Authorization");
   const [tokenHeaderPrefix, setTokenHeaderPrefix] = createSignal("Bearer ");
   const [tokenMetadataKey, setTokenMetadataKey] = createSignal("authorization");
+  const [oauthProvider, setOauthProvider] = createSignal(true);
   const [isTestingToken, setIsTestingToken] = createSignal(false);
   const [copiedToken, setCopiedToken] = createSignal(false);
 
@@ -227,6 +229,7 @@ export default function Connections() {
     setTokenHeaderName("Authorization");
     setTokenHeaderPrefix("Bearer ");
     setTokenMetadataKey("authorization");
+    setOauthProvider(true);
     setServerAddress("");
     setUseTls(false);
     setAcceptInvalidCert(false);
@@ -395,6 +398,7 @@ export default function Connections() {
     setTokenHeaderName(conn.tokenHeaderName || "Authorization");
     setTokenHeaderPrefix(conn.tokenHeaderPrefix !== undefined ? conn.tokenHeaderPrefix : "Bearer ");
     setTokenMetadataKey(conn.tokenMetadataKey || "authorization");
+    setOauthProvider(conn.oauthProvider !== undefined ? Boolean(conn.oauthProvider) : (conn.authType === "oauth" && Boolean(conn.tokenUrl)));
 
     // gRPC
     setServerAddress(conn.serverAddress || "");
@@ -479,6 +483,7 @@ export default function Connections() {
         tokenPath: authType() === "oauth" ? tokenPath() : undefined,
         tokenHeaderName: authType() === "oauth" ? tokenHeaderName() : undefined,
         tokenHeaderPrefix: authType() === "oauth" ? tokenHeaderPrefix() : undefined,
+        oauthProvider: authType() === "oauth" ? oauthProvider() : false,
       };
     } else if (type === "grpc") {
       return {
@@ -516,6 +521,7 @@ export default function Connections() {
         tokenPath: authType() === "oauth" ? tokenPath() : undefined,
         tokenMetadataKey: authType() === "oauth" ? tokenMetadataKey() : undefined,
         tokenHeaderPrefix: authType() === "oauth" ? tokenHeaderPrefix() : undefined,
+        oauthProvider: authType() === "oauth" ? oauthProvider() : false,
       };
     } else if (type === "s3") {
       return {
@@ -549,10 +555,13 @@ export default function Connections() {
     setTestResult(null);
     try {
       const payload = getPayload();
+      const bodyPayload = selectedConnection()?.id
+        ? { ...payload, connectionId: selectedConnection()?.id }
+        : payload;
       const res = await fetch("/api/connections/test-token", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(bodyPayload),
         signal: AbortSignal.timeout(15000),
       });
       const json = await res.json();
@@ -562,6 +571,9 @@ export default function Connections() {
           ? `Successfully fetched access_token from IDP (${json.latencyMs ?? 0}ms).`
           : undefined,
       });
+      if (json.success && selectedConnection()?.id) {
+        refetch();
+      }
     } catch (e: any) {
       setTestResult({ success: false, error: e.message });
     } finally {
@@ -1052,10 +1064,20 @@ export default function Connections() {
                             <p class="text-xs font-mono text-[#8b8b9e] break-all line-clamp-1 mb-2">{conn.url}</p>
                             <div class="flex items-center gap-1.5 flex-wrap">
                               <span class="text-[9px] font-bold px-1.5 py-0.5 bg-[#1e1e2e] text-[#8b8b9e] rounded border border-[#2a2a3a] uppercase">{conn.method || "GET"}</span>
-                              <Show when={conn.authType === "oauth" || conn.tokenPath}>
-                                <span class="text-[9px] font-bold px-1.5 py-0.5 bg-amber-500/10 text-amber-400 rounded border border-amber-500/20 flex items-center gap-1">
-                                  <span class="w-1 h-1 rounded-full bg-amber-400"></span> OAuth Pre-request
+                              <Show when={isOAuthProvider(conn)}>
+                                <span class="text-[9px] font-bold px-1.5 py-0.5 bg-amber-500/15 text-amber-300 rounded border border-amber-500/30 flex items-center gap-1">
+                                  <span>🔑</span> OAuth Provider
                                 </span>
+                                <Show when={conn.oauthVerifiedAt}>
+                                  <span class="text-[9px] font-medium px-1.5 py-0.5 bg-emerald-500/15 text-emerald-300 rounded border border-emerald-500/30 flex items-center gap-1" title={`Token verified at ${conn.oauthVerifiedAt}`}>
+                                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> Verified
+                                  </span>
+                                </Show>
+                                <Show when={!conn.oauthVerifiedAt}>
+                                  <span class="text-[9px] font-medium px-1.5 py-0.5 bg-amber-500/10 text-amber-400/80 rounded border border-amber-500/20">
+                                    ⚠ Not tested
+                                  </span>
+                                </Show>
                               </Show>
                               <Show when={conn.authType === "basic"}>
                                 <span class="text-[9px] font-bold px-1.5 py-0.5 bg-blue-500/10 text-blue-400 rounded border border-blue-500/20">Basic Auth</span>
@@ -1078,8 +1100,20 @@ export default function Connections() {
                               <Show when={conn.authType === "bearer"}>
                                 <span class="text-[9px] font-bold px-1.5 py-0.5 bg-purple-500/10 text-purple-400 rounded border border-purple-500/20">Bearer Token</span>
                               </Show>
-                              <Show when={conn.authType === "oauth"}>
-                                <span class="text-[9px] font-bold px-1.5 py-0.5 bg-amber-500/10 text-amber-400 rounded border border-amber-500/20">OAuth Token</span>
+                              <Show when={isOAuthProvider(conn)}>
+                                <span class="text-[9px] font-bold px-1.5 py-0.5 bg-amber-500/15 text-amber-300 rounded border border-amber-500/30 flex items-center gap-1">
+                                  <span>🔑</span> OAuth Provider
+                                </span>
+                                <Show when={conn.oauthVerifiedAt}>
+                                  <span class="text-[9px] font-medium px-1.5 py-0.5 bg-emerald-500/15 text-emerald-300 rounded border border-emerald-500/30 flex items-center gap-1" title={`Token verified at ${conn.oauthVerifiedAt}`}>
+                                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> Verified
+                                  </span>
+                                </Show>
+                                <Show when={!conn.oauthVerifiedAt}>
+                                  <span class="text-[9px] font-medium px-1.5 py-0.5 bg-amber-500/10 text-amber-400/80 rounded border border-amber-500/20">
+                                    ⚠ Not tested
+                                  </span>
+                                </Show>
                               </Show>
                               <Show when={conn.protoId}>
                                 <span class="text-[9px] font-bold px-1.5 py-0.5 bg-purple-500/10 text-purple-400 rounded border border-purple-500/20">Proto Linked</span>
@@ -1819,6 +1853,33 @@ export default function Connections() {
                             {isTestingToken() ? "Fetching Token..." : "🔑 Fetch Token Only"}
                           </button>
                         </div>
+                      </div>
+
+                      {/* Workflow OAuth Provider Designation Toggle */}
+                      <div class="flex items-center justify-between gap-3 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/25">
+                        <div class="flex items-center gap-2.5">
+                          <input
+                            type="checkbox"
+                            id="oauthProviderCheckbox"
+                            checked={oauthProvider()}
+                            onChange={(e) => setOauthProvider(e.currentTarget.checked)}
+                            class="w-4 h-4 rounded border-[#2a2a3a] bg-[#1e1e2e] text-amber-500 focus:ring-0 cursor-pointer"
+                          />
+                          <label for="oauthProviderCheckbox" class="text-xs text-amber-200 cursor-pointer select-none">
+                            <span class="font-bold">🔑 Make available as OAuth Token Provider in Workflows</span>
+                            <span class="block text-[10px] text-[#8b8b9e]">Allows workflow steps to authenticate with this IDP's token independently of its endpoint URL.</span>
+                          </label>
+                        </div>
+                        <Show when={selectedConnection()?.oauthVerifiedAt}>
+                          <span class="shrink-0 text-[10px] font-mono text-emerald-300 bg-emerald-500/20 border border-emerald-500/30 px-2 py-0.5 rounded" title={`Verified at ${selectedConnection()?.oauthVerifiedAt}`}>
+                            ✓ Verified
+                          </span>
+                        </Show>
+                        <Show when={!selectedConnection()?.oauthVerifiedAt}>
+                          <span class="shrink-0 text-[10px] font-mono text-amber-300/80 bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 rounded">
+                            ⚠ Not tested
+                          </span>
+                        </Show>
                       </div>
 
                       <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
