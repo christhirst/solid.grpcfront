@@ -7,6 +7,7 @@ import { checkWorkflowConfiguredInDashboards } from "~/lib/workflowVariableCheck
 export default function Workflows() {
   const [searchQuery, setSearchQuery] = createSignal("");
   const [isDeleting, setIsDeleting] = createSignal<string | null>(null);
+  const [isCloning, setIsCloning] = createSignal<string | null>(null);
   const [error, setError] = createSignal<string | null>(null);
   let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -81,6 +82,42 @@ export default function Workflows() {
       }
     } finally {
       setIsDeleting(null);
+    }
+  };
+
+  const cloneWorkflow = async (workflowId: string, currentName: string, e: Event) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (isCloning()) return;
+
+    const rawId = workflowId.includes(":") ? workflowId.split(":")[1] : workflowId;
+    const cleanId = rawId.replace(/[⟨⟩]/g, "");
+
+    const defaultCloneName = `${currentName || "Workflow"} (Copy)`;
+    const cloneName = prompt("Enter a name for the cloned workflow:", defaultCloneName);
+    if (!cloneName || !cloneName.trim()) return;
+
+    setIsCloning(workflowId);
+    try {
+      const res = await fetch(`/api/workflows/${cleanId}/clone`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: cloneName.trim() }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (res.ok && json.success && json.data) {
+        const newRawId = String(json.data.id || "");
+        const newCleanId = newRawId.includes(":")
+          ? newRawId.split(":")[1].replace(/[⟨⟩]/g, "")
+          : newRawId.replace(/[⟨⟩]/g, "");
+        window.location.href = `/workflows/${newCleanId}`;
+      } else {
+        alert(`Failed to clone workflow: ${json.error || "Unknown error"}`);
+      }
+    } catch (err: any) {
+      alert(`Failed to clone workflow: ${err.message || String(err)}`);
+    } finally {
+      setIsCloning(null);
     }
   };
 
@@ -215,6 +252,28 @@ export default function Workflows() {
                         }`}>
                           {workflow.tags?.length > 0 ? "Group Shared" : "Private"}
                         </span>
+                        <button
+                          type="button"
+                          class="text-[#5b5b6e] transition-colors hover:text-blue-400 p-1 rounded hover:bg-blue-500/10"
+                          onClick={(e) => cloneWorkflow(workflow.id, workflow.name, e)}
+                          disabled={isCloning() === workflow.id}
+                          title="Clone Workflow"
+                        >
+                          <Show
+                            when={isCloning() === workflow.id}
+                            fallback={
+                              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                              </svg>
+                            }
+                          >
+                            <svg class="animate-spin h-4 w-4 text-blue-400" viewBox="0 0 24 24" fill="none">
+                              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                          </Show>
+                        </button>
                         <Show when={workflow.permissions?.canDelete !== false}>
                           <button 
                             class="text-[#5b5b6e] transition-colors hover:text-red-400"

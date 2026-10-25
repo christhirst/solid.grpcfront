@@ -12,6 +12,7 @@ import { isServer } from "solid-js/web";
 import { useParams, useNavigate } from "@solidjs/router";
 import { parseProtoContent, generateSkeleton, ParsedProto } from "~/lib/protoParser";
 import { ResourceTagEditor } from "~/components/ResourceTagEditor";
+import { ActionMessageBanner, type ActionMessage } from "~/components/ui/ActionMessageBanner";
 
 // Safe dot-path getter to avoid CJS interop issues in Vite prod builds
 function get(obj: any, path: string | string[], defValue?: any) {
@@ -584,7 +585,7 @@ export default function WorkflowBuilder() {
   const [name, setName] = createSignal("New Workflow");
   const [tags, setTags] = createSignal<string[]>([]);
   const [direction, setDirection] = createSignal<"read" | "write">("read");
-  const [viewMode, setViewMode] = createSignal<"graph" | "steps">("graph");
+  const [viewMode, setViewMode] = createSignal<"graph" | "steps">("steps");
   const [graphData, setGraphData] = createSignal<any>(null);
   const [selectedStepId, setSelectedStepId] = createSignal<string | null>(null);
   const [protoContent, setProtoContent] = createSignal("");
@@ -1110,6 +1111,65 @@ export default function WorkflowBuilder() {
     }
   };
 
+  const [isCloning, setIsCloning] = createSignal(false);
+
+  const cloneCurrentWorkflow = async () => {
+    if (isCloning() || isSaving() || isRunning()) return;
+    setIsCloning(true);
+    setActionMessage(null);
+    try {
+      const defaultCloneName = `${name()} (Copy)`;
+      const cloneName = prompt("Enter a name for the cloned workflow:", defaultCloneName);
+      if (!cloneName || !cloneName.trim()) {
+        setIsCloning(false);
+        return;
+      }
+
+      const payload = {
+        name: cloneName.trim(),
+        tags: tags(),
+        direction: direction(),
+        protoId: protoId() || undefined,
+        caId: caId() || undefined,
+        serverAddress: serverAddress(),
+        useTls: useTls(),
+        schedule: schedule(),
+        connectionId: connectionId() || undefined,
+        graph: graphData() || workflow()?.graph || undefined,
+        steps: steps.map(s => ({
+          ...s,
+          type: s.type || "grpc",
+          columns: Array.isArray(s.columns) ? s.columns.filter((c: string) => typeof c === "string" && c.trim().length > 0) : s.columns,
+        })),
+      };
+
+      const res = await fetch("/api/workflows", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const json = await res.json();
+      if (json.success && json.data) {
+        window.dispatchEvent(new CustomEvent("user-groups-changed", { detail: { source: "workflow-save" } }));
+        const rawSavedId = String(json.data?.id || "");
+        const cleanId = rawSavedId.includes(":")
+          ? rawSavedId.split(":").slice(1).join(":").replace(/[⟨⟩]/g, "")
+          : rawSavedId.replace(/[⟨⟩]/g, "");
+        if (cleanId) {
+          navigate(`/workflows/${cleanId}`);
+        }
+      } else {
+        const errMsg = json.error || `HTTP ${res.status}`;
+        setActionMessage({ type: "error", text: `Failed to clone workflow: ${errMsg}` });
+      }
+    } catch (e: any) {
+      setActionMessage({ type: "error", text: `Failed to clone workflow: ${e.message || String(e)}` });
+    } finally {
+      setIsCloning(false);
+    }
+  };
+
   const addStep = (type: string = "grpc", explicitCategory?: StepCategory) => {
     const cat = explicitCategory || getStepCategory(type);
     const previousSource = steps.filter(s => getStepCategory(s.type, s.category) !== "target").slice(-1)[0];
@@ -1412,6 +1472,29 @@ export default function WorkflowBuilder() {
             Settings
           </button>
           
+          <Show when={!isNew()}>
+            <button 
+              type="button" 
+              onClick={cloneCurrentWorkflow} 
+              class="btn-secondary flex items-center gap-1.5" 
+              disabled={isCloning() || isSaving() || isRunning()}
+              title="Clone this workflow as a new flow"
+            >
+              <Show when={isCloning()} fallback={
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                </svg>
+              }>
+                <svg class="animate-spin h-3.5 w-3.5 text-white" viewBox="0 0 24 24" fill="none">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+              </Show>
+              {isCloning() ? "Cloning..." : "Clone Flow"}
+            </button>
+          </Show>
+
           <button onClick={() => saveWorkflow()} class="btn-secondary" disabled={isSaving() || isRunning()}>
             {isSaving() ? "Saving..." : "Save Flow"}
           </button>
@@ -1432,24 +1515,7 @@ export default function WorkflowBuilder() {
         </div>
       </div>
 
-      <Show when={actionMessage()}>
-        <div
-          class={`mb-6 p-3.5 rounded-xl border flex items-center justify-between text-xs font-semibold ${
-            actionMessage()!.type === "error"
-              ? "bg-red-500/10 border-red-500/30 text-red-300"
-              : "bg-emerald-500/10 border-emerald-500/30 text-emerald-300"
-          }`}
-        >
-          <span>{actionMessage()!.type === "error" ? "⚠️ " : "✓ "}{actionMessage()!.text}</span>
-          <button
-            type="button"
-            onClick={() => setActionMessage(null)}
-            class="text-[11px] opacity-70 hover:opacity-100 ml-3"
-          >
-            ✕
-          </button>
-        </div>
-      </Show>
+      <ActionMessageBanner message={actionMessage()} onClose={() => setActionMessage(null)} />
 
       {/* Translucent Dashboard Variable Status Banner */}
       <Show when={varConfigStatus().hasVariables}>
@@ -1610,17 +1676,6 @@ export default function WorkflowBuilder() {
               <div class="flex items-center bg-[#12121a] p-1 rounded-xl border border-[#2a2a3a]">
                 <button
                   type="button"
-                  onClick={() => setViewMode("graph")}
-                  class={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
-                    viewMode() === "graph"
-                      ? "bg-purple-600 text-white shadow-lg shadow-purple-600/30"
-                      : "text-[#8b8b9e] hover:text-white hover:bg-[#1a1a24]"
-                  }`}
-                >
-                  <span>🕸️ Visual Graph (Rete.js)</span>
-                </button>
-                <button
-                  type="button"
                   onClick={() => setViewMode("steps")}
                   class={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
                     viewMode() === "steps"
@@ -1629,6 +1684,17 @@ export default function WorkflowBuilder() {
                   }`}
                 >
                   <span>📋 Step Details List ({steps.length})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode("graph")}
+                  class={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                    viewMode() === "graph"
+                      ? "bg-purple-600 text-white shadow-lg shadow-purple-600/30"
+                      : "text-[#8b8b9e] hover:text-white hover:bg-[#1a1a24]"
+                  }`}
+                >
+                  <span>🕸️ Visual Graph (Rete.js)</span>
                 </button>
               </div>
             </div>

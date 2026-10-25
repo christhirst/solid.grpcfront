@@ -33,6 +33,7 @@ import { Button } from "~/components/ui/button";
 import { dashboardId } from "~/lib/dashboard/boardTypes";
 import { publicDashboardPath, slugFromName, SLUG_MAX_LENGTH, urlPartError } from "~/lib/dashboard/publicUrl";
 import { ResourceTagEditor } from "~/components/ResourceTagEditor";
+import { ActionMessageBanner, type ActionMessage } from "~/components/ui/ActionMessageBanner";
 
 
 import { evaluateNewsRules, newsColorClasses, type NewsRule } from "~/lib/newsRulesEvaluator";
@@ -64,6 +65,7 @@ export default function DashboardBuilder() {
   const [savedPublished, setSavedPublished] = createSignal(false);
   const [saving, setSaving] = createSignal(false);
   const [saveError, setSaveError] = createSignal("");
+  const [actionMessage, setActionMessage] = createSignal<ActionMessage | null>(null);
   const [profileLoading, setProfileLoading] = createSignal(true);
   const [origin, setOrigin] = createSignal("");
   const [copied, setCopied] = createSignal(false);
@@ -204,11 +206,19 @@ export default function DashboardBuilder() {
       if (isNew()) {
         navigate(`/dashboards/${dashboardId(json.data.id)}`);
       } else if (quiet !== true) {
-        alert("Saved successfully!");
+        setActionMessage({ type: "success", text: "Dashboard saved successfully." });
+        setTimeout(() => {
+          setActionMessage((prev) => (prev?.type === "success" ? null : prev));
+        }, 3000);
       }
       return true;
     } catch (error) {
-      setSaveError(error instanceof Error ? error.message : "Unable to save dashboard.");
+      const errMsg = error instanceof Error ? error.message : "Unable to save dashboard.";
+      setSaveError(errMsg);
+      setActionMessage({ type: "error", text: errMsg });
+      setTimeout(() => {
+        setActionMessage((prev) => (prev?.type === "error" ? null : prev));
+      }, 5000);
       return false;
     } finally {
       setSaving(false);
@@ -242,7 +252,7 @@ export default function DashboardBuilder() {
 
   const triggerButton = async (btn: any, effectiveWorkflowId?: string) => {
     if (isNew()) {
-      alert("Please save the dashboard first before executing button actions!");
+      setActionMessage({ type: "error", text: "Please save the dashboard first before executing button actions!" });
       return;
     }
     if (executing()[btn.id] === "running") return;
@@ -264,13 +274,15 @@ export default function DashboardBuilder() {
         setTimeout(() => setExecuting(prev => ({ ...prev, [btn.id]: "idle" })), 2500);
         return json;
       } else {
-        alert("Action failed: " + json.error);
+        const errMsg = json.error || "Action failed";
+        setActionMessage({ type: "error", text: `Action failed: ${errMsg}` });
         setExecuting(prev => ({ ...prev, [btn.id]: "error" }));
         setTimeout(() => setExecuting(prev => ({ ...prev, [btn.id]: "idle" })), 2500);
         return json;
       }
     } catch (e: any) {
-      alert("Network or Server error: " + e.message);
+      const errMsg = e.message || "Network or Server error";
+      setActionMessage({ type: "error", text: `Network or Server error: ${errMsg}` });
       setExecuting(prev => ({ ...prev, [btn.id]: "error" }));
       setTimeout(() => setExecuting(prev => ({ ...prev, [btn.id]: "idle" })), 2500);
       return { success: false, error: e.message };
@@ -472,6 +484,8 @@ export default function DashboardBuilder() {
           <button disabled={saving() || profileLoading()} onClick={() => saveDashboard(false)} class="btn-primary bg-purple-600 hover:bg-purple-500 text-white disabled:opacity-50">{saving() ? "Saving…" : "Save Dashboard"}</button>
         </div>
       </div>
+
+      <ActionMessageBanner message={actionMessage()} onClose={() => setActionMessage(null)} />
 
       <section aria-label="Published dashboard URL" class="mb-8 space-y-3 rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
         <div class="flex flex-col gap-4 sm:flex-row sm:items-end">
