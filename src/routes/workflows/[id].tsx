@@ -600,9 +600,14 @@ export default function WorkflowBuilder() {
     if (!savedProtos()) refetchProtos();
     if (!isNew() && !workflow()) refetchWorkflow();
     refetchConnections();
+    refetchDashboards();
+    refetchCas();
 
     const handleConnectionsRefresh = () => {
       refetchConnections();
+      refetchDashboards();
+      refetchCas();
+      refetchProtos();
     };
     window.addEventListener("user-groups-changed", handleConnectionsRefresh);
     window.addEventListener("focus", handleConnectionsRefresh);
@@ -670,10 +675,10 @@ export default function WorkflowBuilder() {
   };
   
   // Fetch dashboards for checking variable configuration status
-  const [dashboards] = createResource(async () => {
+  const [dashboards, { refetch: refetchDashboards }] = createResource(async () => {
     const url = isServer ? `http://127.0.0.1:${process.env.PORT || 3000}/api/dashboards` : "/api/dashboards";
     try {
-      const res = await fetch(url);
+      const res = await fetch(url, isServer ? undefined : { credentials: "include" });
       const json = await res.json();
       return json.success ? json.data : [];
     } catch {
@@ -682,10 +687,10 @@ export default function WorkflowBuilder() {
   });
 
   // Fetch saved CAs from Registry
-  const [savedCas] = createResource(async () => {
+  const [savedCas, { refetch: refetchCas }] = createResource(async () => {
     const url = isServer ? `http://127.0.0.1:${process.env.PORT || 3000}/api/cas` : "/api/cas";
     try {
-      const res = await fetch(url);
+      const res = await fetch(url, isServer ? undefined : { credentials: "include" });
       const json = await res.json();
       return json.success ? json.data : [];
     } catch {
@@ -697,7 +702,7 @@ export default function WorkflowBuilder() {
   const [savedProtos, { refetch: refetchProtos }] = createResource(async () => {
     const url = isServer ? `http://127.0.0.1:${process.env.PORT || 3000}/api/protos` : "/api/protos";
     try {
-      const res = await fetch(url);
+      const res = await fetch(url, isServer ? undefined : { credentials: "include" });
       const json = await res.json();
       return json.success ? json.data : [];
     } catch {

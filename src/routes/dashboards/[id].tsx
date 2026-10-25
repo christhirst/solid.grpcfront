@@ -103,12 +103,12 @@ export default function DashboardBuilder() {
   };
 
   // Fetch all workflows for dropdowns
-  const [workflows] = createResource(async () => {
+  const [workflows, { refetch: refetchWorkflows }] = createResource(async () => {
     const url = isServer ? `http://127.0.0.1:${process.env.PORT || 3000}/api/workflows` : "/api/workflows";
     try {
-      const res = await fetch(url);
+      const res = await fetch(url, isServer ? undefined : { credentials: "include" });
       const json = await res.json();
-      return json.success ? json.data : [];
+      return json.success && Array.isArray(json.data) ? json.data : [];
     } catch {
       return [];
     }
@@ -131,6 +131,13 @@ export default function DashboardBuilder() {
   };
 
   onMount(() => {
+    refetchWorkflows();
+    const handleWorkflowsRefresh = () => {
+      refetchWorkflows();
+    };
+    window.addEventListener("user-groups-changed", handleWorkflowsRefresh);
+    window.addEventListener("focus", handleWorkflowsRefresh);
+
     fetchDashboard().catch(() => setSaveError("Unable to load this dashboard."));
     setOrigin(window.location.origin);
     fetch("/api/user/profile").then(async (response) => {
@@ -148,7 +155,11 @@ export default function DashboardBuilder() {
       setCopied(false);
     };
     window.addEventListener("user-namespace-changed", onNamespaceChanged);
-    onCleanup(() => window.removeEventListener("user-namespace-changed", onNamespaceChanged));
+    onCleanup(() => {
+      window.removeEventListener("user-groups-changed", handleWorkflowsRefresh);
+      window.removeEventListener("focus", handleWorkflowsRefresh);
+      window.removeEventListener("user-namespace-changed", onNamespaceChanged);
+    });
   });
 
   const saveDashboard = async (quiet = false) => {
@@ -632,7 +643,17 @@ export default function DashboardBuilder() {
 
                       {/* Workflow binding — always */}
                       <div class="col-span-2 min-w-0 w-full sm:max-w-sm">
-                        <label for={`workflow-${btn.id}`} class="mb-1 block text-sm font-bold text-[#8b8b9e]">Bind to Workflow</label>
+                        <div class="flex items-center justify-between mb-1">
+                          <label for={`workflow-${btn.id}`} class="block text-sm font-bold text-[#8b8b9e]">Bind to Workflow</label>
+                          <button
+                            type="button"
+                            onClick={() => refetchWorkflows()}
+                            class="text-[10px] text-[#8b8b9e] hover:text-white px-1.5 py-0.5 rounded bg-[#1e1e2e] hover:bg-[#2a2a3a] border border-[#2a2a3a] transition-colors flex items-center gap-1"
+                            title="Reload workflows"
+                          >
+                            ↻ Refresh
+                          </button>
+                        </div>
                         <select id={`workflow-${btn.id}`} class="w-full min-w-0 max-w-full truncate rounded-lg border border-[#2a2a3a] bg-[#151520] p-2.5 text-sm text-emerald-300 shadow-inner focus:border-purple-500 focus:outline-none"
                           title={boundWf()?.name || "Select a workflow"}
                           value={btn.workflowId || ""}
@@ -657,7 +678,13 @@ export default function DashboardBuilder() {
                             }
                           }}>
                           <option value="" disabled>Select a workflow...</option>
-                          <Show when={!workflows.loading}>
+                          <Show when={workflows.loading}>
+                            <option value="" disabled>Loading workflows...</option>
+                          </Show>
+                          <Show when={!workflows.loading && (workflows() || []).length === 0}>
+                            <option value="" disabled>No workflows available</option>
+                          </Show>
+                          <Show when={!workflows.loading && (workflows() || []).length > 0}>
                             <For each={workflows()}>{(w: any) => <option value={w.id} selected={w.id === btn.workflowId}>{w.direction === "write" ? "📤 (Write) " : "📥 (Read) "}{w.name}</option>}</For>
                           </Show>
                         </select>

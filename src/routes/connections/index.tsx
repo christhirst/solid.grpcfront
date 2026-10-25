@@ -6,7 +6,7 @@ import { ResourceTagEditor } from "~/components/ResourceTagEditor";
 
 const fetchConnections = async () => {
   const url = isServer ? `http://127.0.0.1:${process.env.PORT || 3000}/api/connections` : "/api/connections";
-  const res = await fetch(url);
+  const res = await fetch(url, isServer ? undefined : { credentials: "include" });
   const json = await res.json();
   return json.success ? json.data : [];
 };
@@ -14,7 +14,7 @@ const fetchConnections = async () => {
 const fetchCas = async () => {
   try {
     const url = isServer ? `http://127.0.0.1:${process.env.PORT || 3000}/api/cas` : "/api/cas";
-    const res = await fetch(url);
+    const res = await fetch(url, isServer ? undefined : { credentials: "include" });
     const json = await res.json();
     return json.success ? json.data : [];
   } catch {
@@ -25,7 +25,7 @@ const fetchCas = async () => {
 const fetchProtos = async () => {
   try {
     const url = isServer ? `http://127.0.0.1:${process.env.PORT || 3000}/api/protos` : "/api/protos";
-    const res = await fetch(url);
+    const res = await fetch(url, isServer ? undefined : { credentials: "include" });
     const json = await res.json();
     return json.success ? json.data : [];
   } catch {
@@ -55,14 +55,24 @@ function getMethodStreamBadge(kind: string): { bg: string; text: string; border:
 
 export default function Connections() {
   const [connections, { refetch }] = createResource(fetchConnections);
-  const [cas] = createResource(fetchCas);
-  const [protos] = createResource(fetchProtos);
+  const [cas, { refetch: refetchCas }] = createResource(fetchCas);
+  const [protos, { refetch: refetchProtos }] = createResource(fetchProtos);
 
   onMount(() => {
     refetch();
-    const onGroupsChanged = () => refetch();
-    window.addEventListener("user-groups-changed", onGroupsChanged);
-    onCleanup(() => window.removeEventListener("user-groups-changed", onGroupsChanged));
+    refetchCas();
+    refetchProtos();
+    const reload = () => {
+      refetch();
+      refetchCas();
+      refetchProtos();
+    };
+    window.addEventListener("user-groups-changed", reload);
+    window.addEventListener("focus", reload);
+    onCleanup(() => {
+      window.removeEventListener("user-groups-changed", reload);
+      window.removeEventListener("focus", reload);
+    });
   });
 
   // Filters & Search
