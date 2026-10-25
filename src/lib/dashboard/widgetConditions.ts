@@ -22,14 +22,35 @@ export function matchWildcard(pattern: string, text: string, caseInsensitive = t
 }
 
 /** Recursively resolve a subPath from an object or envelope (e.g. data.data arrays). */
-function resolveSubPath(obj: any, subPath: string): any {
+export function resolveSubPath(obj: any, subPath: string): any {
   if (obj === null || obj === undefined) return undefined;
-  const direct = get(obj, subPath);
-  if (direct !== undefined) return direct;
+  const normalized = subPath.replace(/\[(\w+)\]/g, ".$1").replace(/^\./, "");
 
-  const inData = get(obj, `data.${subPath}`) ?? get(obj, `data.data.${subPath}`);
-  if (inData !== undefined) return inData;
+  // 1. Direct lodash get (supports foo.bar, data.0.email, etc.)
+  const direct = get(obj, subPath) ?? get(obj, normalized);
+  if (direct !== undefined) {
+    if (Array.isArray(direct)) {
+      const filtered = direct.filter((v) => v !== undefined && v !== null && v !== "");
+      return filtered.length === 1 ? filtered[0] : filtered;
+    }
+    return direct;
+  }
 
+  // 2. Check inside data or data.data envelope directly
+  const inData =
+    get(obj, `data.${normalized}`) ??
+    get(obj, `data.data.${normalized}`) ??
+    get(obj, `data.${subPath}`) ??
+    get(obj, `data.data.${subPath}`);
+  if (inData !== undefined) {
+    if (Array.isArray(inData)) {
+      const filtered = inData.filter((v) => v !== undefined && v !== null && v !== "");
+      return filtered.length === 1 ? filtered[0] : filtered;
+    }
+    return inData;
+  }
+
+  // 3. If obj or obj.data is an array, support mapping or indexing
   let arr: any[] | undefined;
   if (Array.isArray(obj)) {
     arr = obj;
@@ -40,10 +61,36 @@ function resolveSubPath(obj: any, subPath: string): any {
   }
 
   if (arr) {
+    // Check if normalized path starts with an array index e.g. "0.email" or "0"
+    const indexMatch = normalized.match(/^(\d+)(?:\.(.*))?$/);
+    if (indexMatch) {
+      const idx = parseInt(indexMatch[1], 10);
+      const rest = indexMatch[2];
+      const targetItem = arr[idx];
+      if (targetItem !== undefined) {
+        if (!rest) return targetItem;
+        return resolveSubPath(targetItem, rest);
+      }
+    }
+
+    // Check if normalized path ends with an index e.g. "email.0"
+    const suffixIndexMatch = normalized.match(/^(.*?)\.(\d+)$/);
+    if (suffixIndexMatch) {
+      const prop = suffixIndexMatch[1];
+      const idx = parseInt(suffixIndexMatch[2], 10);
+      const items = arr
+        .map((item) => get(item, prop))
+        .filter((v) => v !== undefined && v !== null && v !== "");
+      if (items[idx] !== undefined) return items[idx];
+    }
+
+    // Map subPath across all array items
     const items = arr
-      .map((item) => get(item, subPath))
-      .filter((v) => v !== undefined);
-    if (items.length > 0) return items;
+      .map((item) => get(item, normalized) ?? get(item, subPath))
+      .filter((v) => v !== undefined && v !== null && v !== "");
+    if (items.length > 0) {
+      return items.length === 1 ? items[0] : items;
+    }
   }
 
   return undefined;
@@ -61,9 +108,30 @@ export function getValueAtPath(data: unknown, path?: string): unknown {
     return undefined;
   }
 
-  const direct = get(data, clean);
-  if (direct !== undefined) return direct;
+  // 1. If path explicitly targets a step, evaluate step directly first
+  const stepMatch = clean.match(/^steps\.([^.]+)(?:\.response)?(?:\.(.+))?$/);
+  if (stepMatch) {
+    const stepId = stepMatch[1];
+    const subPath = stepMatch[2];
+    const stepObj = get(data, `steps.${stepId}.response`) ?? get(data, `steps.${stepId}`);
+    if (stepObj !== undefined) {
+      if (!subPath || subPath === "response") return stepObj;
+      const stepVal = resolveSubPath(stepObj, subPath);
+      if (stepVal !== undefined) return stepVal;
+    }
+  }
 
+  // 2. Direct lookup by clean path
+  const direct = get(data, clean);
+  if (direct !== undefined) {
+    if (Array.isArray(direct)) {
+      const filtered = direct.filter((v) => v !== undefined && v !== null && v !== "");
+      return filtered.length === 1 ? filtered[0] : filtered;
+    }
+    return direct;
+  }
+
+  // 3. Fallback to variables or response/data envelopes
   const inVars = get(data, `variables.${clean}`);
   if (inVars !== undefined) return inVars;
   const inResp = get(data, `response.${clean}`);
@@ -71,17 +139,7 @@ export function getValueAtPath(data: unknown, path?: string): unknown {
   const inData = get(data, `data.${clean}`);
   if (inData !== undefined) return inData;
 
-  const stepMatch = clean.match(/^steps\.([^.]+)(?:\.response)?\.(.+)$/);
-  if (stepMatch) {
-    const stepId = stepMatch[1];
-    const subPath = stepMatch[2];
-    const stepObj = get(data, `steps.${stepId}.response`) ?? get(data, `steps.${stepId}`);
-    if (stepObj !== undefined) {
-      const stepVal = resolveSubPath(stepObj, subPath);
-      if (stepVal !== undefined) return stepVal;
-    }
-  }
-
+  // 4. Resolve subPath against root data object
   return resolveSubPath(data, clean);
 }
 

@@ -1256,8 +1256,12 @@ export default function DashboardBuilder() {
                                         <span class="text-[9px] text-[#5b5b6e]">Quick Picks:</span>
                                         <For each={upstreamVars()}>
                                           {(uv) => {
-                                            const pickPath = uv.name ? (uv.name.startsWith("{{") ? uv.name : `{{ ${uv.name} }}`) : "";
-                                            const suggestedLabel = uv.alias || uv.name.replace(/\{\{|\}\}/g, "").split(".").pop() || "Output";
+                                            const pickPath = uv.alias
+                                              ? (uv.alias.startsWith("{{") ? uv.alias : `{{ ${uv.alias} }}`)
+                                              : (uv.name ? (uv.name.startsWith("{{") ? uv.name : `{{ ${uv.name} }}`) : "");
+                                            const suggestedLabel = uv.alias
+                                              ? uv.alias.replace(/\{\{|\}\}/g, "").split(".").pop() || "Output"
+                                              : (uv.name ? uv.name.replace(/\{\{|\}\}/g, "").split(".").pop() || "Output" : "Output");
                                             return (
                                               <button
                                                 type="button"
@@ -1268,7 +1272,7 @@ export default function DashboardBuilder() {
                                                     label: o.label && o.label !== "Response" && !o.label.startsWith("Output ") ? o.label : suggestedLabel
                                                   }));
                                                 }}
-                                                class="text-[9px] px-1 py-0.5 rounded bg-emerald-950/40 text-emerald-300 hover:bg-emerald-800/40 border border-emerald-500/30 transition-colors font-mono"
+                                                class="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-300 hover:bg-emerald-500/20 border border-emerald-500/30 transition-colors font-mono"
                                                 title={`Set path to ${pickPath} and suggest label ${suggestedLabel}`}
                                               >
                                                 {uv.alias || uv.name}

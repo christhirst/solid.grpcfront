@@ -18,6 +18,72 @@ describe("getValueAtPath", () => {
     expect(getValueAtPath({ user: { email: "a@b.c" } }, "user.email")).toBe("a@b.c");
   });
 
+  it("extracts and unwraps single item from array", () => {
+    const data = {
+      steps: {
+        step_1: {
+          response: {
+            data: [{ email: "solo@test.com" }]
+          }
+        }
+      }
+    };
+    expect(getValueAtPath(data, "{{ steps.step_1.response.email }}")).toBe("solo@test.com");
+  });
+
+  it("extracts multiple items from array filtering out null and empty", () => {
+    const data = {
+      steps: {
+        step_1: {
+          response: {
+            data: [
+              { email: "user1@test.com" },
+              { email: null },
+              { email: "" },
+              { email: "user2@test.com" }
+            ]
+          }
+        }
+      }
+    };
+    expect(getValueAtPath(data, "{{ steps.step_1.response.email }}")).toEqual([
+      "user1@test.com",
+      "user2@test.com"
+    ]);
+  });
+
+  it("supports array index paths with brackets and dot notation", () => {
+    const data = {
+      steps: {
+        step_1: {
+          response: {
+            data: [
+              { email: "first@test.com" },
+              { email: "second@test.com" }
+            ]
+          }
+        }
+      }
+    };
+    expect(getValueAtPath(data, "{{ steps.step_1.response.email[0] }}")).toBe("first@test.com");
+    expect(getValueAtPath(data, "{{ steps.step_1.response.email.1 }}")).toBe("second@test.com");
+    expect(getValueAtPath(data, "{{ steps.step_1.response.data[0].email }}")).toBe("first@test.com");
+    expect(getValueAtPath(data, "{{ steps.step_1.response.data.1.email }}")).toBe("second@test.com");
+  });
+
+  it("prioritizes step evaluation over raw variable envelope collision", () => {
+    const rawEnvelope = { data: [{ email: "extracted@test.com" }], metadata: { total: 1 } };
+    const outcomeWithCollision = {
+      "{{ steps.step_1.response.email }}": rawEnvelope,
+      steps: {
+        step_1: {
+          response: rawEnvelope
+        }
+      }
+    };
+    expect(getValueAtPath(outcomeWithCollision, "{{ steps.step_1.response.email }}")).toBe("extracted@test.com");
+  });
+
   it("returns undefined for missing paths", () => {
     expect(getValueAtPath({}, "missing.path")).toBeUndefined();
   });

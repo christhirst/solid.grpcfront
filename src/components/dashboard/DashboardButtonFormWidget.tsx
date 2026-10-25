@@ -261,16 +261,23 @@ export function DashboardButtonFormWidget(props: DashboardButtonFormWidgetProps)
                             return getValueAtPath(props.responseOutcome.data, f.path);
                           };
                           const hasValue = () => rawVal() !== undefined;
-                          const formatted = () => {
+                          const isPrimitiveArray = () => {
                             const v = rawVal();
-                            if (v === undefined) return "No response data";
-                            if (typeof v === "object" && v !== null) {
+                            return Array.isArray(v) && v.every((item) => typeof item !== "object" || item === null);
+                          };
+                          const copyText = () => {
+                            const v = rawVal();
+                            if (v === undefined || v === null) return "";
+                            if (isPrimitiveArray()) {
+                              return (v as any[]).join(", ");
+                            }
+                            if (typeof v === "object") {
                               return JSON.stringify(v, null, 2);
                             }
                             return String(v);
                           };
                           const handleCopy = () => {
-                            const text = typeof rawVal() === "object" ? JSON.stringify(rawVal(), null, 2) : String(rawVal() ?? "");
+                            const text = copyText();
                             if (typeof navigator !== "undefined" && navigator.clipboard) {
                               navigator.clipboard.writeText(text);
                               setCopiedFieldId(f.id);
@@ -279,7 +286,7 @@ export function DashboardButtonFormWidget(props: DashboardButtonFormWidgetProps)
                           };
 
                           return (
-                            <div class={`p-2.5 rounded-lg border ${theme().outputBorder} bg-[#0b0b12]/80 space-y-1`}>
+                            <div class={`p-2.5 rounded-lg border ${theme().outputBorder} bg-zinc-950/40 border-zinc-800/80 space-y-1`}>
                               <div class="flex items-center justify-between text-[11px]">
                                 <span class={`font-bold uppercase tracking-wider ${theme().outputHeader}`}>
                                   {f.label || "Response"}
@@ -306,18 +313,29 @@ export function DashboardButtonFormWidget(props: DashboardButtonFormWidgetProps)
                                   </div>
                                 }
                               >
-                                <Show
-                                  when={typeof rawVal() === "object" && rawVal() !== null}
-                                  fallback={
-                                    <div class="text-xs font-mono text-zinc-100 break-all select-all font-semibold py-0.5">
-                                      {formatted()}
+                                <Switch>
+                                  <Match when={isPrimitiveArray()}>
+                                    <div class="flex flex-wrap gap-1.5 py-1">
+                                      <For each={rawVal() as (string | number)[]}>
+                                        {(item) => (
+                                          <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-mono font-medium bg-zinc-800/80 text-zinc-200 border border-zinc-700/60 select-all">
+                                            {String(item)}
+                                          </span>
+                                        )}
+                                      </For>
                                     </div>
-                                  }
-                                >
-                                  <pre class="text-[11px] font-mono text-zinc-200 bg-[#07070b] p-2 rounded border border-zinc-800/80 overflow-x-auto max-h-48 overflow-y-auto select-all">
-                                    {formatted()}
-                                  </pre>
-                                </Show>
+                                  </Match>
+                                  <Match when={typeof rawVal() === "object" && rawVal() !== null}>
+                                    <pre class="text-[11px] font-mono text-zinc-200 bg-zinc-950/80 p-2.5 rounded-lg border border-zinc-800/80 overflow-x-auto max-h-48 overflow-y-auto select-all whitespace-pre-wrap break-all">
+                                      {JSON.stringify(rawVal(), null, 2)}
+                                    </pre>
+                                  </Match>
+                                  <Match when={true}>
+                                    <div class="text-xs font-mono text-zinc-100 break-all select-all font-semibold py-1">
+                                      {String(rawVal())}
+                                    </div>
+                                  </Match>
+                                </Switch>
                               </Show>
                             </div>
                           );

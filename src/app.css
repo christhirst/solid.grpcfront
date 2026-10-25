@@ -683,6 +683,7 @@ svg.connection:hover path, .connection:hover path, [data-testid="connection"]:ho
 }
 
 /* Translate the app's established neutral hex utility classes to glass surfaces. */
+:root[data-theme="light"] [class*="bg-[#07070b]"]:not([class*="hover:bg-[#07070b]"]),
 :root[data-theme="light"] [class*="bg-[#0a0a0f]"]:not([class*="hover:bg-[#0a0a0f]"]),
 :root[data-theme="light"] [class*="bg-[#050508]"]:not([class*="hover:bg-[#050508]"]),
 :root[data-theme="light"] [class*="bg-[#0d0d14]"]:not([class*="hover:bg-[#0d0d14]"]),
@@ -852,6 +853,15 @@ svg.connection:hover path, .connection:hover path, [data-testid="connection"]:ho
   color: #9f1239 !important; /* rose-800 */
 }
 
+:root[data-theme="light"] [class*="text-slate-200"],
+:root[data-theme="light"] [class*="text-slate-300"] {
+  color: #334155 !important; /* slate-700 */
+}
+
+:root[data-theme="light"] [class*="text-slate-400"] {
+  color: #475569 !important; /* slate-600 */
+}
+
 /* Light theme adjustments for dark overlay pills/cards */
 :root[data-theme="light"] [class*="bg-black/"] {
   background-color: var(--theme-surface-hover) !important;
@@ -860,6 +870,27 @@ svg.connection:hover path, .connection:hover path, [data-testid="connection"]:ho
 :root[data-theme="light"] [class*="bg-red-950/"] {
   background-color: #fef2f2 !important;
   border-color: #fecaca !important;
+}
+
+:root[data-theme="light"] [class*="bg-blue-950/"] {
+  background-color: #eff6ff !important;
+  border-color: #bfdbfe !important;
+}
+
+:root[data-theme="light"] [class*="bg-emerald-950/"] {
+  background-color: #f0fdf4 !important;
+  border-color: #bbf7d0 !important;
+}
+
+:root[data-theme="light"] [class*="bg-purple-950/"] {
+  background-color: #faf5ff !important;
+  border-color: #e9d5ff !important;
+}
+
+:root[data-theme="light"] [class*="bg-slate-900/"],
+:root[data-theme="light"] [class*="bg-slate-950/"] {
+  background-color: #f8fafc !important;
+  border-color: #e2e8f0 !important;
 }
 
 :root[data-theme="light"] [class*="bg-amber-500/5"],

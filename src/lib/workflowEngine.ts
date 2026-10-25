@@ -9,6 +9,7 @@ import * as Sentry from "@sentry/node";
 import { EventEmitter } from "events";
 import { normalizeConnection, fetchPreRequestToken } from "~/lib/connections";
 import { listS3Objects, buildS3ListResult, toS3ObjectItem } from "~/lib/s3Executor";
+import { resolveSubPath } from "~/lib/dashboard/widgetConditions";
 import { getStepCategory, type StepCategory, type WorkflowStep, type StepVariable } from "./stepCategories";
 export { getStepCategory, type StepCategory, type WorkflowStep, type StepVariable };
 
@@ -2057,11 +2058,18 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
         if (!context.variables) context.variables = {};
         for (const v of step.variables) {
           if (v.direction === "up") {
+            const rawName = (v.name || "").trim().replace(/^\{\{\s*|\s*\}\}$/g, "");
+            const val = (rawName && rawName !== "response" && rawName !== "data")
+              ? (resolveSubPath(stepResponse, rawName) ?? stepResponse)
+              : stepResponse;
+
             if (v.alias && v.alias.trim()) {
-              context.variables[v.alias.trim()] = stepResponse;
+              const cleanAlias = v.alias.trim().replace(/^\{\{\s*|\s*\}\}$/g, "");
+              context.variables[cleanAlias] = val;
             }
             if (v.name && v.name.trim()) {
-              context.variables[v.name.trim()] = stepResponse;
+              const cleanName = v.name.trim().replace(/^\{\{\s*|\s*\}\}$/g, "");
+              context.variables[cleanName] = val;
             }
           }
         }
