@@ -13,6 +13,11 @@ export interface OAuthConfig {
   tokenUsername?: string;
   tokenPassword?: string;
   tokenBearerToken?: string;
+  tokenGrantType?: "password" | "client_credentials" | "custom";
+  tokenClientId?: string;
+  tokenClientSecret?: string;
+  tokenScope?: string;
+  tokenContentType?: "application/x-www-form-urlencoded" | "application/json";
   tokenBody?: string;
   tokenHeaders?: string;
   tokenPath?: string;
@@ -150,6 +155,28 @@ export function normalizeConnection(raw: any): Connection {
   const tokenHeaders = raw.tokenHeaders || (type === "oauth" ? (raw.headers || "{}") : "{}");
   const tokenPath = raw.tokenPath || "access_token";
 
+  let tokenContentType = raw.tokenContentType;
+  let tokenGrantType = raw.tokenGrantType;
+  let tokenClientId = raw.tokenClientId;
+  let tokenClientSecret = raw.tokenClientSecret;
+  let tokenScope = raw.tokenScope;
+  let tokenUsername = raw.tokenUsername;
+  let tokenPassword = raw.tokenPassword;
+
+  // Infer URL-encoded OIDC fields if tokenBody was saved as a form-urlencoded string
+  if (typeof tokenBody === "string" && tokenBody.trim() && !tokenBody.trim().startsWith("{") && tokenBody.includes("=")) {
+    try {
+      const params = new URLSearchParams(tokenBody.trim());
+      if (!tokenContentType) tokenContentType = "application/x-www-form-urlencoded";
+      if (!tokenGrantType && params.get("grant_type")) tokenGrantType = params.get("grant_type") as any;
+      if (!tokenClientId && params.get("client_id")) tokenClientId = params.get("client_id") || undefined;
+      if (!tokenClientSecret && params.get("client_secret")) tokenClientSecret = params.get("client_secret") || undefined;
+      if (!tokenScope && params.get("scope")) tokenScope = params.get("scope") || undefined;
+      if (!tokenUsername && params.get("username")) tokenUsername = params.get("username") || undefined;
+      if (!tokenPassword && params.get("password")) tokenPassword = params.get("password") || undefined;
+    } catch {}
+  }
+
   return {
     ...raw,
     id: rawId,
@@ -158,6 +185,13 @@ export function normalizeConnection(raw: any): Connection {
     tokenUrl,
     tokenMethod,
     tokenAuthScheme,
+    tokenUsername,
+    tokenPassword,
+    tokenGrantType,
+    tokenClientId,
+    tokenClientSecret,
+    tokenScope,
+    tokenContentType,
     tokenBody,
     tokenHeaders,
     tokenPath,
@@ -172,7 +206,7 @@ export function normalizeConnection(raw: any): Connection {
  * Helper to fetch a CA cert content from DB by caId
  */
 export async function getCaCertContent(caId?: string): Promise<string | undefined> {
-  if (!caId || caId === "accept_all") return undefined;
+  if (!caId || caId === "accept_all" || caId === "__accept_all__") return undefined;
   try {
     const { getDb } = await import("~/lib/db");
     const db = await getDb();
@@ -186,8 +220,27 @@ export async function getCaCertContent(caId?: string): Promise<string | undefine
   }
 }
 
+function normalizeHttpEndpointUrl(rawUrl: string): string {
+  const trimmed = (rawUrl || "").trim();
+  if (!trimmed) return "";
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+    return trimmed;
+  }
+  const firstSegment = trimmed.split("/")[0];
+  if (
+    !trimmed.startsWith("/") &&
+    firstSegment.toLowerCase() !== "api" &&
+    /^[a-zA-Z0-9._-]+(:\d+)?$/.test(firstSegment)
+  ) {
+    return `http://${trimmed}`;
+  }
+  const separator = trimmed.startsWith("/") ? "" : "/";
+  const port = process.env.PORT || 3000;
+  return `http://127.0.0.1:${port}${separator}${trimmed}`;
+}
+
 /**
- * Fetch OAuth / Pre-request token
+ * Fetch OAuth / Pre-request token (supports both OIDC application/x-www-form-urlencoded and JSON bodies)
  */
 export async function fetchPreRequestToken(config: {
   tokenUrl?: string;
@@ -196,9 +249,16 @@ export async function fetchPreRequestToken(config: {
   tokenUsername?: string;
   tokenPassword?: string;
   tokenBearerToken?: string;
+  tokenGrantType?: string;
+  tokenClientId?: string;
+  tokenClientSecret?: string;
+  tokenScope?: string;
+  tokenContentType?: string;
   tokenBody?: string;
   tokenHeaders?: string;
   tokenPath?: string;
+  caId?: string;
+  acceptInvalidCert?: boolean;
 }): Promise<{ success: boolean; token?: string; response?: any; latencyMs?: number; error?: string }> {
   const {
     tokenUrl,
@@ -207,9 +267,16 @@ export async function fetchPreRequestToken(config: {
     tokenUsername,
     tokenPassword,
     tokenBearerToken,
+    tokenGrantType,
+    tokenClientId,
+    tokenClientSecret,
+    tokenScope,
+    tokenContentType,
     tokenBody,
     tokenHeaders,
     tokenPath = "access_token",
+    caId,
+    acceptInvalidCert,
   } = config;
 
   if (!tokenUrl) {
@@ -218,40 +285,123 @@ export async function fetchPreRequestToken(config: {
 
   const startTime = Date.now();
   try {
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-    };
+    const headers: Record<string, string> = {};
 
     if (tokenHeaders) {
       try {
-        const parsed = JSON.parse(tokenHeaders);
-        Object.assign(headers, parsed);
+        const parsed = typeof tokenHeaders === "string" ? JSON.parse(tokenHeaders) : tokenHeaders;
+        if (parsed && typeof parsed === "object") {
+          for (const [k, v] of Object.entries(parsed)) {
+            headers[k] = String(v);
+          }
+        }
       } catch (e: any) {
         return { success: false, error: `Failed to parse custom token headers JSON: ${e.message}` };
       }
     }
 
-    if (tokenAuthScheme === "basic" && (tokenUsername || tokenPassword)) {
-      const auth = Buffer.from(`${tokenUsername || ""}:${tokenPassword || ""}`).toString("base64");
+    const existingContentTypeKey = Object.keys(headers).find((k) => k.toLowerCase() === "content-type");
+    const existingContentType = existingContentTypeKey ? headers[existingContentTypeKey] : "";
+    const trimmedBody = (tokenBody || "").trim();
+    const looksLikeFormString = Boolean(
+      trimmedBody &&
+      trimmedBody !== "{}" &&
+      !trimmedBody.startsWith("{") &&
+      !trimmedBody.startsWith("[") &&
+      trimmedBody.includes("=")
+    );
+
+    const isFormUrlEncoded = Boolean(
+      tokenContentType === "application/x-www-form-urlencoded" ||
+      existingContentType.toLowerCase().includes("application/x-www-form-urlencoded") ||
+      (tokenGrantType && tokenGrantType !== "custom") ||
+      tokenClientId ||
+      looksLikeFormString
+    );
+
+    if (isFormUrlEncoded) {
+      if (existingContentTypeKey && existingContentTypeKey !== "Content-Type") {
+        delete headers[existingContentTypeKey];
+      }
+      headers["Content-Type"] = "application/x-www-form-urlencoded";
+    } else if (!existingContentTypeKey) {
+      headers["Content-Type"] = "application/json";
+    }
+
+    if (tokenAuthScheme === "basic" && (tokenUsername || tokenPassword || tokenClientId || tokenClientSecret)) {
+      const basicUser = tokenUsername || tokenClientId || "";
+      const basicPass = tokenPassword || tokenClientSecret || "";
+      const auth = Buffer.from(`${basicUser}:${basicPass}`).toString("base64");
       headers["Authorization"] = `Basic ${auth}`;
     } else if (tokenAuthScheme === "bearer" && tokenBearerToken) {
       headers["Authorization"] = `Bearer ${tokenBearerToken}`;
     }
 
-    let targetUrl = tokenUrl;
-    if (targetUrl && !targetUrl.startsWith("http://") && !targetUrl.startsWith("https://")) {
-      const separator = targetUrl.startsWith("/") ? "" : "/";
-      const port = process.env.PORT || 3000;
-      targetUrl = `http://127.0.0.1:${port}${separator}${targetUrl}`;
+    let finalBody: string | undefined = undefined;
+    if (tokenMethod !== "GET") {
+      if (isFormUrlEncoded) {
+        const params = new URLSearchParams();
+        // First parse existing body if any
+        if (trimmedBody && trimmedBody !== "{}") {
+          if (trimmedBody.startsWith("{")) {
+            try {
+              const parsedObj = JSON.parse(trimmedBody);
+              if (parsedObj && typeof parsedObj === "object") {
+                for (const [k, v] of Object.entries(parsedObj)) {
+                  if (v !== undefined && v !== null && v !== "") {
+                    params.set(k, String(v));
+                  }
+                }
+              }
+            } catch {}
+          } else {
+            const existingParams = new URLSearchParams(trimmedBody);
+            existingParams.forEach((v, k) => params.set(k, v));
+          }
+        }
+        // Apply structured OIDC / FerrisKey fields if provided
+        if (tokenGrantType && tokenGrantType !== "custom") {
+          params.set("grant_type", tokenGrantType);
+        }
+        if (tokenClientId) {
+          params.set("client_id", tokenClientId);
+        }
+        if (tokenClientSecret && tokenAuthScheme !== "basic") {
+          params.set("client_secret", tokenClientSecret);
+        }
+        if (tokenAuthScheme !== "basic" && (!tokenGrantType || tokenGrantType === "password")) {
+          if (tokenUsername) params.set("username", tokenUsername);
+          if (tokenPassword) params.set("password", tokenPassword);
+        }
+        if (tokenScope) {
+          params.set("scope", tokenScope);
+        }
+        finalBody = params.toString();
+      } else {
+        finalBody = tokenBody || undefined;
+      }
     }
 
-    const fetchOptions: RequestInit = {
+    const targetUrl = normalizeHttpEndpointUrl(tokenUrl);
+
+    const fetchOptions: any = {
       method: tokenMethod || "POST",
       headers,
     };
 
-    if (tokenMethod !== "GET") {
-      fetchOptions.body = tokenBody || undefined;
+    if (tokenMethod !== "GET" && finalBody !== undefined) {
+      fetchOptions.body = finalBody;
+    }
+
+    if (caId || acceptInvalidCert) {
+      const caCert = await getCaCertContent(caId);
+      const isAcceptAll = Boolean(acceptInvalidCert || caId === "accept_all" || caId === "__accept_all__");
+      if (caCert || isAcceptAll) {
+        fetchOptions.tls = {
+          ca: caCert,
+          rejectUnauthorized: !isAcceptAll,
+        };
+      }
     }
 
     const res = await fetch(targetUrl, fetchOptions);
@@ -279,7 +429,10 @@ export async function fetchPreRequestToken(config: {
       };
     }
 
-    const token = get(resData, tokenPath);
+    let token = get(resData, tokenPath);
+    if (!token && resData && typeof resData === "object") {
+      token = resData.access_token ?? resData.token ?? resData.id_token ?? get(resData, "data.access_token");
+    }
     if (!token) {
       return {
         success: false,
@@ -311,7 +464,7 @@ export async function testHttpConnection(config: any): Promise<any> {
   let tokenResult: any = null;
   let authToken: string | undefined = undefined;
 
-  const authType = config.authType || (config.tokenPath ? "oauth" : "none");
+  const authType = config.authType || (config.tokenPath || config.tokenUrl ? "oauth" : "none");
 
   // 1. Fetch token if OAuth pre-request is configured
   if (authType === "oauth") {
@@ -322,9 +475,16 @@ export async function testHttpConnection(config: any): Promise<any> {
       tokenUsername: config.tokenUsername || config.username,
       tokenPassword: config.tokenPassword || config.password,
       tokenBearerToken: config.tokenBearerToken || config.bearerToken,
+      tokenGrantType: config.tokenGrantType,
+      tokenClientId: config.tokenClientId,
+      tokenClientSecret: config.tokenClientSecret,
+      tokenScope: config.tokenScope,
+      tokenContentType: config.tokenContentType,
       tokenBody: config.tokenBody || config.body,
       tokenHeaders: config.tokenHeaders || config.headers,
       tokenPath: config.tokenPath || "access_token",
+      caId: config.caId,
+      acceptInvalidCert: config.acceptInvalidCert,
     });
 
     if (!tokenResult.success) {
@@ -344,9 +504,11 @@ export async function testHttpConnection(config: any): Promise<any> {
     return {
       success: true,
       type: "http",
+      latencyMs: tokenResult?.latencyMs,
       tokenResult,
       token: authToken,
-      message: "Pre-request token fetched successfully.",
+      response: tokenResult?.response,
+      message: "Pre-request access_token fetched successfully.",
     };
   }
 
@@ -382,12 +544,7 @@ export async function testHttpConnection(config: any): Promise<any> {
       headers[headerName] = `${prefix}${authToken}`;
     }
 
-    let resolvedUrl = targetUrl;
-    if (resolvedUrl && !resolvedUrl.startsWith("http://") && !resolvedUrl.startsWith("https://")) {
-      const separator = resolvedUrl.startsWith("/") ? "" : "/";
-      const port = process.env.PORT || 3000;
-      resolvedUrl = `http://127.0.0.1:${port}${separator}${resolvedUrl}`;
-    }
+    const resolvedUrl = normalizeHttpEndpointUrl(targetUrl);
 
     const fetchOptions: any = {
       method: config.method || "GET",
@@ -396,10 +553,11 @@ export async function testHttpConnection(config: any): Promise<any> {
 
     if (config.caId) {
       const caCert = await getCaCertContent(config.caId);
-      if (caCert || config.caId === "accept_all") {
+      const isAcceptAll = config.caId === "accept_all" || config.caId === "__accept_all__";
+      if (caCert || isAcceptAll) {
         fetchOptions.tls = {
           ca: caCert,
-          rejectUnauthorized: config.caId !== "accept_all",
+          rejectUnauthorized: !isAcceptAll,
         };
       }
     }
@@ -443,6 +601,7 @@ export async function testHttpConnection(config: any): Promise<any> {
       type: "http",
       latencyMs: Date.now() - startTime,
       tokenResult,
+      token: authToken,
       error: `HTTP Request Failed: ${err.message}`,
     };
   }
@@ -470,9 +629,16 @@ export async function testGrpcConnection(config: any): Promise<any> {
       tokenUsername: config.tokenUsername,
       tokenPassword: config.tokenPassword,
       tokenBearerToken: config.tokenBearerToken,
+      tokenGrantType: config.tokenGrantType,
+      tokenClientId: config.tokenClientId,
+      tokenClientSecret: config.tokenClientSecret,
+      tokenScope: config.tokenScope,
+      tokenContentType: config.tokenContentType,
       tokenBody: config.tokenBody,
       tokenHeaders: config.tokenHeaders,
       tokenPath: config.tokenPath || "access_token",
+      caId: config.caId,
+      acceptInvalidCert: config.acceptInvalidCert,
     });
 
     if (!tokenResult.success) {

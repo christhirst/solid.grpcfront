@@ -49,20 +49,48 @@ function normalizeStepHttpUrl(url: string): string {
   return `http://127.0.0.1:${port}${separator}${trimmed}`;
 }
 
-async function getStepAuthHeader(step: any, db: any): Promise<string | undefined> {
+async function getStepAuthHeader(
+  step: any,
+  db: any,
+  context?: any,
+  tokenCache?: Map<string, { header?: string; token?: string; response?: any }>
+): Promise<string | undefined> {
   const authType = step.authType || "none";
   if (authType === "basic" && (step.authUsername || step.authPassword || step.username || step.password)) {
-    const auth = Buffer.from(`${step.authUsername || step.username || ""}:${step.authPassword || step.password || ""}`).toString("base64");
-    return `Basic ${auth}`;
+    const rawToken = Buffer.from(`${step.authUsername || step.username || ""}:${step.authPassword || step.password || ""}`).toString("base64");
+    if (context) {
+      context.auth = { ...(context.auth || {}), token: rawToken, access_token: rawToken };
+      if (!context.access_token) context.access_token = rawToken;
+      if (!context.token) context.token = rawToken;
+    }
+    return `Basic ${rawToken}`;
   }
   if (authType === "bearer" && step.bearerToken) {
+    if (context) {
+      context.auth = { ...(context.auth || {}), token: step.bearerToken, access_token: step.bearerToken };
+      if (!context.access_token) context.access_token = step.bearerToken;
+      if (!context.token) context.token = step.bearerToken;
+    }
     return `Bearer ${step.bearerToken}`;
   }
   
   if ((authType === "oauth" || step.connectionId) && step.connectionId) {
+    const connDbId = (step.connectionId || "").replace(/^connection:/, "").replace(/[⟨⟩]/g, "").trim();
+    if (tokenCache?.has(connDbId)) {
+      const cached = tokenCache.get(connDbId)!;
+      if (cached.token && context) {
+        context.auth = { ...(context.auth || {}), token: cached.token, access_token: cached.token, response: cached.response };
+        context.access_token = cached.token;
+        context.token = cached.token;
+        context.connections = context.connections || {};
+        context.connections[connDbId] = { token: cached.token, access_token: cached.token, response: cached.response };
+        context.connections[`connection:${connDbId}`] = { token: cached.token, access_token: cached.token, response: cached.response };
+      }
+      return cached.header;
+    }
+
     console.log(`[STEP AUTH] Fetching connection details for ID: ${step.connectionId}`);
     try {
-      const connDbId = (step.connectionId || "").replace(/^connection:/, "").replace(/[⟨⟩]/g, "").trim();
       const connRecord = await db.select(new RecordId("connection", connDbId));
       const rawConnection = Array.isArray(connRecord) ? connRecord[0] : connRecord;
       
@@ -73,11 +101,28 @@ async function getStepAuthHeader(step: any, db: any): Promise<string | undefined
 
         if (conn.authType === "basic" && (conn.username || conn.password)) {
           const auth = Buffer.from(`${conn.username || ""}:${conn.password || ""}`).toString("base64");
-          return `Basic ${auth}`;
+          const header = `Basic ${auth}`;
+          tokenCache?.set(connDbId, { header, token: auth });
+          if (context) {
+            context.auth = { ...(context.auth || {}), token: auth, access_token: auth };
+            if (!context.access_token) context.access_token = auth;
+            if (!context.token) context.token = auth;
+          }
+          return header;
         }
 
         if (conn.authType === "bearer" && conn.bearerToken) {
-          return `Bearer ${conn.bearerToken}`;
+          const header = `Bearer ${conn.bearerToken}`;
+          tokenCache?.set(connDbId, { header, token: conn.bearerToken });
+          if (context) {
+            context.auth = { ...(context.auth || {}), token: conn.bearerToken, access_token: conn.bearerToken };
+            context.access_token = conn.bearerToken;
+            context.token = conn.bearerToken;
+            context.connections = context.connections || {};
+            context.connections[connDbId] = { token: conn.bearerToken, access_token: conn.bearerToken };
+            context.connections[`connection:${connDbId}`] = { token: conn.bearerToken, access_token: conn.bearerToken };
+          }
+          return header;
         }
 
         if (conn.authType === "oauth" || conn.tokenUrl) {
@@ -88,9 +133,16 @@ async function getStepAuthHeader(step: any, db: any): Promise<string | undefined
             tokenUsername: conn.tokenUsername,
             tokenPassword: conn.tokenPassword,
             tokenBearerToken: conn.tokenBearerToken,
+            tokenGrantType: conn.tokenGrantType,
+            tokenClientId: conn.tokenClientId,
+            tokenClientSecret: conn.tokenClientSecret,
+            tokenScope: conn.tokenScope,
+            tokenContentType: conn.tokenContentType,
             tokenBody: conn.tokenBody,
             tokenHeaders: conn.tokenHeaders,
             tokenPath: conn.tokenPath,
+            caId: conn.caId,
+            acceptInvalidCert: conn.acceptInvalidCert,
           });
 
           if (!tokenRes.success) {
@@ -98,7 +150,30 @@ async function getStepAuthHeader(step: any, db: any): Promise<string | undefined
           }
 
           const prefix = conn.tokenHeaderPrefix !== undefined ? conn.tokenHeaderPrefix : "Bearer ";
-          return `${prefix}${tokenRes.token}`;
+          const header = `${prefix}${tokenRes.token}`;
+          tokenCache?.set(connDbId, { header, token: tokenRes.token, response: tokenRes.response });
+          if (context && tokenRes.token) {
+            context.auth = {
+              ...(context.auth || {}),
+              token: tokenRes.token,
+              access_token: tokenRes.token,
+              response: tokenRes.response,
+            };
+            context.access_token = tokenRes.token;
+            context.token = tokenRes.token;
+            context.connections = context.connections || {};
+            context.connections[connDbId] = {
+              token: tokenRes.token,
+              access_token: tokenRes.token,
+              response: tokenRes.response,
+            };
+            context.connections[`connection:${connDbId}`] = {
+              token: tokenRes.token,
+              access_token: tokenRes.token,
+              response: tokenRes.response,
+            };
+          }
+          return header;
         }
       } else {
         throw new Error(`Connection ${step.connectionId} not found in database`);
@@ -432,11 +507,12 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
     };
 
     // 1. Perform Authentication if configured
+    const tokenCache = new Map<string, { header?: string; token?: string; response?: any }>();
     let authToken: string | undefined;
     if (connectionId) {
       console.log(`[AUTH] Fetching connection details for ID: ${connectionId}`);
       try {
-        const connDbId = connectionId.includes(":") ? connectionId.split(":")[1] : connectionId;
+        const connDbId = (connectionId.includes(":") ? connectionId.split(":")[1] : connectionId).replace(/[⟨⟩]/g, "").trim();
         const connRecord = await db.select(new RecordId("connection", connDbId));
         const rawConnection = Array.isArray(connRecord) ? connRecord[0] : connRecord;
         
@@ -447,10 +523,16 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
 
           if (conn.authType === "bearer" && conn.bearerToken) {
             authToken = conn.bearerToken;
-            context.auth = { token: authToken };
+            context.auth = { token: authToken, access_token: authToken };
+            context.access_token = authToken;
+            context.token = authToken;
+            tokenCache.set(connDbId, { header: `Bearer ${authToken}`, token: authToken });
           } else if (conn.authType === "basic" && (conn.username || conn.password)) {
             authToken = Buffer.from(`${conn.username || ""}:${conn.password || ""}`).toString("base64");
-            context.auth = { token: authToken };
+            context.auth = { token: authToken, access_token: authToken };
+            context.access_token = authToken;
+            context.token = authToken;
+            tokenCache.set(connDbId, { header: `Basic ${authToken}`, token: authToken });
           } else if (conn.authType === "oauth" || conn.tokenUrl) {
             const tokenRes = await fetchPreRequestToken({
               tokenUrl: conn.tokenUrl,
@@ -459,9 +541,16 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
               tokenUsername: conn.tokenUsername,
               tokenPassword: conn.tokenPassword,
               tokenBearerToken: conn.tokenBearerToken,
+              tokenGrantType: conn.tokenGrantType,
+              tokenClientId: conn.tokenClientId,
+              tokenClientSecret: conn.tokenClientSecret,
+              tokenScope: conn.tokenScope,
+              tokenContentType: conn.tokenContentType,
               tokenBody: conn.tokenBody,
               tokenHeaders: conn.tokenHeaders,
               tokenPath: conn.tokenPath,
+              caId: conn.caId,
+              acceptInvalidCert: conn.acceptInvalidCert,
             });
 
             if (!tokenRes.success) {
@@ -469,7 +558,14 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
             }
 
             authToken = tokenRes.token;
-            context.auth = { token: authToken, response: tokenRes.response };
+            const prefix = conn.tokenHeaderPrefix !== undefined ? conn.tokenHeaderPrefix : "Bearer ";
+            context.auth = { token: authToken, access_token: authToken, response: tokenRes.response };
+            context.access_token = authToken;
+            context.token = authToken;
+            context.connections = context.connections || {};
+            context.connections[connDbId] = { token: authToken, access_token: authToken, response: tokenRes.response };
+            context.connections[`connection:${connDbId}`] = { token: authToken, access_token: authToken, response: tokenRes.response };
+            tokenCache.set(connDbId, { header: `${prefix}${authToken}`, token: authToken, response: tokenRes.response });
             console.log(`[AUTH] Success. Connection token obtained.`);
           }
         } else {
@@ -482,7 +578,9 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
       if (authConfig.type === "static") {
         console.log(`[AUTH] Using static token`);
         authToken = authConfig.bearerToken;
-        context.auth = { token: authToken };
+        context.auth = { token: authToken, access_token: authToken };
+        context.access_token = authToken;
+        context.token = authToken;
       } else if (authConfig.type === "grpc") {
         console.log(`[AUTH] Executing gRPC auth call: ${authConfig.serviceName}.${authConfig.methodName}`);
         try {
@@ -500,7 +598,9 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
 
           if (authResult.success) {
             authToken = get(authResult.data, authConfig.tokenPath);
-            context.auth = { token: authToken, response: authResult.data };
+            context.auth = { token: authToken, access_token: authToken, response: authResult.data };
+            context.access_token = authToken;
+            context.token = authToken;
             console.log(`[AUTH] Success. Token obtained.`);
           } else {
             throw new Error(`Authentication failed: ${authResult.error}`);
@@ -542,7 +642,9 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
 
           const authData = await res.json();
           authToken = get(authData, authConfig.tokenPath);
-          context.auth = { token: authToken, response: authData };
+          context.auth = { token: authToken, access_token: authToken, response: authData };
+          context.access_token = authToken;
+          context.token = authToken;
           console.log(`[AUTH] Success. REST token obtained.`);
         } catch (err: any) {
           throw new Error(`REST Auth Error: ${err.message}`);
@@ -550,7 +652,40 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
       }
     }
 
+    // 1b. Prefetch tokens for any step connections (or fallback OAuth connection if a step uses {{ access_token }} / {{ auth.access_token }})
     const executionSteps = sortStepsTopologically(steps || []);
+    const stepConnIds = Array.from(
+      new Set(
+        executionSteps
+          .map((s: any) => s.connectionId)
+          .filter((id: any): id is string => typeof id === "string" && id.trim().length > 0)
+      )
+    );
+    for (const sConnId of stepConnIds) {
+      try {
+        await getStepAuthHeader({ connectionId: sConnId, authType: "oauth" }, db, context, tokenCache);
+      } catch (e: any) {
+        console.warn(`[AUTH PREFETCH] Step connection ${sConnId} prefetch notice: ${e.message}`);
+      }
+    }
+    if (!context.access_token) {
+      const usesTokenTemplate = executionSteps.some((s: any) => {
+        const blob = `${s.restUrl || ""} ${s.headersTemplate || ""} ${s.requestBodyTemplate || ""} ${s.surrealQuery || ""}`;
+        return /\{\{\s*(auth\.(access_token|token)|access_token|token|connections\.[^}]+\.(access_token|token))\s*\}\}/.test(blob);
+      });
+      if (usesTokenTemplate) {
+        try {
+          const allConnsRaw = await db.select("connection");
+          const allConns = (Array.isArray(allConnsRaw) ? allConnsRaw : []).map(normalizeConnection);
+          const oauthConn = allConns.find((c: any) => c.authType === "oauth" || c.tokenUrl);
+          if (oauthConn?.id) {
+            await getStepAuthHeader({ connectionId: oauthConn.id, authType: "oauth" }, db, context, tokenCache);
+          }
+        } catch (e: any) {
+          console.warn(`[AUTH PREFETCH] Fallback OAuth connection prefetch failed: ${e.message}`);
+        }
+      }
+    }
     for (const step of executionSteps) {
       // Each step runs inside a Sentry span. The callback returns a signal
       // ("continue" | "abort") so we can control the outer loop without
@@ -565,9 +700,12 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
           },
         },
         async (): Promise<"continue" | "abort"> => {
-          let stepAuthHeader = await getStepAuthHeader(step, db);
+          let stepAuthHeader = await getStepAuthHeader(step, db, context, tokenCache);
           if (!stepAuthHeader && authToken) {
             stepAuthHeader = `Bearer ${authToken}`;
+          }
+          if (!stepAuthHeader && context.access_token && step.authType === "oauth") {
+            stepAuthHeader = `Bearer ${context.access_token}`;
           }
 
           emitWorkflowEvent(runId, workflow.id || "", "step_start", {
@@ -731,12 +869,30 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
 
         const stepCaId = step.caId ?? defaultCaId;
         const stepCaCert = await resolveCaCert(stepCaId);
+        const streamHeaders: Record<string, string> = {};
+        if (stepAuthHeader) {
+          streamHeaders["Authorization"] = stepAuthHeader;
+        }
+        if (step.headersTemplate) {
+          try {
+            const parsedH = JSON.parse(step.headersTemplate);
+            const evalH = evaluatePayload(parsedH, context);
+            for (const [k, v] of Object.entries(evalH)) {
+              const strVal = String(v ?? "").trim();
+              if (k.toLowerCase() === "authorization" && (!strVal || strVal === "Bearer" || strVal === "Basic") && stepAuthHeader) {
+                continue;
+              }
+              streamHeaders[k] = String(v);
+            }
+          } catch {}
+        }
 
         await new Promise<void>((resolve) => {
           executeHttpStreamCall(
             {
               url: evaluatedUrl,
               method: step.restMethod || "GET",
+              headers: streamHeaders,
               body: step.requestBodyTemplate ? evaluatePayload(JSON.parse(step.requestBodyTemplate), context) : undefined,
               tls: stepCaId
                 ? { ca: stepCaCert, rejectUnauthorized: stepCaId !== ACCEPT_ALL_CA }
@@ -1451,6 +1607,14 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
             const parsedHeaders = JSON.parse(rawHeadersTemplate);
             const evaluatedHeaders = evaluatePayload(parsedHeaders, context);
             for (const [key, value] of Object.entries(evaluatedHeaders)) {
+              const strVal = String(value ?? "").trim();
+              if (
+                key.toLowerCase() === authHeaderName.toLowerCase() &&
+                (!strVal || strVal === "Bearer" || strVal === "Basic") &&
+                stepAuthHeader
+              ) {
+                continue;
+              }
               metadata[key] = String(value);
             }
           } catch (e) {
@@ -1629,6 +1793,14 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
           const parsedHeaders = JSON.parse(step.headersTemplate);
           const evaluatedHeaders = evaluatePayload(parsedHeaders, context);
           for (const [key, value] of Object.entries(evaluatedHeaders)) {
+            const strVal = String(value ?? "").trim();
+            if (
+              key.toLowerCase() === "authorization" &&
+              (!strVal || strVal === "Bearer" || strVal === "Basic") &&
+              stepAuthHeader
+            ) {
+              continue;
+            }
             metadata[key] = String(value);
           }
         } catch (e) {

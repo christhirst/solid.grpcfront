@@ -98,12 +98,19 @@ export default function Connections() {
   const [tokenUsername, setTokenUsername] = createSignal("");
   const [tokenPassword, setTokenPassword] = createSignal("");
   const [tokenBearerToken, setTokenBearerToken] = createSignal("");
+  const [tokenContentType, setTokenContentType] = createSignal<"application/x-www-form-urlencoded" | "application/json">("application/x-www-form-urlencoded");
+  const [tokenGrantType, setTokenGrantType] = createSignal<"password" | "client_credentials" | "custom">("password");
+  const [tokenClientId, setTokenClientId] = createSignal("admin-cli");
+  const [tokenClientSecret, setTokenClientSecret] = createSignal("");
+  const [tokenScope, setTokenScope] = createSignal("");
   const [tokenBody, setTokenBody] = createSignal("{}");
-  const [tokenHeaders, setTokenHeaders] = createSignal("{}");
+  const [tokenHeaders, setTokenHeaders] = createSignal('{"Content-Type": "application/x-www-form-urlencoded"}');
   const [tokenPath, setTokenPath] = createSignal("access_token");
   const [tokenHeaderName, setTokenHeaderName] = createSignal("Authorization");
   const [tokenHeaderPrefix, setTokenHeaderPrefix] = createSignal("Bearer ");
   const [tokenMetadataKey, setTokenMetadataKey] = createSignal("authorization");
+  const [isTestingToken, setIsTestingToken] = createSignal(false);
+  const [copiedToken, setCopiedToken] = createSignal(false);
 
   // gRPC Fields
   const [serverAddress, setServerAddress] = createSignal("");
@@ -209,8 +216,13 @@ export default function Connections() {
     setTokenUsername("");
     setTokenPassword("");
     setTokenBearerToken("");
-    setTokenBody("{}");
-    setTokenHeaders("{}");
+    setTokenContentType("application/x-www-form-urlencoded");
+    setTokenGrantType("password");
+    setTokenClientId("admin-cli");
+    setTokenClientSecret("");
+    setTokenScope("");
+    setTokenBody("grant_type=password&client_id=admin-cli");
+    setTokenHeaders('{"Content-Type": "application/x-www-form-urlencoded"}');
     setTokenPath("access_token");
     setTokenHeaderName("Authorization");
     setTokenHeaderPrefix("Bearer ");
@@ -241,6 +253,66 @@ export default function Connections() {
     setIsReflecting(false);
     setReflectionResult(null);
     setReflectionError(null);
+  };
+
+  const syncFormEncodedBody = (opts?: {
+    grantType?: "password" | "client_credentials" | "custom";
+    clientId?: string;
+    clientSecret?: string;
+    user?: string;
+    pass?: string;
+    scope?: string;
+  }) => {
+    const gt = opts?.grantType ?? tokenGrantType();
+    if (gt === "custom") return;
+    const cid = opts?.clientId ?? tokenClientId();
+    const csec = opts?.clientSecret ?? tokenClientSecret();
+    const usr = opts?.user ?? tokenUsername();
+    const pwd = opts?.pass ?? tokenPassword();
+    const scp = opts?.scope ?? tokenScope();
+
+    const params = new URLSearchParams();
+    params.set("grant_type", gt);
+    if (cid) params.set("client_id", cid);
+    if (csec && tokenAuthScheme() !== "basic") params.set("client_secret", csec);
+    if (gt === "password") {
+      if (usr) params.set("username", usr);
+      if (pwd) params.set("password", pwd);
+    }
+    if (scp) params.set("scope", scp);
+    setTokenBody(params.toString());
+  };
+
+  const applyFerrisKeyPreset = () => {
+    setAuthType("oauth");
+    if (!name().trim() || name() === "New HTTP Connection") {
+      setName("FerrisKey IDP");
+    }
+    if (!url().trim() || url() === "https://api.example.com") {
+      setUrl("http://ferriskey-api:3333/api/realms/master/users");
+    }
+    setMethod("GET");
+    if (!tokenUrl().trim()) {
+      setTokenUrl("https://ferriskey-host/realms/master/protocol/openid-connect/token");
+    }
+    setTokenMethod("POST");
+    setTokenAuthScheme("none");
+    setTokenContentType("application/x-www-form-urlencoded");
+    setTokenGrantType("password");
+    setTokenClientId("admin-cli");
+    if (!tokenUsername().trim()) {
+      setTokenUsername("admin");
+    }
+    setTokenHeaders('{"Content-Type": "application/x-www-form-urlencoded"}');
+    setTokenPath("access_token");
+    setTokenHeaderName("Authorization");
+    setTokenHeaderPrefix("Bearer ");
+    syncFormEncodedBody({
+      grantType: "password",
+      clientId: "admin-cli",
+      user: tokenUsername() || "admin",
+      pass: tokenPassword(),
+    });
   };
 
   const startNew = (type: ConnectionType = "http") => {
@@ -304,8 +376,21 @@ export default function Connections() {
     setTokenUsername(conn.tokenUsername || "");
     setTokenPassword(conn.tokenPassword || "");
     setTokenBearerToken(conn.tokenBearerToken || "");
-    setTokenBody(typeof conn.tokenBody === "object" ? JSON.stringify(conn.tokenBody, null, 2) : (conn.tokenBody || conn.body || "{}"));
-    setTokenHeaders(typeof conn.tokenHeaders === "object" ? JSON.stringify(conn.tokenHeaders, null, 2) : (conn.tokenHeaders || "{}"));
+    const rawTBody = typeof conn.tokenBody === "object" ? JSON.stringify(conn.tokenBody, null, 2) : (conn.tokenBody || conn.body || "{}");
+    const rawTHeaders = typeof conn.tokenHeaders === "object" ? JSON.stringify(conn.tokenHeaders, null, 2) : (conn.tokenHeaders || "{}");
+    const inferredFormEncoded =
+      conn.tokenContentType === "application/x-www-form-urlencoded" ||
+      Boolean(conn.tokenGrantType) ||
+      Boolean(conn.tokenClientId) ||
+      (typeof rawTBody === "string" && rawTBody.trim() && !rawTBody.trim().startsWith("{") && rawTBody.includes("=")) ||
+      rawTHeaders.toLowerCase().includes("application/x-www-form-urlencoded");
+    setTokenContentType(inferredFormEncoded ? "application/x-www-form-urlencoded" : (conn.tokenContentType || "application/json"));
+    setTokenGrantType(conn.tokenGrantType || (inferredFormEncoded ? "password" : "custom"));
+    setTokenClientId(conn.tokenClientId || (inferredFormEncoded ? "admin-cli" : ""));
+    setTokenClientSecret(conn.tokenClientSecret || "");
+    setTokenScope(conn.tokenScope || "");
+    setTokenBody(rawTBody);
+    setTokenHeaders(rawTHeaders);
     setTokenPath(conn.tokenPath || "access_token");
     setTokenHeaderName(conn.tokenHeaderName || "Authorization");
     setTokenHeaderPrefix(conn.tokenHeaderPrefix !== undefined ? conn.tokenHeaderPrefix : "Bearer ");
@@ -358,10 +443,12 @@ export default function Connections() {
       tags: tags(),
     };
 
+    const isFormOAuth = authType() === "oauth" && tokenContentType() === "application/x-www-form-urlencoded";
+
     if (type === "http") {
       return {
         ...base,
-        url: url().trim(),
+        url: url().trim() || (authType() === "oauth" ? tokenUrl().trim() : ""),
         method: method(),
         headers: headers(),
         authType: authType(),
@@ -373,9 +460,20 @@ export default function Connections() {
         tokenUrl: authType() === "oauth" ? tokenUrl().trim() : undefined,
         tokenMethod: authType() === "oauth" ? tokenMethod() : undefined,
         tokenAuthScheme: authType() === "oauth" ? tokenAuthScheme() : undefined,
-        tokenUsername: authType() === "oauth" && tokenAuthScheme() === "basic" ? tokenUsername() : undefined,
-        tokenPassword: authType() === "oauth" && tokenAuthScheme() === "basic" ? tokenPassword() : undefined,
+        tokenUsername:
+          authType() === "oauth" && (tokenAuthScheme() === "basic" || isFormOAuth)
+            ? tokenUsername()
+            : undefined,
+        tokenPassword:
+          authType() === "oauth" && (tokenAuthScheme() === "basic" || isFormOAuth)
+            ? tokenPassword()
+            : undefined,
         tokenBearerToken: authType() === "oauth" && tokenAuthScheme() === "bearer" ? tokenBearerToken() : undefined,
+        tokenContentType: authType() === "oauth" ? tokenContentType() : undefined,
+        tokenGrantType: isFormOAuth ? tokenGrantType() : undefined,
+        tokenClientId: isFormOAuth ? tokenClientId() : undefined,
+        tokenClientSecret: isFormOAuth && tokenClientSecret() ? tokenClientSecret() : undefined,
+        tokenScope: isFormOAuth && tokenScope() ? tokenScope() : undefined,
         tokenBody: authType() === "oauth" ? tokenBody() : undefined,
         tokenHeaders: authType() === "oauth" ? tokenHeaders() : undefined,
         tokenPath: authType() === "oauth" ? tokenPath() : undefined,
@@ -399,9 +497,20 @@ export default function Connections() {
         tokenUrl: authType() === "oauth" ? tokenUrl().trim() : undefined,
         tokenMethod: authType() === "oauth" ? tokenMethod() : undefined,
         tokenAuthScheme: authType() === "oauth" ? tokenAuthScheme() : undefined,
-        tokenUsername: authType() === "oauth" && tokenAuthScheme() === "basic" ? tokenUsername() : undefined,
-        tokenPassword: authType() === "oauth" && tokenAuthScheme() === "basic" ? tokenPassword() : undefined,
+        tokenUsername:
+          authType() === "oauth" && (tokenAuthScheme() === "basic" || isFormOAuth)
+            ? tokenUsername()
+            : undefined,
+        tokenPassword:
+          authType() === "oauth" && (tokenAuthScheme() === "basic" || isFormOAuth)
+            ? tokenPassword()
+            : undefined,
         tokenBearerToken: authType() === "oauth" && tokenAuthScheme() === "bearer" ? tokenBearerToken() : undefined,
+        tokenContentType: authType() === "oauth" ? tokenContentType() : undefined,
+        tokenGrantType: isFormOAuth ? tokenGrantType() : undefined,
+        tokenClientId: isFormOAuth ? tokenClientId() : undefined,
+        tokenClientSecret: isFormOAuth && tokenClientSecret() ? tokenClientSecret() : undefined,
+        tokenScope: isFormOAuth && tokenScope() ? tokenScope() : undefined,
         tokenBody: authType() === "oauth" ? tokenBody() : undefined,
         tokenHeaders: authType() === "oauth" ? tokenHeaders() : undefined,
         tokenPath: authType() === "oauth" ? tokenPath() : undefined,
@@ -432,6 +541,31 @@ export default function Connections() {
         database: dbDatabase().trim() || undefined,
         timeoutMs: dbTimeoutMs() ? Number(dbTimeoutMs()) : 5000,
       };
+    }
+  };
+
+  const testTokenOnly = async () => {
+    setIsTestingToken(true);
+    setTestResult(null);
+    try {
+      const payload = getPayload();
+      const res = await fetch("/api/connections/test-token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(15000),
+      });
+      const json = await res.json();
+      setTestResult({
+        ...json,
+        message: json.success
+          ? `Successfully fetched access_token from IDP (${json.latencyMs ?? 0}ms).`
+          : undefined,
+      });
+    } catch (e: any) {
+      setTestResult({ success: false, error: e.message });
+    } finally {
+      setIsTestingToken(false);
     }
   };
 
@@ -606,8 +740,8 @@ export default function Connections() {
       return;
     }
 
-    if (connType() === "http" && !url().trim()) {
-      alert("URL is required for HTTP connection.");
+    if (connType() === "http" && !url().trim() && !(authType() === "oauth" && tokenUrl().trim())) {
+      alert("URL (or Token Endpoint URL when using Pre-request OAuth) is required for HTTP connection.");
       return;
     }
 
@@ -1662,9 +1796,29 @@ export default function Connections() {
                   {/* Dynamic Pre-request OAuth Token Form */}
                   <Show when={authType() === "oauth"}>
                     <div class="space-y-3 pt-2 border-t border-amber-500/20">
-                      <div class="flex items-center gap-2 text-amber-400 text-xs font-bold">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
-                        Pre-request Token Retrieval Configuration
+                      <div class="flex flex-wrap items-center justify-between gap-2">
+                        <div class="flex items-center gap-2 text-amber-400 text-xs font-bold">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+                          Pre-request Token Retrieval Configuration (IDP / OIDC / OAuth2)
+                        </div>
+                        <div class="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={applyFerrisKeyPreset}
+                            class="px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-[11px] font-semibold transition-colors"
+                            title="Load FerrisKey / Keycloak OpenID Connect token endpoint defaults (grant_type=password, client_id=admin-cli)"
+                          >
+                            ⚡ Load FerrisKey / OIDC Preset
+                          </button>
+                          <button
+                            type="button"
+                            onClick={testTokenOnly}
+                            disabled={isTestingToken()}
+                            class="px-2.5 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-[11px] font-semibold transition-colors disabled:opacity-40"
+                          >
+                            {isTestingToken() ? "Fetching Token..." : "🔑 Fetch Token Only"}
+                          </button>
+                        </div>
                       </div>
 
                       <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
@@ -1675,7 +1829,7 @@ export default function Connections() {
                             class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2 text-xs text-white font-mono focus:border-amber-500 focus:outline-none"
                             value={tokenUrl()}
                             onInput={(e) => setTokenUrl(e.currentTarget.value)}
-                            placeholder="https://auth.example.com/oauth/token"
+                            placeholder="https://ferriskey-host/realms/master/protocol/openid-connect/token"
                           />
                         </div>
                         <div>
@@ -1691,7 +1845,29 @@ export default function Connections() {
                         </div>
                       </div>
 
-                      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {/* Content-Type / OIDC Form Mode Selector */}
+                      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div>
+                          <label class="mb-1 block text-[11px] font-medium text-[#8b8b9e]">Token Payload Encoding</label>
+                          <select
+                            class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2 text-xs text-white focus:border-amber-500 focus:outline-none"
+                            value={tokenContentType()}
+                            onChange={(e) => {
+                              const ct = e.currentTarget.value as "application/json" | "application/x-www-form-urlencoded";
+                              setTokenContentType(ct);
+                              if (ct === "application/x-www-form-urlencoded") {
+                                setTokenHeaders(JSON.stringify({ "Content-Type": "application/x-www-form-urlencoded" }, null, 2));
+                                syncFormEncodedBody();
+                              } else {
+                                setTokenHeaders(JSON.stringify({ "Content-Type": "application/json" }, null, 2));
+                              }
+                            }}
+                          >
+                            <option value="application/x-www-form-urlencoded">Form URL-Encoded (FerrisKey / OIDC / OAuth2)</option>
+                            <option value="application/json">JSON Body (application/json)</option>
+                          </select>
+                        </div>
+
                         <div>
                           <label class="mb-1 block text-[11px] font-medium text-[#8b8b9e]">Token Request Auth Scheme</label>
                           <select
@@ -1699,8 +1875,8 @@ export default function Connections() {
                             value={tokenAuthScheme()}
                             onChange={(e) => setTokenAuthScheme(e.currentTarget.value as any)}
                           >
-                            <option value="none">None (Payload only)</option>
-                            <option value="basic">Basic (Client ID : Client Secret)</option>
+                            <option value="none">None (Credentials in Form/Body)</option>
+                            <option value="basic">Basic Auth Header (Client ID : Secret)</option>
                             <option value="bearer">Static Bearer Token</option>
                           </select>
                         </div>
@@ -1712,15 +1888,119 @@ export default function Connections() {
                             class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2 text-xs text-white font-mono focus:border-amber-500 focus:outline-none"
                             value={tokenPath()}
                             onInput={(e) => setTokenPath(e.currentTarget.value)}
-                            placeholder="e.g. access_token or data.token"
+                            placeholder="access_token"
                           />
                         </div>
                       </div>
 
+                      {/* Form URL-Encoded OIDC Builder (FerrisKey / Keycloak style) */}
+                      <Show when={tokenContentType() === "application/x-www-form-urlencoded"}>
+                        <div class="p-3 rounded-xl bg-amber-500/5 border border-amber-500/20 space-y-3">
+                          <div class="flex items-center justify-between">
+                            <span class="text-[11px] font-semibold text-amber-300">
+                              OIDC / FerrisKey Form Parameters (<code class="font-mono text-[10px]">application/x-www-form-urlencoded</code>)
+                            </span>
+                            <span class="text-[10px] text-[#8b8b9e]">Syncs automatically with request body</span>
+                          </div>
+                          <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                            <div>
+                              <label class="mb-1 block text-[11px] font-medium text-[#8b8b9e]">grant_type</label>
+                              <select
+                                class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2 text-xs text-white font-mono focus:border-amber-500 focus:outline-none"
+                                value={tokenGrantType()}
+                                onChange={(e) => {
+                                  const gt = e.currentTarget.value;
+                                  setTokenGrantType(gt);
+                                  syncFormEncodedBody({ grantType: gt });
+                                }}
+                              >
+                                <option value="password">password</option>
+                                <option value="client_credentials">client_credentials</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label class="mb-1 block text-[11px] font-medium text-[#8b8b9e]">client_id</label>
+                              <input
+                                type="text"
+                                class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2 text-xs text-white font-mono focus:border-amber-500 focus:outline-none"
+                                value={tokenClientId()}
+                                onInput={(e) => {
+                                  const cid = e.currentTarget.value;
+                                  setTokenClientId(cid);
+                                  syncFormEncodedBody({ clientId: cid });
+                                }}
+                                placeholder="admin-cli"
+                              />
+                            </div>
+                            <div>
+                              <label class="mb-1 block text-[11px] font-medium text-[#8b8b9e]">client_secret (optional)</label>
+                              <input
+                                type="password"
+                                class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2 text-xs text-white font-mono focus:border-amber-500 focus:outline-none"
+                                value={tokenClientSecret()}
+                                onInput={(e) => {
+                                  const cs = e.currentTarget.value;
+                                  setTokenClientSecret(cs);
+                                  syncFormEncodedBody({ clientSecret: cs });
+                                }}
+                                placeholder="Optional client secret"
+                              />
+                            </div>
+                          </div>
+
+                          <Show when={tokenGrantType() === "password"}>
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                              <div>
+                                <label class="mb-1 block text-[11px] font-medium text-[#8b8b9e]">username</label>
+                                <input
+                                  type="text"
+                                  class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2 text-xs text-white font-mono focus:border-amber-500 focus:outline-none"
+                                  value={tokenUsername()}
+                                  onInput={(e) => {
+                                    const u = e.currentTarget.value;
+                                    setTokenUsername(u);
+                                    syncFormEncodedBody({ username: u });
+                                  }}
+                                  placeholder="admin"
+                                />
+                              </div>
+                              <div>
+                                <label class="mb-1 block text-[11px] font-medium text-[#8b8b9e]">password</label>
+                                <input
+                                  type="password"
+                                  class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2 text-xs text-white font-mono focus:border-amber-500 focus:outline-none"
+                                  value={tokenPassword()}
+                                  onInput={(e) => {
+                                    const p = e.currentTarget.value;
+                                    setTokenPassword(p);
+                                    syncFormEncodedBody({ password: p });
+                                  }}
+                                  placeholder="••••••••"
+                                />
+                              </div>
+                              <div>
+                                <label class="mb-1 block text-[11px] font-medium text-[#8b8b9e]">scope (optional)</label>
+                                <input
+                                  type="text"
+                                  class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2 text-xs text-white font-mono focus:border-amber-500 focus:outline-none"
+                                  value={tokenScope()}
+                                  onInput={(e) => {
+                                    const s = e.currentTarget.value;
+                                    setTokenScope(s);
+                                    syncFormEncodedBody({ scope: s });
+                                  }}
+                                  placeholder="openid profile email"
+                                />
+                              </div>
+                            </div>
+                          </Show>
+                        </div>
+                      </Show>
+
                       <Show when={tokenAuthScheme() === "basic"}>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                           <div>
-                            <label class="mb-1 block text-[11px] font-medium text-[#8b8b9e]">Client ID</label>
+                            <label class="mb-1 block text-[11px] font-medium text-[#8b8b9e]">Basic Auth Username / Client ID</label>
                             <input
                               type="text"
                               class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2 text-xs text-white focus:border-amber-500 focus:outline-none"
@@ -1729,7 +2009,7 @@ export default function Connections() {
                             />
                           </div>
                           <div>
-                            <label class="mb-1 block text-[11px] font-medium text-[#8b8b9e]">Client Secret</label>
+                            <label class="mb-1 block text-[11px] font-medium text-[#8b8b9e]">Basic Auth Password / Client Secret</label>
                             <input
                               type="password"
                               class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2 text-xs text-white focus:border-amber-500 focus:outline-none"
@@ -1754,12 +2034,14 @@ export default function Connections() {
 
                       <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <div>
-                          <label class="mb-1 block text-[11px] font-medium text-[#8b8b9e]">Token Request Body (JSON)</label>
+                          <label class="mb-1 block text-[11px] font-medium text-[#8b8b9e]">
+                            Token Request Body ({tokenContentType() === "application/x-www-form-urlencoded" ? "URL-Encoded or JSON" : "JSON"})
+                          </label>
                           <textarea
                             class="w-full h-20 rounded-lg border border-[#2a2a3a] bg-[#0a0a0f] p-2 text-xs font-mono text-amber-300 focus:border-amber-500 focus:outline-none"
                             value={tokenBody()}
                             onInput={(e) => setTokenBody(e.currentTarget.value)}
-                            placeholder='{"grant_type": "client_credentials"}'
+                            placeholder={tokenContentType() === "application/x-www-form-urlencoded" ? "grant_type=password&client_id=admin-cli&username=admin&password=..." : '{"grant_type": "client_credentials"}'}
                           />
                         </div>
                         <div>
@@ -1768,7 +2050,7 @@ export default function Connections() {
                             class="w-full h-20 rounded-lg border border-[#2a2a3a] bg-[#0a0a0f] p-2 text-xs font-mono text-amber-300 focus:border-amber-500 focus:outline-none"
                             value={tokenHeaders()}
                             onInput={(e) => setTokenHeaders(e.currentTarget.value)}
-                            placeholder='{"Content-Type": "application/json"}'
+                            placeholder={tokenContentType() === "application/x-www-form-urlencoded" ? '{"Content-Type": "application/x-www-form-urlencoded"}' : '{"Content-Type": "application/json"}'}
                           />
                         </div>
                       </div>
@@ -1813,8 +2095,22 @@ export default function Connections() {
 
                   {/* If pre-request token was fetched */}
                   <Show when={testResult().token}>
-                    <div class="p-2 rounded bg-black/40 border border-emerald-500/20 font-mono text-[11px] break-all">
-                      <span class="text-emerald-400 font-bold">Extracted Token:</span> {testResult().token.slice(0, 40)}...
+                    <div class="p-2.5 rounded bg-black/40 border border-emerald-500/20 font-mono text-[11px] flex items-center justify-between gap-2">
+                      <div class="break-all">
+                        <span class="text-emerald-400 font-bold">Extracted access_token:</span>{" "}
+                        {testResult().token.length > 64 ? `${testResult().token.slice(0, 64)}...` : testResult().token}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard?.writeText(testResult().token);
+                          setCopiedToken(true);
+                          setTimeout(() => setCopiedToken(false), 2000);
+                        }}
+                        class="shrink-0 px-2 py-1 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 text-[10px] font-sans font-semibold"
+                      >
+                        {copiedToken() ? "✓ Copied" : "Copy Token"}
+                      </button>
                     </div>
                   </Show>
 

@@ -642,6 +642,21 @@ export default function WorkflowBuilder() {
     input.setSelectionRange(cursor, cursor);
     input.focus();
   };
+
+  const insertTextAtCursor = (injection: string) => {
+    const input = activeInput();
+    if (!input) return false;
+    const start = input.selectionStart || 0;
+    const end = input.selectionEnd || 0;
+    const val = input.value;
+    const newVal = val.substring(0, start) + injection + val.substring(end);
+    input.value = newVal;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    const cursor = start + injection.length;
+    input.setSelectionRange(cursor, cursor);
+    input.focus();
+    return true;
+  };
   
   // Fetch dashboards for checking variable configuration status
   const [dashboards] = createResource(async () => {
@@ -715,6 +730,59 @@ export default function WorkflowBuilder() {
     } catch (e) {
       console.error("fetchConnections error:", e);
       return [];
+    }
+  });
+
+  // Prefetched IDP / OAuth tokens keyed by connection ID
+  const [prefetchedTokens, setPrefetchedTokens] = createSignal<
+    Record<string, { loading: boolean; token?: string; error?: string; latencyMs?: number }>
+  >({});
+
+  const prefetchConnectionToken = async (connId: string, force = false) => {
+    if (isServer || !connId) return;
+    const cleanId = connId.replace(/^connection:/, "").replace(/[⟨⟩]/g, "").trim();
+    if (!cleanId) return;
+    const current = prefetchedTokens()[cleanId];
+    if (!force && current && (current.loading || current.token)) return;
+
+    setPrefetchedTokens((prev) => ({
+      ...prev,
+      [cleanId]: { loading: true },
+      [connId]: { loading: true },
+    }));
+
+    try {
+      const res = await fetch("/api/connections/test-token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ connectionId: cleanId }),
+      });
+      const json = await res.json();
+      const entry = json.success
+        ? { loading: false, token: json.token, latencyMs: json.latencyMs }
+        : { loading: false, error: json.error || "Failed to prefetch token" };
+      setPrefetchedTokens((prev) => ({
+        ...prev,
+        [cleanId]: entry,
+        [connId]: entry,
+      }));
+    } catch (e: any) {
+      const entry = { loading: false, error: e.message || "Network error prefetching token" };
+      setPrefetchedTokens((prev) => ({
+        ...prev,
+        [cleanId]: entry,
+        [connId]: entry,
+      }));
+    }
+  };
+
+  createEffect(() => {
+    if (isServer) return;
+    const allConns = connections() || [];
+    for (const c of allConns) {
+      if (c && (c.authType === "oauth" || c.tokenUrl)) {
+        prefetchConnectionToken(c.id);
+      }
     }
   });
 
@@ -1278,6 +1346,23 @@ export default function WorkflowBuilder() {
             title={hasActiveInput() ? "Insert {{ form.variable }} at cursor" : "Select an input field first"}
           >
             + Form Variable
+          </button>
+
+          <button
+            onMouseDown={(e) => {
+              e.preventDefault();
+              if (hasActiveInput()) {
+                insertTextAtCursor("{{ auth.access_token }}");
+              }
+            }}
+            class={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+              hasActiveInput()
+                ? "bg-amber-600 hover:bg-amber-500 text-white shadow-md ring-2 ring-amber-500/50"
+                : "bg-[#2a2a3a] text-[#5b5b6e] cursor-not-allowed"
+            }`}
+            title={hasActiveInput() ? "Insert {{ auth.access_token }} at cursor" : "Select a URL, header, or body input field first"}
+          >
+            🔑 + Access Token
           </button>
           
           <div class="w-px h-6 bg-[#2a2a3a] mx-1"></div>
@@ -2082,6 +2167,16 @@ export default function WorkflowBuilder() {
                                 connections={connections() || []} 
                               />
 
+                              <IdpTokenInsertBar
+                                step={step}
+                                index={index()}
+                                updateStep={updateStep}
+                                connections={connections() || []}
+                                prefetchedTokens={prefetchedTokens()}
+                                onPrefetch={(cId) => prefetchConnectionToken(cId, true)}
+                                onInsertAtCursor={insertTextAtCursor}
+                              />
+
                               <div>
                                 <div class="flex items-center justify-between mb-1">
                                   <label class="text-xs text-[#8b8b9e]">Headers (Metadata) Template</label>
@@ -2220,32 +2315,42 @@ export default function WorkflowBuilder() {
                                 </Show>
                               </div>
 
-                              <Show when={step.connectionId}>
-                                {(() => {
-                                  const conn = () => (connections() || []).find((c: any) => c.id === step.connectionId);
-                                  return (
-                                    <Show when={conn()}>
-                                      <div class="p-3 rounded-xl bg-gradient-to-r from-blue-500/10 to-cyan-500/5 border border-blue-500/30 text-xs flex items-center justify-between">
-                                        <div class="flex items-center gap-3">
-                                          <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-500/20 text-blue-400 text-sm">🌐</span>
-                                          <div>
-                                            <div class="font-semibold text-white">{(conn() as any).name}</div>
-                                            <div class="text-[11px] font-mono text-[#8b8b9e]">
-                                              {(conn() as any).url}
-                                              <Show when={(conn() as any).authType && (conn() as any).authType !== "none"}>
-                                                <span class="ml-2 text-amber-400 font-semibold bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20">{(conn() as any).authType}</span>
-                                              </Show>
+                                <Show when={step.connectionId}>
+                                  {(() => {
+                                    const conn = () => (connections() || []).find((c: any) => c.id === step.connectionId);
+                                    return (
+                                      <Show when={conn()}>
+                                        <div class="p-3 rounded-xl bg-gradient-to-r from-blue-500/10 to-cyan-500/5 border border-blue-500/30 text-xs flex items-center justify-between">
+                                          <div class="flex items-center gap-3">
+                                            <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-500/20 text-blue-400 text-sm">🌐</span>
+                                            <div>
+                                              <div class="font-semibold text-white">{(conn() as any).name}</div>
+                                              <div class="text-[11px] font-mono text-[#8b8b9e]">
+                                                {(conn() as any).url || (conn() as any).tokenUrl}
+                                                <Show when={(conn() as any).authType && (conn() as any).authType !== "none"}>
+                                                  <span class="ml-2 text-amber-400 font-semibold bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20">{(conn() as any).authType}</span>
+                                                </Show>
+                                              </div>
                                             </div>
                                           </div>
+                                          <a href="/connections" target="_blank" class="text-[11px] text-blue-400 hover:text-blue-300 font-medium underline">
+                                            Manage ↗
+                                          </a>
                                         </div>
-                                        <a href="/connections" target="_blank" class="text-[11px] text-blue-400 hover:text-blue-300 font-medium underline">
-                                          Manage ↗
-                                        </a>
-                                      </div>
-                                    </Show>
-                                  );
-                                })()}
-                              </Show>
+                                      </Show>
+                                    );
+                                  })()}
+                                </Show>
+
+                                <IdpTokenInsertBar
+                                  step={step}
+                                  index={index()}
+                                  updateStep={updateStep}
+                                  connections={connections() || []}
+                                  prefetchedTokens={prefetchedTokens()}
+                                  onPrefetch={(cId) => prefetchConnectionToken(cId, true)}
+                                  onInsertAtCursor={insertTextAtCursor}
+                                />
 
                               <div>
                                 <label class="mb-1 block text-xs font-semibold text-[#8b8b9e]">
@@ -2360,6 +2465,16 @@ export default function WorkflowBuilder() {
                                 index={index()} 
                                 updateStep={updateStep} 
                                 connections={connections() || []} 
+                              />
+
+                              <IdpTokenInsertBar
+                                step={step}
+                                index={index()}
+                                updateStep={updateStep}
+                                connections={connections() || []}
+                                prefetchedTokens={prefetchedTokens()}
+                                onPrefetch={(cId) => prefetchConnectionToken(cId, true)}
+                                onInsertAtCursor={insertTextAtCursor}
                               />
 
                               <div>
@@ -3701,6 +3816,190 @@ export default function WorkflowBuilder() {
         </div>
       </Show>
     </main>
+  );
+}
+
+function IdpTokenInsertBar(props: {
+  step: any;
+  index: number;
+  updateStep: (idx: number, key: string, val: any) => void;
+  connections: any[];
+  prefetchedTokens: Record<string, { loading: boolean; token?: string; error?: string; latencyMs?: number }>;
+  onPrefetch: (connId: string) => void;
+  onInsertAtCursor: (text: string) => boolean;
+}) {
+  const [showFullToken, setShowFullToken] = createSignal(false);
+  const [copied, setCopied] = createSignal(false);
+
+  const oauthConnections = () =>
+    (props.connections || []).filter((c: any) => c.authType === "oauth" || c.tokenUrl || c.authType === "bearer");
+
+  const activeOauthConn = () => {
+    const all = oauthConnections();
+    if (props.step?.connectionId) {
+      const match = all.find((c: any) => c.id === props.step.connectionId);
+      if (match) return match;
+    }
+    return all[0];
+  };
+
+  const tokenState = () => {
+    const conn = activeOauthConn();
+    if (!conn) return undefined;
+    const cleanId = String(conn.id).replace(/^connection:/, "").replace(/[⟨⟩]/g, "").trim();
+    return props.prefetchedTokens[cleanId] || props.prefetchedTokens[conn.id];
+  };
+
+  const insertBearerHeader = (useLiteralToken: boolean) => {
+    const conn = activeOauthConn();
+    if (conn && !props.step?.connectionId) {
+      props.updateStep(props.index, "connectionId", conn.id);
+      if (props.step?.connectionMode === "custom") {
+        props.updateStep(props.index, "authType", "oauth");
+      }
+    }
+    const literal = tokenState()?.token;
+    const headerValue = useLiteralToken && literal ? `Bearer ${literal}` : "Bearer {{ auth.access_token }}";
+    let headersObj: Record<string, any> = {};
+    try {
+      const raw = props.step?.headersTemplate || "{}";
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        headersObj = { ...parsed };
+      }
+    } catch {}
+    headersObj["Authorization"] = headerValue;
+    props.updateStep(props.index, "headersTemplate", JSON.stringify(headersObj, null, 2));
+  };
+
+  return (
+    <Show when={oauthConnections().length > 0}>
+      <div class="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 space-y-2.5 text-xs">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div class="flex items-center gap-2">
+            <span class="text-sm">🔑</span>
+            <span class="font-bold text-amber-300">IDP / OAuth Access Token (Prefetch &amp; Insert)</span>
+            <Show when={oauthConnections().length > 1}>
+              <select
+                class="rounded border border-amber-500/30 bg-[#141420] px-2 py-0.5 text-[11px] text-amber-200 focus:outline-none"
+                value={activeOauthConn()?.id || ""}
+                onChange={(e) => {
+                  const id = e.currentTarget.value;
+                  props.updateStep(props.index, "connectionId", id);
+                  props.onPrefetch(id);
+                }}
+              >
+                <For each={oauthConnections()}>
+                  {(c: any) => <option value={c.id}>{c.name}</option>}
+                </For>
+              </select>
+            </Show>
+            <Show when={oauthConnections().length === 1 && activeOauthConn()}>
+              <span class="text-[11px] font-mono text-amber-200/80 bg-black/30 px-2 py-0.5 rounded border border-amber-500/20">
+                {activeOauthConn()?.name}
+              </span>
+            </Show>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <Show when={tokenState()?.loading}>
+              <span class="text-[10px] font-mono text-amber-300 animate-pulse">Prefetching access_token...</span>
+            </Show>
+            <Show when={!tokenState()?.loading && tokenState()?.token}>
+              <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 border border-emerald-500/30 text-emerald-300">
+                ✓ Token Prefetched {tokenState()?.latencyMs !== undefined ? `(${tokenState()?.latencyMs}ms)` : ""}
+              </span>
+            </Show>
+            <Show when={!tokenState()?.loading && tokenState()?.error}>
+              <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-red-500/20 border border-red-500/30 text-red-300" title={tokenState()?.error}>
+                ⚠️ Prefetch failed
+              </span>
+            </Show>
+            <button
+              type="button"
+              onClick={() => activeOauthConn() && props.onPrefetch(activeOauthConn().id)}
+              disabled={tokenState()?.loading}
+              class="px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/30 text-amber-200 text-[10px] font-semibold transition-colors disabled:opacity-40"
+            >
+              ↻ Prefetch Token
+            </button>
+          </div>
+        </div>
+
+        <Show when={tokenState()?.error}>
+          <div class="text-[11px] font-mono text-red-300 bg-red-950/40 border border-red-500/20 rounded px-2.5 py-1.5 break-all">
+            {tokenState()?.error}
+          </div>
+        </Show>
+
+        <Show when={tokenState()?.token}>
+          <div class="flex items-center justify-between gap-2 bg-black/40 border border-emerald-500/20 rounded-lg px-2.5 py-1.5 font-mono text-[11px] text-emerald-300">
+            <div class="break-all">
+              <span class="text-[#8b8b9e] mr-1.5">access_token:</span>
+              {showFullToken()
+                ? tokenState()!.token
+                : `${tokenState()!.token!.slice(0, 36)}...${tokenState()!.token!.slice(-8)}`}
+            </div>
+            <div class="flex items-center gap-1.5 shrink-0 font-sans">
+              <button
+                type="button"
+                onClick={() => setShowFullToken(!showFullToken())}
+                class="px-1.5 py-0.5 rounded bg-[#1e1e2e] hover:bg-[#2a2a3e] text-[#c8c8d8] text-[10px]"
+              >
+                {showFullToken() ? "Hide" : "Show"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard?.writeText(tokenState()!.token!);
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 1800);
+                }}
+                class="px-1.5 py-0.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 text-[10px] font-semibold"
+              >
+                {copied() ? "✓ Copied" : "Copy"}
+              </button>
+            </div>
+          </div>
+        </Show>
+
+        <div class="flex flex-wrap items-center gap-2 pt-0.5">
+          <button
+            type="button"
+            onClick={() => insertBearerHeader(false)}
+            class="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 text-emerald-200 text-[11px] font-semibold transition-colors"
+            title='Adds "Authorization": "Bearer {{ auth.access_token }}" to Step Headers and links connection'
+          >
+            + Insert Bearer Header (<code class="font-mono text-[10px]">{`{{ auth.access_token }}`}</code>)
+          </button>
+
+          <Show when={tokenState()?.token}>
+            <button
+              type="button"
+              onClick={() => insertBearerHeader(true)}
+              class="px-2.5 py-1 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/30 text-blue-200 text-[11px] font-semibold transition-colors"
+              title="Inserts the prefetched Bearer access_token value directly into Step Headers"
+            >
+              + Insert Prefetched Bearer Token
+            </button>
+          </Show>
+
+          <button
+            type="button"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              if (!props.onInsertAtCursor("{{ auth.access_token }}")) {
+                insertBearerHeader(false);
+              }
+            }}
+            class="px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-200 text-[11px] font-mono transition-colors"
+            title="Inserts {{ auth.access_token }} at the active input cursor (or into Headers if no input is focused)"
+          >
+            + {`{{ auth.access_token }}`}
+          </button>
+        </div>
+      </div>
+    </Show>
   );
 }
 

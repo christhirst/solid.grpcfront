@@ -15,7 +15,13 @@ export function parseBracketTokens(text?: string): StepVariable[] {
     if (!raw || seen.has(raw)) continue;
     seen.add(raw);
 
-    const isStepRef = raw.startsWith("steps.") || raw.startsWith("auth.");
+    const isStepRef =
+      raw.startsWith("steps.") ||
+      raw.startsWith("auth.") ||
+      raw.startsWith("connections.") ||
+      raw.startsWith("connection.") ||
+      raw === "access_token" ||
+      raw === "token";
     const isCalculation = /\b(SELECT|FROM|WHERE|count\(|LET|RETURN|IF)\b/i.test(raw) || /[><=+\-*/]/.test(raw);
     const isExplicitForm = raw.startsWith("form.") || raw.startsWith("dashboard_form.");
     
