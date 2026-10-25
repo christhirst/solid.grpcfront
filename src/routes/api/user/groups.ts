@@ -17,40 +17,39 @@ import { runWorkflowBackground } from "~/lib/workflowEngine";
 
 async function collectAllExistingGroups(db: any): Promise<Set<string>> {
   const existing = new Set<string>();
+  
+  // 1. Group namespaces
   try {
-    const res = await db.query(`
-      SELECT name FROM group_namespace;
-      SELECT tags FROM dashboard;
-      SELECT tags FROM workflow;
-      SELECT tags FROM connection;
-      SELECT tags FROM database_meta;
-      SELECT tags FROM proto_file;
-      SELECT tags FROM ca_cert;
-    `);
-    if (Array.isArray(res)) {
-      const groupRows = res[0];
-      if (Array.isArray(groupRows)) {
-        for (const r of groupRows) {
-          if (r?.name) existing.add(normalizeGroupName(String(r.name)));
-        }
-      }
-      for (let i = 1; i < res.length; i++) {
-        const rows = res[i];
-        if (Array.isArray(rows)) {
-          for (const r of rows) {
-            if (Array.isArray(r?.tags)) {
-              for (const t of r.tags) {
-                const norm = normalizeGroupName(String(t).split(":")[0] || "");
-                if (norm) existing.add(norm);
-              }
+    const nsRes = await db.query(`SELECT name FROM group_namespace;`);
+    const groupRows = Array.isArray(nsRes) ? (Array.isArray(nsRes[0]) ? nsRes[0] : nsRes) : [];
+    for (const r of groupRows) {
+      if (r?.name) existing.add(normalizeGroupName(String(r.name)));
+    }
+  } catch {
+    // group_namespace might not exist yet
+  }
+
+  // 2. Resource tags across tables
+  const tagTables = ["dashboard", "workflow", "connection", "database_meta", "proto_file", "ca_cert"];
+  await Promise.allSettled(
+    tagTables.map(async (tbl) => {
+      try {
+        const res = await db.query(`SELECT tags FROM ${tbl};`);
+        const rows = Array.isArray(res) ? (Array.isArray(res[0]) ? res[0] : res) : [];
+        for (const r of rows) {
+          if (Array.isArray(r?.tags)) {
+            for (const t of r.tags) {
+              const norm = normalizeGroupName(String(t).split(":")[0] || "");
+              if (norm) existing.add(norm);
             }
           }
         }
+      } catch {
+        // Table might not exist yet
       }
-    }
-  } catch {
-    // Ignore missing tables
-  }
+    })
+  );
+
   return existing;
 }
 

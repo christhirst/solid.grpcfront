@@ -20,6 +20,22 @@ function truncate(s: string, max = QUERY_MAX_LEN): string {
     return s.length > max ? s.slice(0, max) + "…" : s;
 }
 
+export const STANDARD_TABLES = [
+    "workflow",
+    "connection",
+    "workflow_run",
+    "dashboard",
+    "database_meta",
+    "proto_file",
+    "ca_cert",
+    "user_profile",
+    "group_namespace",
+] as const;
+
+export const STANDARD_TABLES_SQL = STANDARD_TABLES.map(
+    (tbl) => `DEFINE TABLE IF NOT EXISTS ${tbl} TYPE NORMAL SCHEMALESS PERMISSIONS FULL;`
+).join("\n");
+
 /**
  * Extract a human-readable table/resource name from a RecordId or string.
  * E.g. RecordId("workflow", "abc") → "workflow"
@@ -404,12 +420,7 @@ export async function getDb(): Promise<TracedDb> {
 
                 // Ensure standard tables exist
                 try {
-                    await db.query(`
-                        DEFINE TABLE IF NOT EXISTS workflow TYPE NORMAL SCHEMALESS PERMISSIONS FULL;
-                        DEFINE TABLE IF NOT EXISTS connection TYPE NORMAL SCHEMALESS PERMISSIONS FULL;
-                        DEFINE TABLE IF NOT EXISTS workflow_run TYPE NORMAL SCHEMALESS PERMISSIONS FULL;
-                        DEFINE TABLE IF NOT EXISTS dashboard TYPE NORMAL SCHEMALESS PERMISSIONS FULL;
-                    `);
+                    await db.query(STANDARD_TABLES_SQL);
                 } catch (e: any) {
                     // Ignore if unable to define tables
                 }

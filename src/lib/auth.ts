@@ -94,35 +94,25 @@ export async function getEffectiveAccessContext(
     }
 
     // Collect groups that this user has tagged on their own resources so they can simulate them
-    try {
-      const ownedTagRes = await db.query(
-        `
-        SELECT tags FROM dashboard WHERE owner = $owner;
-        SELECT tags FROM workflow WHERE owner = $owner;
-        SELECT tags FROM connection WHERE owner = $owner;
-        SELECT tags FROM database_meta WHERE owner = $owner;
-        SELECT tags FROM proto_file WHERE owner = $owner;
-        SELECT tags FROM ca_cert WHERE owner = $owner;
-        `,
-        { owner: user.sub }
-      );
-      if (Array.isArray(ownedTagRes)) {
-        for (const tableRows of ownedTagRes) {
-          if (Array.isArray(tableRows)) {
-            for (const row of tableRows) {
-              if (row && Array.isArray(row.tags)) {
-                for (const t of row.tags) {
-                  const norm = normalizeGroupName(String(t).split(":")[0] || "");
-                  if (norm) taggedGroups.add(norm);
-                }
+    const tagTables = ["dashboard", "workflow", "connection", "database_meta", "proto_file", "ca_cert"];
+    await Promise.allSettled(
+      tagTables.map(async (tbl) => {
+        try {
+          const tableRes = await db.query(`SELECT tags FROM ${tbl} WHERE owner = $owner;`, { owner: user.sub });
+          const rows = Array.isArray(tableRes) ? (Array.isArray(tableRes[0]) ? tableRes[0] : tableRes) : [];
+          for (const row of rows) {
+            if (row && Array.isArray(row.tags)) {
+              for (const t of row.tags) {
+                const norm = normalizeGroupName(String(t).split(":")[0] || "");
+                if (norm) taggedGroups.add(norm);
               }
             }
           }
+        } catch {
+          // Table might not exist yet or cannot be queried
         }
-      }
-    } catch {
-      // Ignore missing tables
-    }
+      })
+    );
   }
 
   return buildAccessContext({

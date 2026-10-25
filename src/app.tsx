@@ -31,7 +31,9 @@ export default function App() {
         <>
           <Nav />
           <ErrorBoundary fallback={(err) => <AppErrorFallback error={err} />}>
-            <Suspense>{props.children}</Suspense>
+            <Suspense fallback={<div class="min-h-[50vh] flex items-center justify-center text-sm text-[#8b8b9e]">Loading...</div>}>
+              {props.children}
+            </Suspense>
           </ErrorBoundary>
         </>
       )}

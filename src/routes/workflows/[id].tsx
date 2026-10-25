@@ -2,7 +2,7 @@ import { getStepCategory, type StepCategory, type StepVariable, isOAuthProvider 
 import ReteWorkflowEditor from "~/components/workflow/ReteWorkflowEditor";
 import GrpcMethodPicker, { type ReflectionResult } from "~/components/workflow/GrpcMethodPicker";
 import S3FilePicker from "~/components/workflow/S3FilePicker";
-import { createSignal, createEffect, onMount, onCleanup, For, Show, createResource, createMemo, Index } from "solid-js";
+import { createSignal, createEffect, onMount, onCleanup, For, Show, createResource, createMemo, Index, useTransition } from "solid-js";
 import { extractFormVariables, checkWorkflowConfiguredInDashboards, detectStepVariables, type VariableConfigStatus } from "~/lib/workflowVariableChecker";
 import { collectFieldNames, type FieldInfo } from "~/lib/dashboard/chartSeries";
 
@@ -592,22 +592,27 @@ export default function WorkflowBuilder() {
   // Track active input for inserting variables
   const [hasActiveInput, setHasActiveInput] = createSignal(false);
   const [activeInput, setActiveInput] = createSignal<HTMLInputElement | HTMLTextAreaElement | null>(null);
+  const [, startTransition] = useTransition();
 
   onMount(() => {
     if (isServer) return;
     
-    // Fallback: If createResource didn't load during SSR properly, force fetch
-    if (!savedProtos()) refetchProtos();
+    // Fallback: If createResource didn't load during SSR properly, fetch only if missing
+    if (!savedProtos() || savedProtos()?.length === 0) refetchProtos();
     if (!isNew() && !workflow()) refetchWorkflow();
-    refetchConnections();
-    refetchDashboards();
-    refetchCas();
+    if (!connections() || connections()?.length === 0) refetchConnections();
+    if (!dashboards() || dashboards()?.length === 0) refetchDashboards();
+    if (!savedCas() || savedCas()?.length === 0) refetchCas();
 
-    const handleConnectionsRefresh = () => {
-      refetchConnections();
-      refetchDashboards();
-      refetchCas();
-      refetchProtos();
+    const handleConnectionsRefresh = (e?: Event) => {
+      // Ignore save events originating from this workflow editor
+      if ((e as CustomEvent)?.detail?.source === "workflow-save") return;
+      startTransition(() => {
+        refetchConnections();
+        refetchDashboards();
+        refetchCas();
+        refetchProtos();
+      });
     };
     window.addEventListener("user-groups-changed", handleConnectionsRefresh);
     window.addEventListener("focus", handleConnectionsRefresh);
@@ -684,7 +689,7 @@ export default function WorkflowBuilder() {
     } catch {
       return [];
     }
-  });
+  }, { initialValue: [] });
 
   // Fetch saved CAs from Registry
   const [savedCas, { refetch: refetchCas }] = createResource(async () => {
@@ -696,7 +701,7 @@ export default function WorkflowBuilder() {
     } catch {
       return [];
     }
-  });
+  }, { initialValue: [] });
 
   // Fetch saved protos from Registry
   const [savedProtos, { refetch: refetchProtos }] = createResource(async () => {
@@ -708,7 +713,7 @@ export default function WorkflowBuilder() {
     } catch {
       return [];
     }
-  });
+  }, { initialValue: [] });
 
   const ACCEPT_ALL_CA = "__accept_all__";
   const [serverAddress, setServerAddress] = createSignal("localhost:50051");
@@ -747,7 +752,7 @@ export default function WorkflowBuilder() {
       console.error("fetchConnections error:", e);
       return [];
     }
-  });
+  }, { initialValue: [] });
 
   // Prefetched IDP / OAuth tokens keyed by connection ID
   const [prefetchedTokens, setPrefetchedTokens] = createSignal<
@@ -1079,7 +1084,7 @@ export default function WorkflowBuilder() {
       
       const json = await res.json();
       if (json.success) {
-        window.dispatchEvent(new CustomEvent("user-groups-changed"));
+        window.dispatchEvent(new CustomEvent("user-groups-changed", { detail: { source: "workflow-save" } }));
         const rawSavedId = String(json.data?.id || params.id || "");
         const cleanId = rawSavedId.includes(":")
           ? rawSavedId.split(":").slice(1).join(":").replace(/[⟨⟩]/g, "")
