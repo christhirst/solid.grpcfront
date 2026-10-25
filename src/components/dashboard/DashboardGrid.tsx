@@ -2,7 +2,7 @@ import { onMount, onCleanup, For, Show, JSX, createEffect } from "solid-js";
 import { isServer } from "solid-js/web";
 import type { GridStack as GridStackType } from "gridstack";
 
-export function getDefaultWidgetDimensions(widgetType?: string) {
+export function getDefaultWidgetDimensions(widgetType?: string, hasExpandedContent?: boolean) {
   switch (widgetType) {
     case "table":
       return { w: 12, h: 5, minW: 4, minH: 3 };
@@ -18,6 +18,9 @@ export function getDefaultWidgetDimensions(widgetType?: string) {
       return { w: 12, h: 5, minW: 4, minH: 3 };
     case "button":
     default:
+      if (hasExpandedContent) {
+        return { w: 4, h: 3, minW: 2, minH: 2 };
+      }
       return { w: 3, h: 1, minW: 1, minH: 1 };
   }
 }
@@ -123,14 +126,17 @@ export default function DashboardGrid(props: DashboardGridProps) {
     <div class={`grid-stack w-full ${props.class || ""}`} ref={containerRef}>
       <For each={props.buttons || []}>
         {(btn) => {
-          const dims = getDefaultWidgetDimensions(btn.widgetType);
+          const hasExpanded = !!(btn.showOutput || (btn.outputConfig && btn.outputConfig.length > 0) || (btn.formConfig && btn.formConfig.length > 0));
+          const dims = getDefaultWidgetDimensions(btn.widgetType, hasExpanded);
           const w = () => (typeof btn.w === "number" ? btn.w : dims.w);
           const h = () => (typeof btn.h === "number" ? btn.h : dims.h);
           const minW = () => {
+            if ((btn.widgetType === "button" || !btn.widgetType) && hasExpanded) return 2;
             if (btn.widgetType === "button" || btn.widgetType === "toggle" || !btn.widgetType) return 1;
             return typeof btn.minW === "number" ? Math.min(btn.minW, dims.minW) : dims.minW;
           };
           const minH = () => {
+            if ((btn.widgetType === "button" || !btn.widgetType) && hasExpanded) return 2;
             if (btn.widgetType === "button" || btn.widgetType === "toggle" || !btn.widgetType) return 1;
             return typeof btn.minH === "number" ? Math.min(btn.minH, dims.minH) : dims.minH;
           };

@@ -57,6 +57,14 @@ export interface FormField {
   options?: string;
 }
 
+export interface OutputField {
+  id: string;
+  /** Human-readable label displayed above the value (e.g. "Email", "Surname"). */
+  label: string;
+  /** Variable extraction path, e.g. "{{ steps.step_8m6qd1ynu.response.email }}" or "response.email". */
+  path: string;
+}
+
 export type ChartSeriesType = "bar" | "line" | "scatter" | "bubble" | "density" | "area";
 
 export interface ChartSeriesConfig {
@@ -97,6 +105,10 @@ export interface WidgetConfig {
   conditionWorkflowId?: string;
   /** Conditional rules evaluated against the bound workflow's outcome. */
   conditionRules?: ConditionRule[];
+  /** Whether the widget displays an output/response field. */
+  showOutput?: boolean;
+  /** Configured output fields to extract and display from the response. */
+  outputConfig?: OutputField[];
 }
 
 export interface EffectiveWidgetConfig {

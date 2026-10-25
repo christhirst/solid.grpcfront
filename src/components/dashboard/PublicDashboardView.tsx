@@ -961,15 +961,18 @@ export default function PublicDashboardView(props: PublicDashboardViewProps) {
       if (json.success) {
         setExecuting(prev => ({ ...prev, [btn.id]: "success" }));
         setTimeout(() => setExecuting(prev => ({ ...prev, [btn.id]: "idle" })), 2500);
+        return json;
       } else {
         alert("Action failed: " + json.error);
         setExecuting(prev => ({ ...prev, [btn.id]: "error" }));
         setTimeout(() => setExecuting(prev => ({ ...prev, [btn.id]: "idle" })), 2500);
+        return json;
       }
     } catch (e: any) {
       alert("Network or Server error: " + e.message);
       setExecuting(prev => ({ ...prev, [btn.id]: "error" }));
       setTimeout(() => setExecuting(prev => ({ ...prev, [btn.id]: "idle" })), 2500);
+      return { success: false, error: e.message };
     }
   };
 

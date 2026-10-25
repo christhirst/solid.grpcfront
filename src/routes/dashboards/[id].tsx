@@ -88,7 +88,8 @@ export default function DashboardBuilder() {
     let curX = 0;
     let curY = 0;
     const updated = buttons.map((btn) => {
-      const dims = getDefaultWidgetDimensions(btn.widgetType);
+      const hasExpanded = !!(btn.showOutput || (btn.outputConfig && btn.outputConfig.length > 0) || (btn.formConfig && btn.formConfig.length > 0));
+      const dims = getDefaultWidgetDimensions(btn.widgetType, hasExpanded);
       const w = dims.w;
       const h = dims.h;
       if (curX + w > 12) {
@@ -261,15 +262,18 @@ export default function DashboardBuilder() {
       if (json.success) {
         setExecuting(prev => ({ ...prev, [btn.id]: "success" }));
         setTimeout(() => setExecuting(prev => ({ ...prev, [btn.id]: "idle" })), 2500);
+        return json;
       } else {
         alert("Action failed: " + json.error);
         setExecuting(prev => ({ ...prev, [btn.id]: "error" }));
         setTimeout(() => setExecuting(prev => ({ ...prev, [btn.id]: "idle" })), 2500);
+        return json;
       }
     } catch (e: any) {
       alert("Network or Server error: " + e.message);
       setExecuting(prev => ({ ...prev, [btn.id]: "error" }));
       setTimeout(() => setExecuting(prev => ({ ...prev, [btn.id]: "idle" })), 2500);
+      return { success: false, error: e.message };
     }
   };
 
@@ -1134,6 +1138,144 @@ export default function DashboardBuilder() {
                                         <label class="text-xs text-[#5b5b6e] block mb-0.5">Options (comma-separated)</label>
                                         <input class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-purple-500" value={field.options||""}
                                           onInput={(e)=>{ updateButton(index(),"formConfig", fIdx(), (f: any) => ({ ...f, options: e.currentTarget.value })); }} placeholder="e.g. US, UK, Canada" />
+                                      </div>
+                                    </Show>
+                                  </div>
+                                )}
+                              </For>
+                            </div>
+                          </Show>
+                        </div>
+                      </Show>
+
+                      {/* ── Output / Response Fields ── */}
+                      <Show when={wt() === "button" || wt() === "form"}>
+                        <div class="col-span-2 pt-3 border-t border-[#2a2a3a]/50">
+                          <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
+                            <label class="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+                              Output / Response Field
+                            </label>
+                            <div class="flex items-center gap-3">
+                              <label class="flex items-center gap-1.5 cursor-pointer text-xs text-zinc-300">
+                                <input
+                                  type="checkbox"
+                                  class="w-3.5 h-3.5 rounded border-[#2a2a3a] bg-[#1e1e2e] text-emerald-500 focus:ring-emerald-500/50"
+                                  checked={!!btn.showOutput}
+                                  onChange={(e) => {
+                                    const checked = e.currentTarget.checked;
+                                    updateButton(index(), "showOutput", checked);
+                                    if (checked && (!btn.outputConfig || btn.outputConfig.length === 0)) {
+                                      updateButton(index(), "outputConfig", [
+                                        { id: `out_${Date.now()}`, label: "Response", path: "" }
+                                      ]);
+                                    }
+                                  }}
+                                />
+                                <span>Enable Output Field</span>
+                              </label>
+
+                              <Show when={btn.showOutput}>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const copy = [...(btn.outputConfig || [])];
+                                    copy.push({ id: `out_${Date.now()}`, label: `Output ${copy.length + 1}`, path: "" });
+                                    updateButton(index(), "outputConfig", copy);
+                                  }}
+                                  class="text-[10px] px-2 py-0.5 rounded bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/40 border border-emerald-500/20 transition-colors"
+                                >
+                                  + Add Output Field
+                                </button>
+                              </Show>
+                            </div>
+                          </div>
+
+                          <Show when={btn.showOutput}>
+                            <div class="space-y-2 pt-1">
+                              <p class="text-[11px] text-[#8b8b9e]">
+                                Extract response variables like <code class="font-mono text-emerald-300">{`{{ steps.step_1.response.email }}`}</code> or leave path blank for full response.
+                              </p>
+
+                              <For each={btn.outputConfig || []}>
+                                {(outField: any, oIdx) => (
+                                  <div class="bg-[#1e1e2e]/50 p-2.5 rounded-lg border border-[#2a2a3a] space-y-1.5">
+                                    <div class="flex items-center gap-2">
+                                      <div class="w-1/3">
+                                        <label class="text-[11px] text-[#8b8b9e] block mb-0.5">Field Label</label>
+                                        <input
+                                          class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-emerald-500"
+                                          value={outField.label || ""}
+                                          placeholder="e.g. Email, Surname"
+                                          onInput={(e) => {
+                                            updateButton(index(), "outputConfig", oIdx(), (o: any) => ({ ...o, label: e.currentTarget.value }));
+                                          }}
+                                        />
+                                      </div>
+                                      <div class="flex-1">
+                                        <label class="text-[11px] text-[#8b8b9e] block mb-0.5">Variable Path</label>
+                                        <input
+                                          list={`out_paths_${btn.id}_${oIdx()}`}
+                                          class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-1 text-xs font-mono text-emerald-300 focus:outline-none focus:border-emerald-500"
+                                          value={outField.path || ""}
+                                          placeholder="e.g. {{ steps.step_8m6qd1ynu.response.email }} (or blank for all)"
+                                          onInput={(e) => {
+                                            updateButton(index(), "outputConfig", oIdx(), (o: any) => ({ ...o, path: e.currentTarget.value }));
+                                          }}
+                                        />
+                                        <datalist id={`out_paths_${btn.id}_${oIdx()}`}>
+                                          <For each={upstreamVars()}>
+                                            {(uv) => (
+                                              <>
+                                                <Show when={uv.alias}>
+                                                  <option value={`{{ ${uv.alias} }}`}>{uv.alias} (from {uv.stepName})</option>
+                                                </Show>
+                                                <option value={`{{ ${uv.name} }}`}>{uv.name}</option>
+                                              </>
+                                            )}
+                                          </For>
+                                          <option value="response">response (full response payload)</option>
+                                        </datalist>
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const copy = (btn.outputConfig || []).filter((_: any, i: number) => i !== oIdx());
+                                          updateButton(index(), "outputConfig", copy);
+                                        }}
+                                        class="text-[#5b5b6e] hover:text-red-400 mt-4 shrink-0 p-1"
+                                        title="Remove output field"
+                                      >
+                                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                                      </button>
+                                    </div>
+
+                                    {/* Quick pick chips */}
+                                    <Show when={upstreamVars().length > 0}>
+                                      <div class="flex items-center gap-1 flex-wrap pt-0.5">
+                                        <span class="text-[9px] text-[#5b5b6e]">Quick Picks:</span>
+                                        <For each={upstreamVars()}>
+                                          {(uv) => {
+                                            const pickPath = uv.name ? (uv.name.startsWith("{{") ? uv.name : `{{ ${uv.name} }}`) : "";
+                                            const suggestedLabel = uv.alias || uv.name.replace(/\{\{|\}\}/g, "").split(".").pop() || "Output";
+                                            return (
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  updateButton(index(), "outputConfig", oIdx(), (o: any) => ({
+                                                    ...o,
+                                                    path: pickPath,
+                                                    label: o.label && o.label !== "Response" && !o.label.startsWith("Output ") ? o.label : suggestedLabel
+                                                  }));
+                                                }}
+                                                class="text-[9px] px-1 py-0.5 rounded bg-emerald-950/40 text-emerald-300 hover:bg-emerald-800/40 border border-emerald-500/30 transition-colors font-mono"
+                                                title={`Set path to ${pickPath} and suggest label ${suggestedLabel}`}
+                                              >
+                                                {uv.alias || uv.name}
+                                              </button>
+                                            );
+                                          }}
+                                        </For>
                                       </div>
                                     </Show>
                                   </div>
