@@ -1,7 +1,7 @@
 import { SolidAuth, type SolidAuthConfig } from "@auth/solid-start";
 import { logger } from "~/lib/logger";
 import { createDynamicRequest } from "~/lib/authUrl";
-import { decodeJwtPayloadSafe, extractClaimsFromOidcPayload } from "~/lib/groupAuth";
+import { decodeJwtHeaderSafe, decodeJwtPayloadSafe, extractClaimsFromOidcPayload } from "~/lib/groupAuth";
 
 const oidcIssuer = process.env.OIDC_ISSUER || "https://auth.401c6411-20e6-4053-8c2b-062d3c6ffcc0.k8s.civo.com/api/realms/master";
 const clientId = process.env.OIDC_CLIENT_ID || process.env.AUTH_CLIENT_NAME || process.env["AUTH_CLIENT-NAME"] || "solid-grpcfront";
@@ -35,6 +35,7 @@ const config: SolidAuthConfig = {
           email: profile.email,
           image: profile.picture || profile.profile_picture,
           idpGroups,
+          rawProfile: profile,
         };
       },
     } as any,
@@ -71,14 +72,43 @@ const config: SolidAuthConfig = {
           claimSet.add(c);
         }
         const idPayload = decodeJwtPayloadSafe((account as any)?.id_token);
+        const idHeader = decodeJwtHeaderSafe((account as any)?.id_token);
         for (const c of extractClaimsFromOidcPayload(idPayload, clientId)) {
           claimSet.add(c);
         }
         const accessPayload = decodeJwtPayloadSafe((account as any)?.access_token);
+        const accessHeader = decodeJwtHeaderSafe((account as any)?.access_token);
         for (const c of extractClaimsFromOidcPayload(accessPayload, clientId)) {
           claimSet.add(c);
         }
         token.idpGroups = [...claimSet];
+
+        // Merge all decoded claims into token.jwtClaims for user inspection
+        const combinedClaims: Record<string, any> = {
+          ...(token.jwtClaims as Record<string, any> || {}),
+        };
+        const rawProf = (user as any)?.rawProfile || (profile as any);
+        if (rawProf && typeof rawProf === "object") {
+          Object.assign(combinedClaims, rawProf);
+        }
+        if (idPayload) {
+          Object.assign(combinedClaims, idPayload);
+        }
+        if (accessPayload) {
+          for (const [k, v] of Object.entries(accessPayload)) {
+            if (!(k in combinedClaims)) {
+              combinedClaims[k] = v;
+            }
+          }
+        }
+        if (Object.keys(combinedClaims).length > 0) {
+          token.jwtClaims = combinedClaims;
+        }
+        if (idHeader) {
+          token.jwtHeader = idHeader;
+        } else if (accessHeader && !token.jwtHeader) {
+          token.jwtHeader = accessHeader;
+        }
       }
       return token;
     },
@@ -88,6 +118,8 @@ const config: SolidAuthConfig = {
         (session.user as any).username = token.username || session.user.name || token.sub;
         (session.user as any).idpGroups = Array.isArray(token.idpGroups) ? token.idpGroups : [];
         (session.user as any).sessionId = token.sessionId;
+        (session.user as any).jwtClaims = (token.jwtClaims as Record<string, any>) || null;
+        (session.user as any).jwtHeader = (token.jwtHeader as Record<string, any>) || null;
       }
       return session;
     },

@@ -15,11 +15,16 @@ import {
 import { readJsonBody } from "~/lib/requestUtils";
 
 async function buildFullProfilePayload(request: Request, db: any, sub: string) {
-  const [{ namespace }, ctx, user] = await Promise.all([
+  const [{ namespace }, ctx, user, profileRes] = await Promise.all([
     getUserProfile(db, sub),
     getEffectiveAccessContext(request, db),
     getAuthUser(request),
+    db.select(new RecordId("user_profile", sub)).catch(() => null),
   ]);
+  const profileRecord = Array.isArray(profileRes) ? profileRes[0] : profileRes;
+  const jwtClaims = user?.jwtClaims || profileRecord?.lastJwtClaims || null;
+  const jwtHeader = user?.jwtHeader || profileRecord?.lastJwtHeader || null;
+
   return {
     namespace,
     user: {
@@ -40,6 +45,8 @@ async function buildFullProfilePayload(request: Request, db: any, sub: string) {
     isAdmin: ctx.isAdmin,
     hasAdminClaim: ctx.hasAdminClaim,
     isSimulating: ctx.isSimulating,
+    jwtClaims,
+    jwtHeader,
   };
 }
 

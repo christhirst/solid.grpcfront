@@ -9,6 +9,7 @@ import {
   PLATFORM_ROLE_RANK,
   canCreateGroupNamespace,
   formatGroupClaim,
+  formatJwtTimestamp,
   getPlatformCapabilities,
   normalizeGroupName,
   type EffectiveGroupGrant,
@@ -37,6 +38,8 @@ export interface UserProfileData {
   isAdmin: boolean;
   hasAdminClaim: boolean;
   isSimulating: boolean;
+  jwtClaims?: Record<string, any> | null;
+  jwtHeader?: Record<string, any> | null;
 }
 
 export interface UserProfileModalProps {
@@ -145,7 +148,7 @@ const PLATFORM_ROLE_META: Record<
 
 export default function UserProfileModal(props: UserProfileModalProps) {
   let dialog!: HTMLDialogElement;
-  const [activeTab, setActiveTab] = createSignal<"groups" | "manage" | "namespace">("groups");
+  const [activeTab, setActiveTab] = createSignal<"groups" | "manage" | "namespace" | "jwt">("groups");
   const [loading, setLoading] = createSignal(true);
   const [saving, setSaving] = createSignal(false);
   const [error, setError] = createSignal("");
@@ -155,6 +158,12 @@ export default function UserProfileModal(props: UserProfileModalProps) {
   const [profile, setProfile] = createSignal<UserProfileData | null>(null);
   const [namespace, setNamespace] = createSignal("");
   const [originalNamespace, setOriginalNamespace] = createSignal("");
+
+  // JWT Inspection state
+  const [jwtSearch, setJwtSearch] = createSignal("");
+  const [copiedJson, setCopiedJson] = createSignal(false);
+  const [showRawJson, setShowRawJson] = createSignal(false);
+  const [showRawHeader, setShowRawHeader] = createSignal(false);
 
   // SurrealDB spaces & users state
   const [spaces, setSpaces] = createSignal<SpaceRecord[]>([]);
@@ -174,6 +183,85 @@ export default function UserProfileModal(props: UserProfileModalProps) {
   const [assigningMember, setAssigningMember] = createSignal(false);
   const [removingUser, setRemovingUser] = createSignal<string | null>(null);
   const [deletingSpace, setDeletingSpace] = createSignal(false);
+
+  // JWT inspection helpers
+  const jwtClaimsMap = createMemo<Record<string, any>>(() => {
+    return profile()?.jwtClaims || {};
+  });
+
+  const jwtHeaderMap = createMemo<Record<string, any>>(() => {
+    return profile()?.jwtHeader || {};
+  });
+
+  const allJwtKeys = createMemo(() => {
+    return Object.keys(jwtClaimsMap()).sort();
+  });
+
+  // Specifically extract groups and roles claims
+  const detectedGroupClaims = createMemo(() => {
+    const map = jwtClaimsMap();
+    const result: { claimKey: string; items: string[] }[] = [];
+    const extractList = (key: string, val: any) => {
+      if (!val) return;
+      if (Array.isArray(val)) {
+        const strList = val.map((x) => String(x)).filter(Boolean);
+        if (strList.length > 0) result.push({ claimKey: key, items: strList });
+      } else if (typeof val === "string" && val.trim()) {
+        result.push({ claimKey: key, items: [val.trim()] });
+      }
+    };
+    extractList("groups", map.groups);
+    extractList("roles", map.roles);
+    extractList("entitlements", map.entitlements);
+    extractList("group_permissions", map.group_permissions);
+    if (map.realm_access && typeof map.realm_access === "object") {
+      extractList("realm_access.roles", map.realm_access.roles);
+    }
+    if (map.resource_access && typeof map.resource_access === "object") {
+      for (const [resClient, res] of Object.entries(map.resource_access)) {
+        if (res && typeof res === "object" && Array.isArray((res as any).roles)) {
+          extractList(`resource_access[${resClient}].roles`, (res as any).roles);
+        }
+      }
+    }
+    return result;
+  });
+
+  const filteredJwtKeys = createMemo(() => {
+    const q = jwtSearch().toLowerCase().trim();
+    const map = jwtClaimsMap();
+    if (!q) return allJwtKeys();
+    return allJwtKeys().filter((key) => {
+      if (key.toLowerCase().includes(q)) return true;
+      const val = map[key];
+      try {
+        const str = typeof val === "object" ? JSON.stringify(val) : String(val);
+        return str.toLowerCase().includes(q);
+      } catch {
+        return false;
+      }
+    });
+  });
+
+  const copyClaimsJson = async () => {
+    const jsonStr = JSON.stringify(jwtClaimsMap(), null, 2);
+    try {
+      await navigator.clipboard.writeText(jsonStr);
+      setCopiedJson(true);
+      setTimeout(() => setCopiedJson(false), 2000);
+    } catch {
+      // fallback
+    }
+  };
+
+  const getClaimTypeMeta = (val: any) => {
+    if (val === null) return { label: "null", color: "bg-zinc-800 text-zinc-400 border-zinc-700" };
+    if (Array.isArray(val)) return { label: `array [${val.length}]`, color: "bg-purple-500/20 text-purple-300 border-purple-500/40" };
+    if (typeof val === "object") return { label: "object", color: "bg-blue-500/20 text-blue-300 border-blue-500/40" };
+    if (typeof val === "boolean") return { label: "boolean", color: "bg-amber-500/20 text-amber-300 border-amber-500/40" };
+    if (typeof val === "number") return { label: "number", color: "bg-emerald-500/20 text-emerald-300 border-emerald-500/40" };
+    return { label: "string", color: "bg-zinc-800 text-zinc-300 border-zinc-700" };
+  };
 
   const loadAll = async () => {
     setError("");
@@ -702,6 +790,19 @@ export default function UserProfileModal(props: UserProfileModalProps) {
               }}
             >
               Public Namespace
+            </TabsTrigger>
+            <TabsTrigger
+              active={activeTab() === "jwt"}
+              onClick={() => {
+                setActiveTab("jwt");
+                setError("");
+                setSuccessMsg("");
+              }}
+            >
+              <span>JWT Claims</span>
+              <Badge variant="purple" class="ml-1.5 px-1.5 py-0 text-[10px]">
+                {Object.keys(profile()?.jwtClaims || {}).length}
+              </Badge>
             </TabsTrigger>
           </TabsList>
         </div>
@@ -1414,6 +1515,345 @@ export default function UserProfileModal(props: UserProfileModalProps) {
                 </Button>
               </div>
             </form>
+          </Show>
+
+          {/* TAB 4: JWT CLAIMS INSPECTION */}
+          <Show when={activeTab() === "jwt"}>
+            <div class="space-y-4">
+              <div>
+                <h3 class="text-base font-bold text-white">JWT Claims Inspector</h3>
+                <p class="mt-1 text-xs text-zinc-400">
+                  Inspect the decoded OIDC JWT token claims, including FerrisKey groups, roles, and subject metadata.
+                </p>
+              </div>
+
+              <Show
+                when={allJwtKeys().length > 0}
+                fallback={
+                  <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-6 text-center space-y-2">
+                    <div class="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-purple-500/10 text-purple-400 border border-purple-500/20">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                      </svg>
+                    </div>
+                    <h4 class="text-sm font-bold text-white">No Parsed JWT Available</h4>
+                    <p class="text-xs text-zinc-400 max-w-md mx-auto">
+                      No decoded JWT ID or access token claims were found for your current session.
+                      When authenticated via FerrisKey or OIDC, all token claims (including group and role claims)
+                      are captured and inspected here.
+                    </p>
+                  </div>
+                }
+              >
+                {/* Hero Card: Group & Role Claims */}
+                <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
+                  <div class="flex items-center justify-between mb-2">
+                    <div class="flex items-center gap-2">
+                      <span class="text-xs font-bold text-zinc-200 uppercase tracking-wider">
+                        Group & Role Claims
+                      </span>
+                      <Badge variant="purple" class="text-[10px]">
+                        FerrisKey / OIDC
+                      </Badge>
+                    </div>
+                    <span class="text-[11px] text-zinc-400">
+                      {detectedGroupClaims().reduce((acc, c) => acc + c.items.length, 0)} total values
+                    </span>
+                  </div>
+                  <Show
+                    when={detectedGroupClaims().length > 0}
+                    fallback={
+                      <p class="text-xs text-zinc-400 italic">
+                        No explicit group or role claims (e.g. groups, roles, realm_access) detected in the current JWT token payload.
+                      </p>
+                    }
+                  >
+                    <div class="space-y-2 mt-2">
+                      <For each={detectedGroupClaims()}>
+                        {(groupClaim) => (
+                          <div class="rounded-lg bg-zinc-950/70 p-2.5 border border-zinc-800/80">
+                            <div class="text-[11px] font-mono font-semibold text-purple-300 mb-1.5 flex items-center gap-2">
+                              <span>{groupClaim.claimKey}</span>
+                              <span class="text-zinc-500 text-[10px]">
+                                ({groupClaim.items.length})
+                              </span>
+                            </div>
+                            <div class="flex flex-wrap gap-1.5">
+                              <For each={groupClaim.items}>
+                                {(item) => (
+                                  <span class="inline-flex items-center rounded-md bg-purple-500/15 border border-purple-500/30 px-2 py-0.5 font-mono text-xs text-purple-200">
+                                    {item}
+                                  </span>
+                                )}
+                              </For>
+                            </div>
+                          </div>
+                        )}
+                      </For>
+                    </div>
+                  </Show>
+                </div>
+
+                {/* Identity & Lifecycle Info */}
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3.5">
+                    <div class="text-xs font-bold text-zinc-300 uppercase tracking-wider mb-2">
+                      Identity Claims
+                    </div>
+                    <dl class="space-y-1.5 text-xs font-mono">
+                      <div class="flex justify-between gap-2">
+                        <dt class="text-zinc-500">sub:</dt>
+                        <dd class="text-zinc-200 truncate" title={jwtClaimsMap().sub || "—"}>
+                          {jwtClaimsMap().sub || "—"}
+                        </dd>
+                      </div>
+                      <div class="flex justify-between gap-2">
+                        <dt class="text-zinc-500">username / name:</dt>
+                        <dd class="text-zinc-200 truncate">
+                          {jwtClaimsMap().preferred_username || jwtClaimsMap().name || "—"}
+                        </dd>
+                      </div>
+                      <div class="flex justify-between gap-2">
+                        <dt class="text-zinc-500">email:</dt>
+                        <dd class="text-zinc-200 truncate">{jwtClaimsMap().email || "—"}</dd>
+                      </div>
+                      <div class="flex justify-between gap-2">
+                        <dt class="text-zinc-500">iss:</dt>
+                        <dd class="text-zinc-400 truncate text-[11px]" title={jwtClaimsMap().iss || "—"}>
+                          {jwtClaimsMap().iss || "—"}
+                        </dd>
+                      </div>
+                    </dl>
+                  </div>
+
+                  <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3.5">
+                    <div class="flex items-center justify-between mb-2">
+                      <span class="text-xs font-bold text-zinc-300 uppercase tracking-wider">
+                        Token Lifecycle
+                      </span>
+                      <Show when={jwtClaimsMap().exp}>
+                        {(() => {
+                          const isExpired = Date.now() / 1000 > Number(jwtClaimsMap().exp);
+                          return (
+                            <span
+                              class={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase border ${
+                                isExpired
+                                  ? "bg-red-500/20 text-red-300 border-red-500/40"
+                                  : "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
+                              }`}
+                            >
+                              {isExpired ? "Expired" : "Active"}
+                            </span>
+                          );
+                        })()}
+                      </Show>
+                    </div>
+                    <dl class="space-y-1.5 text-xs font-mono">
+                      <div class="flex justify-between gap-2">
+                        <dt class="text-zinc-500">Issued (iat):</dt>
+                        <dd class="text-zinc-300">
+                          {formatJwtTimestamp(jwtClaimsMap().iat) || "—"}
+                        </dd>
+                      </div>
+                      <div class="flex justify-between gap-2">
+                        <dt class="text-zinc-500">Expires (exp):</dt>
+                        <dd class="text-zinc-300">
+                          {formatJwtTimestamp(jwtClaimsMap().exp) || "—"}
+                        </dd>
+                      </div>
+                      <Show when={jwtClaimsMap().auth_time}>
+                        <div class="flex justify-between gap-2">
+                          <dt class="text-zinc-500">Auth Time:</dt>
+                          <dd class="text-zinc-300">
+                            {formatJwtTimestamp(jwtClaimsMap().auth_time)}
+                          </dd>
+                        </div>
+                      </Show>
+                    </dl>
+                  </div>
+                </div>
+
+                {/* Search Bar & Viewer Toggles */}
+                <div class="flex flex-wrap items-center justify-between gap-2 pt-1">
+                  <div class="flex-1 min-w-[200px]">
+                    <Input
+                      placeholder="Filter claims by key or value..."
+                      value={jwtSearch()}
+                      onInput={(e) => setJwtSearch(e.currentTarget.value)}
+                      class="h-8 text-xs"
+                    />
+                  </div>
+                  <div class="flex items-center gap-1.5">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      class="h-8 text-xs gap-1 border-zinc-700"
+                      onClick={() => setShowRawHeader(!showRawHeader())}
+                    >
+                      <span>Header</span>
+                      <Badge variant="secondary" class="text-[9px] px-1 py-0">
+                        {Object.keys(jwtHeaderMap()).length}
+                      </Badge>
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      class="h-8 text-xs gap-1 border-zinc-700"
+                      onClick={() => setShowRawJson(!showRawJson())}
+                    >
+                      <span>{showRawJson() ? "Hide JSON" : "Raw JSON"}</span>
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="primary"
+                      size="sm"
+                      class="h-8 text-xs gap-1"
+                      onClick={copyClaimsJson}
+                    >
+                      <Show when={copiedJson()} fallback={<span>Copy JSON</span>}>
+                        <span class="text-emerald-300">✓ Copied!</span>
+                      </Show>
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Collapsible Decoded Header */}
+                <Show when={showRawHeader()}>
+                  <div class="rounded-xl border border-zinc-800 bg-zinc-950 p-3 space-y-2">
+                    <div class="flex items-center justify-between text-xs text-zinc-400">
+                      <span class="font-bold text-zinc-200">Decoded JWT Header (JOSE)</span>
+                      <span class="font-mono text-[11px] text-zinc-500">
+                        Algorithm: {jwtHeaderMap().alg || "none"}
+                      </span>
+                    </div>
+                    <pre class="p-2 rounded bg-zinc-900 font-mono text-xs text-cyan-300 overflow-x-auto border border-zinc-800/80">
+                      {JSON.stringify(jwtHeaderMap(), null, 2)}
+                    </pre>
+                  </div>
+                </Show>
+
+                {/* Collapsible Raw JSON Viewer */}
+                <Show when={showRawJson()}>
+                  <div class="rounded-xl border border-zinc-800 bg-zinc-950 p-3 space-y-2">
+                    <div class="flex items-center justify-between text-xs text-zinc-400">
+                      <span class="font-bold text-zinc-200">Full JWT Claims JSON</span>
+                      <span class="font-mono text-[11px] text-zinc-500">
+                        {allJwtKeys().length} claims
+                      </span>
+                    </div>
+                    <pre class="p-2 rounded bg-zinc-900 font-mono text-xs text-emerald-300 overflow-x-auto max-h-72 border border-zinc-800/80">
+                      {JSON.stringify(jwtClaimsMap(), null, 2)}
+                    </pre>
+                  </div>
+                </Show>
+
+                {/* Structured Claims Table */}
+                <div class="rounded-xl border border-zinc-800 bg-zinc-950 overflow-hidden">
+                  <div class="flex items-center justify-between px-3.5 py-2.5 bg-zinc-900/60 border-b border-zinc-800">
+                    <span class="text-xs font-bold text-zinc-300 uppercase tracking-wider">
+                      Decoded Token Claims
+                    </span>
+                    <span class="text-xs text-zinc-400 font-mono">
+                      Showing {filteredJwtKeys().length} of {allJwtKeys().length} claims
+                    </span>
+                  </div>
+                  <div class="overflow-x-auto max-h-[380px]">
+                    <table class="w-full text-left border-collapse">
+                      <thead class="sticky top-0 bg-zinc-900 text-[11px] uppercase tracking-wider text-zinc-400 border-b border-zinc-800">
+                        <tr>
+                          <th class="px-3 py-2 w-1/4">Claim Key</th>
+                          <th class="px-3 py-2 w-28">Type</th>
+                          <th class="px-3 py-2">Decoded Value</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <Show
+                          when={filteredJwtKeys().length > 0}
+                          fallback={
+                            <tr>
+                              <td colspan={3} class="px-4 py-8 text-center text-xs text-zinc-500 italic">
+                                {jwtSearch() ? "No claims matching your filter." : "No claims found."}
+                              </td>
+                            </tr>
+                          }
+                        >
+                          <For each={filteredJwtKeys()}>
+                            {(key) => {
+                              const val = () => jwtClaimsMap()[key];
+                              const isTimestamp = () =>
+                                ["exp", "iat", "auth_time", "nbf"].includes(key) &&
+                                typeof val() === "number";
+                              const typeMeta = () => getClaimTypeMeta(val());
+
+                              return (
+                                <tr class="border-b border-zinc-800/60 hover:bg-zinc-900/40 transition-colors">
+                                  <td class="px-3 py-2.5 align-top font-mono text-xs font-semibold text-purple-300">
+                                    {key}
+                                  </td>
+                                  <td class="px-3 py-2.5 align-top">
+                                    <span
+                                      class={`inline-block rounded px-1.5 py-0.5 text-[10px] font-mono border ${typeMeta().color}`}
+                                    >
+                                      {typeMeta().label}
+                                    </span>
+                                  </td>
+                                  <td class="px-3 py-2.5 align-top text-xs text-zinc-200">
+                                    <Show when={isTimestamp()}>
+                                      <div class="flex items-center gap-2 flex-wrap">
+                                        <span class="font-mono text-emerald-300">
+                                          {formatJwtTimestamp(val())}
+                                        </span>
+                                        <span class="font-mono text-[11px] text-zinc-500">
+                                          ({String(val())})
+                                        </span>
+                                      </div>
+                                    </Show>
+                                    <Show when={!isTimestamp() && Array.isArray(val())}>
+                                      <div class="flex flex-wrap gap-1 max-h-36 overflow-y-auto">
+                                        <For each={val() as any[]}>
+                                          {(item) => (
+                                            <span class="rounded bg-zinc-800 px-1.5 py-0.5 font-mono text-[11px] text-zinc-200 border border-zinc-700/60">
+                                              {typeof item === "object" ? JSON.stringify(item) : String(item)}
+                                            </span>
+                                          )}
+                                        </For>
+                                      </div>
+                                    </Show>
+                                    <Show when={!isTimestamp() && !Array.isArray(val()) && typeof val() === "object" && val() !== null}>
+                                      <pre class="rounded bg-zinc-900/90 p-2 font-mono text-[11px] text-zinc-300 max-h-40 overflow-y-auto border border-zinc-800">
+                                        {JSON.stringify(val(), null, 2)}
+                                      </pre>
+                                    </Show>
+                                    <Show when={!isTimestamp() && !Array.isArray(val()) && (typeof val() !== "object" || val() === null)}>
+                                      <Show when={typeof val() === "boolean"}>
+                                        <span
+                                          class={`inline-block rounded px-2 py-0.5 text-xs font-mono font-bold ${
+                                            val() ? "bg-emerald-500/20 text-emerald-300" : "bg-red-500/20 text-red-300"
+                                          }`}
+                                        >
+                                          {String(val())}
+                                        </span>
+                                      </Show>
+                                      <Show when={typeof val() !== "boolean"}>
+                                        <span class="break-all font-mono text-zinc-200">
+                                          {val() === null ? "null" : String(val())}
+                                        </span>
+                                      </Show>
+                                    </Show>
+                                  </td>
+                                </tr>
+                              );
+                            }}
+                          </For>
+                        </Show>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </Show>
+            </div>
           </Show>
         </Show>
       </div>

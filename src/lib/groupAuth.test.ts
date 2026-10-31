@@ -13,6 +13,8 @@ import {
   extractPlatformRoleFromClaims,
   getPlatformCapabilities,
   resolveEffectivePlatformRole,
+  decodeJwtHeaderSafe,
+  formatJwtTimestamp,
 } from "./groupAuth";
 
 describe("groupAuth - claim parsing and normalization", () => {
@@ -292,5 +294,33 @@ describe("groupAuth - OIDC claim extraction", () => {
     expect(
       canAccessResource(ctx, { owner: "other", tags: ["team1.sub"] }, "delete")
     ).toBe(true);
+  });
+
+  test("decodeJwtHeaderSafe decodes valid JWT headers and handles invalid inputs", () => {
+    // Header: { "alg": "RS256", "typ": "JWT", "kid": "ferris-key-1" }
+    const headerB64 = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT", kid: "ferris-key-1" })).toString("base64url");
+    const payloadB64 = Buffer.from(JSON.stringify({ sub: "user-1" })).toString("base64url");
+    const token = `${headerB64}.${payloadB64}.fake-sig`;
+
+    const decoded = decodeJwtHeaderSafe(token);
+    expect(decoded).not.toBeNull();
+    expect(decoded!.alg).toBe("RS256");
+    expect(decoded!.typ).toBe("JWT");
+    expect(decoded!.kid).toBe("ferris-key-1");
+
+    // Invalid inputs
+    expect(decodeJwtHeaderSafe("")).toBeNull();
+    expect(decodeJwtHeaderSafe(null as any)).toBeNull();
+    expect(decodeJwtHeaderSafe("not-a-jwt")).toBeNull();
+    expect(decodeJwtHeaderSafe("bad_header.bad_payload.sig")).toBeNull();
+  });
+
+  test("formatJwtTimestamp formats epoch seconds properly", () => {
+    // 1700000000 = 2023-11-14T22:13:20.000Z
+    const formatted = formatJwtTimestamp(1700000000);
+    expect(formatted).toContain("2023");
+    expect(formatJwtTimestamp(null)).toBe("");
+    expect(formatJwtTimestamp(undefined)).toBe("");
+    expect(formatJwtTimestamp("not-a-number")).toBe("");
   });
 });

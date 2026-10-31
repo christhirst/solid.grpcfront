@@ -991,6 +991,41 @@ export function extractClaimsFromOidcPayload(
 }
 
 /**
+ * Safely decode the JSON header of a JWT string (e.g. { alg: "RS256", typ: "JWT", kid: "..." }).
+ */
+export function decodeJwtHeaderSafe(jwtString?: string): Record<string, any> | null {
+  if (!jwtString || typeof jwtString !== "string") return null;
+  const parts = jwtString.split(".");
+  if (parts.length !== 3) return null;
+  try {
+    const base64 = parts[0].replace(/-/g, "+").replace(/_/g, "/");
+    const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
+    const json = Buffer.from(padded, "base64").toString("utf-8");
+    const parsed = JSON.parse(json);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Format a standard numeric Unix epoch timestamp (seconds) into a readable date string.
+ */
+export function formatJwtTimestamp(epochSeconds?: unknown): string {
+  if (epochSeconds === null || epochSeconds === undefined) return "";
+  const num = typeof epochSeconds === "number" ? epochSeconds : Number(epochSeconds);
+  if (!Number.isFinite(num) || num <= 0) {
+    return "";
+  }
+  try {
+    const d = new Date(num * 1000);
+    return d.toISOString().replace("T", " ").replace(/\.\d+Z$/, " UTC");
+  } catch {
+    return "";
+  }
+}
+
+/**
  * Safely decode the JSON payload of a JWT string (without signature verification, used for reading
  * claims from the already-verified OIDC token response in the NextAuth/SolidAuth jwt callback).
  */

@@ -20,6 +20,8 @@ export interface AuthUser {
   image?: string;
   idpGroups: string[];
   sessionId?: string;
+  jwtClaims?: Record<string, any> | null;
+  jwtHeader?: Record<string, any> | null;
 }
 
 /**
@@ -40,6 +42,8 @@ export async function getAuthUser(request: Request): Promise<AuthUser | null> {
       image: user.image || undefined,
       idpGroups: Array.isArray(user.idpGroups) ? user.idpGroups : [],
       sessionId: user.sessionId || "default",
+      jwtClaims: user.jwtClaims || null,
+      jwtHeader: user.jwtHeader || null,
     };
   } catch {
     return null;
@@ -113,34 +117,35 @@ export async function getEffectiveAccessContext(
         }
       }
 
-      // Keep user_profile synced with basic user identity & FerrisKey role for SurrealDB user management
+      // Keep user_profile synced with basic user identity, FerrisKey role, and latest parsed JWT claims
       const cleanUsername = (user.username || user.name || user.sub).trim();
-      if (
+      const needsProfileSync =
         !profile ||
         profile.username !== cleanUsername ||
         profile.idpRole !== idpRole ||
-        (user.email && profile.email !== user.email)
-      ) {
+        (user.email && profile.email !== user.email) ||
+        (user.jwtClaims && !profile.lastJwtClaims);
+
+      if (needsProfileSync) {
+        const mergeData: Record<string, any> = {
+          sub: user.sub,
+          username: cleanUsername,
+          name: user.name || cleanUsername,
+          email: user.email || "",
+          idpRole,
+          updated_at: new Date().toISOString(),
+        };
+        if (user.jwtClaims) {
+          mergeData.lastJwtClaims = user.jwtClaims;
+        }
+        if (user.jwtHeader) {
+          mergeData.lastJwtHeader = user.jwtHeader;
+        }
         await db
-          .query(
-            `UPSERT $profile MERGE {
-              sub: $sub,
-              username: $username,
-              name: $name,
-              email: $email,
-              idpRole: $idpRole,
-              updated_at: $now
-            };`,
-            {
-              profile: profileId,
-              sub: user.sub,
-              username: cleanUsername,
-              name: user.name || cleanUsername,
-              email: user.email || "",
-              idpRole,
-              now: new Date().toISOString(),
-            }
-          )
+          .query(`UPSERT $profile MERGE $mergeData;`, {
+            profile: profileId,
+            mergeData,
+          })
           .catch(() => {});
       }
     } catch {
