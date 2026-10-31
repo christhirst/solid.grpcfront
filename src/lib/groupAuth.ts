@@ -11,7 +11,42 @@
 
 export type GroupRight = "view" | "use" | "write" | "delete" | "manager";
 
-export type GroupSource = "jwt" | "session" | "tagged";
+export type GroupSource = "db" | "jwt" | "session" | "tagged";
+
+/**
+ * Platform-level interface role coming from FerrisKey (OIDC IdP).
+ * - admin: Full access to everything (including Database and all spaces)
+ * - creator: Workflows, Dashboards, Library, Requests, Connections, Trusted CAs, Protos (no Database)
+ * - user: Alter & use Dashboards + Library
+ * - viewer: Library only
+ */
+export type PlatformRole = "admin" | "creator" | "user" | "viewer";
+
+export const ALL_PLATFORM_ROLES: readonly PlatformRole[] = [
+  "admin",
+  "creator",
+  "user",
+  "viewer",
+] as const;
+
+export const PLATFORM_ROLE_RANK: Record<PlatformRole, number> = {
+  admin: 4,
+  creator: 3,
+  user: 2,
+  viewer: 1,
+};
+
+export interface PlatformCapabilities {
+  canAccessLibrary: boolean;
+  canEditDashboards: boolean;
+  canManageWorkflows: boolean;
+  canUseRequests: boolean;
+  canManageConnections: boolean;
+  canManageCAs: boolean;
+  canManageProtos: boolean;
+  canManageDatabase: boolean;
+  canManageGroups: boolean;
+}
 
 export const ALL_GROUP_RIGHTS: readonly GroupRight[] = [
   "view",
@@ -44,7 +79,15 @@ export interface EffectiveAccessContext {
   username?: string;
   /** Email address */
   email?: string;
-  /** All merged group grants available to the user (active and deactivated) */
+  /** Authoritative platform role from FerrisKey JWT (or admin override) */
+  idpRole: PlatformRole;
+  /** Effective platform role after applying optional lower-role simulation */
+  platformRole: PlatformRole;
+  /** Currently simulated platform role (or null when using actual idpRole) */
+  simulatedRole: PlatformRole | null;
+  /** Interface & API capability flags derived from the effective platformRole */
+  capabilities: PlatformCapabilities;
+  /** All merged group grants available to the user from SurrealDB (active and deactivated) */
   allGrants: EffectiveGroupGrant[];
   /** Currently active (highlighted) group grants */
   activeGrants: EffectiveGroupGrant[];
@@ -52,11 +95,11 @@ export interface EffectiveAccessContext {
   disabledGroups: string[];
   /** When true, personal ownership bypass (@owner) is paused to strictly simulate group view */
   disableOwnerBypass: boolean;
-  /** Whether the user has an active Admin-Group grant */
+  /** Whether the user has an active Admin role/grant */
   isAdmin: boolean;
-  /** Whether the user has an Admin-Group grant at all (even if currently deactivated) */
+  /** Whether the user has an Admin claim at all (even if currently simulating a lower role) */
   hasAdminClaim: boolean;
-  /** Whether any group or @owner is currently deactivated for perspective simulation */
+  /** Whether any group, @owner, or platform role is currently simulated */
   isSimulating: boolean;
 }
 
@@ -77,6 +120,150 @@ const ADMIN_GROUP_NAMES = new Set([
   "realm-admin",
   "superadmin",
 ]);
+
+const CREATOR_GROUP_NAMES = new Set([
+  "creator",
+  "creators",
+  "creator-group",
+  "creatorgroup",
+]);
+
+const USER_GROUP_NAMES = new Set([
+  "user",
+  "users",
+  "user-group",
+  "usergroup",
+]);
+
+const VIEWER_GROUP_NAMES = new Set([
+  "viewer",
+  "viewers",
+  "viewer-group",
+  "viewergroup",
+]);
+
+const PLATFORM_ROLE_CLAIM_NAMES = new Set([
+  ...CREATOR_GROUP_NAMES,
+  ...USER_GROUP_NAMES,
+  ...VIEWER_GROUP_NAMES,
+]);
+
+/**
+ * Normalize a raw role string into a valid PlatformRole, or return null.
+ */
+export function normalizePlatformRole(raw?: unknown): PlatformRole | null {
+  if (!raw || typeof raw !== "string") return null;
+  const clean = normalizeGroupName(raw.split(":")[0] || "");
+  if (!clean) return null;
+  if (isAdminGroupName(clean)) return "admin";
+  if (CREATOR_GROUP_NAMES.has(clean)) return "creator";
+  if (USER_GROUP_NAMES.has(clean)) return "user";
+  if (VIEWER_GROUP_NAMES.has(clean)) return "viewer";
+  return null;
+}
+
+/**
+ * Extract the user's highest PlatformRole from FerrisKey OIDC claims.
+ * Only "admin", "creator", "user", and "viewer" come from FerrisKey.
+ */
+export function extractPlatformRoleFromClaims(
+  claims: Iterable<string> | null | undefined,
+  fallback: PlatformRole = "viewer"
+): PlatformRole {
+  let best: PlatformRole | null = null;
+  if (claims) {
+    for (const raw of claims) {
+      const role = normalizePlatformRole(raw);
+      if (role) {
+        if (!best || PLATFORM_ROLE_RANK[role] > PLATFORM_ROLE_RANK[best]) {
+          best = role;
+        }
+      }
+    }
+  }
+  if (best) return best;
+  const envDefault = normalizePlatformRole(process.env.DEFAULT_PLATFORM_ROLE);
+  return envDefault || fallback;
+}
+
+/**
+ * Clamp an optional simulatedRole so a user can only simulate a role <= their idpRole.
+ */
+export function resolveEffectivePlatformRole(
+  idpRole: PlatformRole,
+  simulatedRole?: unknown
+): { platformRole: PlatformRole; simulatedRole: PlatformRole | null } {
+  const normSim = normalizePlatformRole(simulatedRole);
+  if (
+    normSim &&
+    normSim !== idpRole &&
+    PLATFORM_ROLE_RANK[normSim] <= PLATFORM_ROLE_RANK[idpRole]
+  ) {
+    return { platformRole: normSim, simulatedRole: normSim };
+  }
+  return { platformRole: idpRole, simulatedRole: null };
+}
+
+/**
+ * Compute UI and API capabilities for a given PlatformRole.
+ * - admin: Full access including Database
+ * - creator: Workflows, Dashboards, Library, Requests, Connections, CAs, Protos (NOT Database)
+ * - user: Alter & use Dashboards + Library
+ * - viewer: Library only
+ */
+export function getPlatformCapabilities(role: PlatformRole): PlatformCapabilities {
+  switch (role) {
+    case "admin":
+      return {
+        canAccessLibrary: true,
+        canEditDashboards: true,
+        canManageWorkflows: true,
+        canUseRequests: true,
+        canManageConnections: true,
+        canManageCAs: true,
+        canManageProtos: true,
+        canManageDatabase: true,
+        canManageGroups: true,
+      };
+    case "creator":
+      return {
+        canAccessLibrary: true,
+        canEditDashboards: true,
+        canManageWorkflows: true,
+        canUseRequests: true,
+        canManageConnections: true,
+        canManageCAs: true,
+        canManageProtos: true,
+        canManageDatabase: false,
+        canManageGroups: true,
+      };
+    case "user":
+      return {
+        canAccessLibrary: true,
+        canEditDashboards: true,
+        canManageWorkflows: false,
+        canUseRequests: false,
+        canManageConnections: false,
+        canManageCAs: false,
+        canManageProtos: false,
+        canManageDatabase: false,
+        canManageGroups: true,
+      };
+    case "viewer":
+    default:
+      return {
+        canAccessLibrary: true,
+        canEditDashboards: false,
+        canManageWorkflows: false,
+        canUseRequests: false,
+        canManageConnections: false,
+        canManageCAs: false,
+        canManageProtos: false,
+        canManageDatabase: false,
+        canManageGroups: false,
+      };
+  }
+}
 
 const GROUP_SEGMENT_REGEX = /^[a-z0-9_-]+$/;
 
@@ -283,6 +470,7 @@ export function mergeGroupGrants(
   >();
 
   const sourcePriority: Record<GroupSource, number> = {
+    db: 4,
     jwt: 3,
     session: 2,
     tagged: 1,
@@ -291,6 +479,14 @@ export function mergeGroupGrants(
   for (const item of claimsBySource) {
     const parsed = parseGroupClaim(item.raw, item.source);
     if (!parsed) continue;
+    // Do not treat bare FerrisKey platform roles (creator, user, viewer) as space grants
+    if (
+      item.source === "jwt" &&
+      !item.raw.includes(":") &&
+      PLATFORM_ROLE_CLAIM_NAMES.has(parsed.group)
+    ) {
+      continue;
+    }
     const existing = map.get(parsed.group);
     if (!existing) {
       map.set(parsed.group, {
@@ -353,6 +549,9 @@ export function buildAccessContext(params: {
   sub: string;
   username?: string;
   email?: string;
+  idpRole?: PlatformRole;
+  simulatedRole?: PlatformRole | string | null;
+  dbClaims?: string[];
   jwtClaims?: string[];
   sessionClaims?: string[];
   taggedGroups?: string[];
@@ -360,6 +559,9 @@ export function buildAccessContext(params: {
   disableOwnerBypass?: boolean;
 }): EffectiveAccessContext {
   const combined: { raw: string; source: GroupSource }[] = [];
+  for (const c of params.dbClaims || []) {
+    combined.push({ raw: c, source: "db" });
+  }
   for (const c of params.jwtClaims || []) {
     combined.push({ raw: c, source: "jwt" });
   }
@@ -378,14 +580,48 @@ export function buildAccessContext(params: {
   const allGrants = mergeGroupGrants(combined, disabledGroups);
   const activeGrants = allGrants.filter((g) => g.active);
 
-  const hasAdminClaim = allGrants.some((g) => isAdminGroupName(g.group));
-  const isAdmin = activeGrants.some((g) => isAdminGroupName(g.group));
-  const isSimulating = disableOwnerBypass || allGrants.some((g) => !g.active);
+  const isAnon = !params.sub || params.sub === "anonymous";
+  const resolvedIdpRole: PlatformRole = isAnon
+    ? "viewer"
+    : params.idpRole ||
+      extractPlatformRoleFromClaims(params.jwtClaims, "user");
+
+  const { platformRole, simulatedRole } = resolveEffectivePlatformRole(
+    resolvedIdpRole,
+    params.simulatedRole
+  );
+
+  const hasAdminGrant = allGrants.some((g) => isAdminGroupName(g.group));
+  const hasActiveAdminGrant = activeGrants.some((g) => isAdminGroupName(g.group));
+  const isAdminGrantDisabled =
+    hasAdminGrant && !hasActiveAdminGrant;
+
+  const hasAdminClaim = resolvedIdpRole === "admin" || hasAdminGrant;
+  const isAdmin =
+    !isAnon &&
+    !isAdminGrantDisabled &&
+    (platformRole === "admin" || (hasActiveAdminGrant && !simulatedRole));
+
+  const effectiveRole: PlatformRole = isAdmin
+    ? "admin"
+    : platformRole === "admin" && isAdminGrantDisabled
+      ? "creator"
+      : platformRole;
+
+  const capabilities = getPlatformCapabilities(effectiveRole);
+  const isSimulating =
+    disableOwnerBypass ||
+    Boolean(simulatedRole) ||
+    allGrants.some((g) => !g.active);
 
   return {
     sub: params.sub || "anonymous",
     username: params.username,
     email: params.email,
+    idpRole: resolvedIdpRole,
+    platformRole: effectiveRole,
+    simulatedRole,
+    capabilities,
     allGrants,
     activeGrants,
     disabledGroups,
@@ -586,6 +822,16 @@ export function canCreateGroupNamespace(
     };
   }
 
+  if (ctx.capabilities && !ctx.capabilities.canManageGroups && !ctx.isAdmin) {
+    return {
+      allowed: false,
+      normalized,
+      parent,
+      leaf,
+      error: "Your platform role (viewer) does not permit creating spaces/groups.",
+    };
+  }
+
   const formatError = validateGroupName(rawGroupName);
   if (formatError) {
     return {
@@ -597,13 +843,13 @@ export function canCreateGroupNamespace(
     };
   }
 
-  if (isAdminGroupName(normalized) && !ctx.isAdmin) {
+  if ((isAdminGroupName(normalized) || PLATFORM_ROLE_CLAIM_NAMES.has(normalized)) && !ctx.isAdmin) {
     return {
       allowed: false,
       normalized,
       parent,
       leaf,
-      error: `"${normalized}" is a reserved administrative group name.`,
+      error: `"${normalized}" is a reserved platform role name.`,
     };
   }
 
@@ -612,9 +858,9 @@ export function canCreateGroupNamespace(
     const norm = normalizeGroupName(g);
     if (norm) existingSet.add(norm);
   }
-  // Also consider any group currently in the user's JWT/session grants as existing
+  // Also consider any group currently in the user's SurrealDB/JWT/session grants as existing
   for (const g of ctx.allGrants) {
-    if (g.source === "jwt" || g.source === "session") {
+    if (g.source === "db" || g.source === "jwt" || g.source === "session") {
       existingSet.add(g.group);
     }
   }

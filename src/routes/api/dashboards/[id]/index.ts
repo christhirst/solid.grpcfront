@@ -70,6 +70,12 @@ export async function PUT(event: APIEvent) {
   try {
     const db = await getDb();
     const ctx = await getEffectiveAccessContext(event.request, db);
+    if (!ctx.capabilities.canEditDashboards) {
+      return Response.json(
+        { success: false, error: "Your platform role (viewer) can only use the Library and cannot modify dashboards." },
+        { status: 403 }
+      );
+    }
     const body = await readJsonBody(event);
     const record = await saveDashboard(db, user.sub, event.params.id, body, false, ctx);
     return Response.json({
@@ -93,6 +99,12 @@ export async function DELETE(event: APIEvent) {
     const id = event.params.id;
     const db = await getDb();
     const ctx = await getEffectiveAccessContext(event.request, db);
+    if (!ctx.capabilities.canEditDashboards) {
+      return Response.json(
+        { success: false, error: "Your platform role (viewer) can only use the Library and cannot delete dashboards." },
+        { status: 403 }
+      );
+    }
 
     const dbId = (id.includes(":") ? id.split(":")[1] : id).replace(/[⟨⟩]/g, "").trim();
     const sId = new RecordId("dashboard", dbId);

@@ -50,6 +50,12 @@ export async function POST(event: APIEvent) {
     const body = await new Response(event.request.body).json();
     const owner = await getOwnerFromRequest(event.request);
     const ctx = await getEffectiveAccessContext(event.request, db);
+    if (ctx.sub !== "anonymous" && !ctx.capabilities.canManageConnections) {
+      return Response.json(
+        { success: false, error: "Creator or Admin role is required to create connections." },
+        { status: 403 }
+      );
+    }
 
     const rawId = body.id || `connection:${uuidv4()}`;
     const dbId = rawId.includes(":") ? rawId.split(":")[1] : rawId;

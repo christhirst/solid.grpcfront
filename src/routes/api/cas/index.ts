@@ -50,6 +50,12 @@ export async function POST(event: APIEvent) {
     const body = await new Response(event.request.body).json();
     const owner = await getOwnerFromRequest(event.request);
     const ctx = await getEffectiveAccessContext(event.request, db);
+    if (ctx.sub !== "anonymous" && !ctx.capabilities.canManageCAs) {
+      return Response.json(
+        { success: false, error: "Creator or Admin role is required to upload Trusted CAs." },
+        { status: 403 }
+      );
+    }
 
     const rawId = body.id || `ca_cert:${uuidv4()}`;
     const dbId = rawId.includes(":") ? rawId.split(":")[1] : rawId;

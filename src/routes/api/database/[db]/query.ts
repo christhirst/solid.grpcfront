@@ -1,9 +1,18 @@
 import { APIEvent } from "@solidjs/start/server";
-import { getDynamicDb } from "~/lib/db";
+import { getDb, getDynamicDb } from "~/lib/db";
 import { readJsonBody } from "~/lib/requestUtils";
+import { getEffectiveAccessContext } from "~/lib/auth";
 
 export async function POST(event: APIEvent) {
   try {
+    const mainDb = await getDb();
+    const ctx = await getEffectiveAccessContext(event.request, mainDb);
+    if (!ctx.capabilities.canManageDatabase) {
+      return Response.json(
+        { success: false, error: "Admin role is required to execute database console queries." },
+        { status: 403 }
+      );
+    }
     const dbName = event.params.db;
     
     if (!dbName || !/^[a-zA-Z0-9_]+$/.test(dbName)) {

@@ -65,6 +65,12 @@ export async function POST(event: APIEvent) {
     const body = await readJsonBody(event);
     const owner = await getOwnerFromRequest(event.request);
     const ctx = await getEffectiveAccessContext(event.request, db);
+    if (ctx.sub !== "anonymous" && !ctx.capabilities.canManageWorkflows) {
+      return Response.json(
+        { success: false, error: "Creator or Admin role is required to create workflows." },
+        { status: 403 }
+      );
+    }
 
     // Generate ID if not present
     const rawId = body.id || `workflow:${uuidv4()}`;

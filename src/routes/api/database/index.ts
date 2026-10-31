@@ -9,6 +9,12 @@ export async function GET(event: APIEvent) {
   try {
     const db = await getDb();
     const ctx = await getEffectiveAccessContext(event.request, db);
+    if (ctx.sub !== "anonymous" && !ctx.capabilities.canManageDatabase) {
+      return Response.json(
+        { success: false, error: "Admin role is required to access Database management." },
+        { status: 403 }
+      );
+    }
 
     let databases: string[] = [];
     try {
@@ -100,6 +106,12 @@ export async function POST(event: APIEvent) {
     const db = await getDb();
     const owner = await getOwnerFromRequest(event.request);
     const ctx = await getEffectiveAccessContext(event.request, db);
+    if (!ctx.capabilities.canManageDatabase) {
+      return Response.json(
+        { success: false, error: "Admin role is required to create or manage databases." },
+        { status: 403 }
+      );
+    }
     const tags = Array.isArray(body.tags)
       ? body.tags.map((t: unknown) => normalizeGroupName(String(t).split(":")[0] || "")).filter(Boolean)
       : [];
@@ -149,6 +161,12 @@ export async function PUT(event: APIEvent) {
 
     const db = await getDb();
     const ctx = await getEffectiveAccessContext(event.request, db);
+    if (!ctx.capabilities.canManageDatabase) {
+      return Response.json(
+        { success: false, error: "Admin role is required to manage databases." },
+        { status: 403 }
+      );
+    }
     const metaId = new RecordId("database_meta", name);
     const existingRes = await db.select(metaId);
     const existing = Array.isArray(existingRes) ? existingRes[0] : existingRes;

@@ -10,6 +10,9 @@ import {
   canAccessResource,
   canCreateGroupNamespace,
   extractClaimsFromOidcPayload,
+  extractPlatformRoleFromClaims,
+  getPlatformCapabilities,
+  resolveEffectivePlatformRole,
 } from "./groupAuth";
 
 describe("groupAuth - claim parsing and normalization", () => {
@@ -223,5 +226,71 @@ describe("groupAuth - OIDC claim extraction", () => {
       "Admin-Group",
       "group3:use",
     ]);
+  });
+
+  test("extracts FerrisKey platform roles (admin, creator, user, viewer) with correct rank priority", () => {
+    expect(extractPlatformRoleFromClaims(["viewer", "creator"])).toBe("creator");
+    expect(extractPlatformRoleFromClaims(["/user", "admin"])).toBe("admin");
+    expect(extractPlatformRoleFromClaims(["user"])).toBe("user");
+    expect(extractPlatformRoleFromClaims(["viewer"])).toBe("viewer");
+    expect(extractPlatformRoleFromClaims([], "viewer")).toBe("viewer");
+  });
+
+  test("computes interface capabilities for admin, creator, user, and viewer", () => {
+    const adminCaps = getPlatformCapabilities("admin");
+    expect(adminCaps.canManageDatabase).toBe(true);
+    expect(adminCaps.canManageWorkflows).toBe(true);
+    expect(adminCaps.canEditDashboards).toBe(true);
+
+    const creatorCaps = getPlatformCapabilities("creator");
+    expect(creatorCaps.canManageDatabase).toBe(false);
+    expect(creatorCaps.canManageWorkflows).toBe(true);
+    expect(creatorCaps.canUseRequests).toBe(true);
+    expect(creatorCaps.canManageConnections).toBe(true);
+    expect(creatorCaps.canManageCAs).toBe(true);
+    expect(creatorCaps.canManageProtos).toBe(true);
+    expect(creatorCaps.canEditDashboards).toBe(true);
+
+    const userCaps = getPlatformCapabilities("user");
+    expect(userCaps.canManageDatabase).toBe(false);
+    expect(userCaps.canManageWorkflows).toBe(false);
+    expect(userCaps.canUseRequests).toBe(false);
+    expect(userCaps.canManageConnections).toBe(false);
+    expect(userCaps.canEditDashboards).toBe(true);
+    expect(userCaps.canAccessLibrary).toBe(true);
+
+    const viewerCaps = getPlatformCapabilities("viewer");
+    expect(viewerCaps.canEditDashboards).toBe(false);
+    expect(viewerCaps.canManageGroups).toBe(false);
+    expect(viewerCaps.canAccessLibrary).toBe(true);
+  });
+
+  test("clamps simulatedRole so users cannot escalate above their FerrisKey idpRole", () => {
+    // Creator simulating user -> allowed
+    expect(resolveEffectivePlatformRole("creator", "user")).toEqual({
+      platformRole: "user",
+      simulatedRole: "user",
+    });
+    // Creator trying to simulate admin -> ignored, stays creator
+    expect(resolveEffectivePlatformRole("creator", "admin")).toEqual({
+      platformRole: "creator",
+      simulatedRole: null,
+    });
+  });
+
+  test("resolves SurrealDB dbClaims alongside FerrisKey platform role", () => {
+    const ctx = buildAccessContext({
+      sub: "u-creator",
+      idpRole: "creator",
+      dbClaims: ["ops.monitoring:(view,use,write)", "team1:manager"],
+    });
+
+    expect(ctx.platformRole).toBe("creator");
+    expect(ctx.capabilities.canManageWorkflows).toBe(true);
+    expect(ctx.capabilities.canManageDatabase).toBe(false);
+    expect(ctx.activeGrants.map((g) => g.group)).toEqual(["ops.monitoring", "team1"]);
+    expect(
+      canAccessResource(ctx, { owner: "other", tags: ["team1.sub"] }, "delete")
+    ).toBe(true);
   });
 });

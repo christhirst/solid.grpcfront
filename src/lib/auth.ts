@@ -4,8 +4,12 @@ import { authOpts } from "~/routes/api/auth/[...solidauth]";
 import { createDynamicRequest } from "~/lib/authUrl";
 import {
   buildAccessContext,
+  extractPlatformRoleFromClaims,
+  formatGroupClaim,
   normalizeGroupName,
+  normalizePlatformRole,
   type EffectiveAccessContext,
+  type PlatformRole,
 } from "~/lib/groupAuth";
 
 export interface AuthUser {
@@ -51,8 +55,9 @@ export async function getOwnerFromRequest(request: Request): Promise<string> {
 }
 
 /**
- * Resolve the user's full EffectiveAccessContext (combining IdP JWT groups, current session manager grants,
- * groups tagged on the user's own resources, and active/deactivated group simulation state).
+ * Resolve the user's full EffectiveAccessContext:
+ * - Platform role (admin, creator, user, viewer) comes from FerrisKey OIDC claims (or admin override in SurrealDB).
+ * - Spaces/groups and fine-grained rights (view, use, write, delete, manager) come from SurrealDB.
  */
 export async function getEffectiveAccessContext(
   request: Request,
@@ -60,17 +65,21 @@ export async function getEffectiveAccessContext(
 ): Promise<EffectiveAccessContext> {
   const user = await getAuthUser(request);
   if (!user || !user.sub || user.sub === "anonymous") {
-    return buildAccessContext({ sub: "anonymous" });
+    return buildAccessContext({ sub: "anonymous", idpRole: "viewer" });
   }
 
+  let idpRole: PlatformRole = extractPlatformRoleFromClaims(user.idpGroups, "viewer");
+  let simulatedRole: PlatformRole | null = null;
   let disabledGroups: string[] = [];
   let disableOwnerBypass = false;
+  const dbClaims: string[] = [];
   const sessionClaims: string[] = [];
   const taggedGroups = new Set<string>();
 
   if (db) {
     try {
-      const profileRes = await db.select(new RecordId("user_profile", user.sub));
+      const profileId = new RecordId("user_profile", user.sub);
+      const profileRes = await db.select(profileId);
       const profile = Array.isArray(profileRes) ? profileRes[0] : profileRes;
       if (profile) {
         if (Array.isArray(profile.disabledGroups)) {
@@ -79,18 +88,121 @@ export async function getEffectiveAccessContext(
         if (typeof profile.disableOwnerBypass === "boolean") {
           disableOwnerBypass = profile.disableOwnerBypass;
         }
+        if (profile.simulatedRole) {
+          simulatedRole = normalizePlatformRole(profile.simulatedRole);
+        }
+        const overrideRole = normalizePlatformRole(profile.roleOverride);
+        if (overrideRole) {
+          idpRole = overrideRole;
+        }
+        if (Array.isArray(profile.groupGrants)) {
+          for (const g of profile.groupGrants) {
+            if (typeof g === "string" && g.trim()) {
+              dbClaims.push(g.trim());
+            } else if (g && typeof g.claim === "string") {
+              dbClaims.push(g.claim);
+            }
+          }
+        }
         if (Array.isArray(profile.sessionGrants)) {
           for (const g of profile.sessionGrants) {
             if (g && typeof g.claim === "string") {
-              if (!g.sessionId || g.sessionId === (user.sessionId || "default")) {
-                sessionClaims.push(g.claim);
-              }
+              dbClaims.push(g.claim);
             }
           }
         }
       }
+
+      // Keep user_profile synced with basic user identity & FerrisKey role for SurrealDB user management
+      const cleanUsername = (user.username || user.name || user.sub).trim();
+      if (
+        !profile ||
+        profile.username !== cleanUsername ||
+        profile.idpRole !== idpRole ||
+        (user.email && profile.email !== user.email)
+      ) {
+        await db
+          .query(
+            `UPSERT $profile MERGE {
+              sub: $sub,
+              username: $username,
+              name: $name,
+              email: $email,
+              idpRole: $idpRole,
+              updated_at: $now
+            };`,
+            {
+              profile: profileId,
+              sub: user.sub,
+              username: cleanUsername,
+              name: user.name || cleanUsername,
+              email: user.email || "",
+              idpRole,
+              now: new Date().toISOString(),
+            }
+          )
+          .catch(() => {});
+      }
     } catch {
       // user_profile table might not exist yet
+    }
+
+    // Load space/group memberships assigned to this user in SurrealDB (group_member table)
+    try {
+      const usernameLower = (user.username || user.name || "").trim().toLowerCase();
+      const emailLower = (user.email || "").trim().toLowerCase();
+      const subLower = user.sub.trim().toLowerCase();
+
+      const memberRes = await db.query(
+        `SELECT * FROM group_member WHERE
+          userSub = $sub
+          OR string::lowercase(username ?? '') = $usernameLower
+          OR ($emailLower != '' AND string::lowercase(username ?? '') = $emailLower)
+          OR string::lowercase(username ?? '') = $subLower;`,
+        {
+          sub: user.sub,
+          usernameLower,
+          emailLower,
+          subLower,
+        }
+      );
+      const memberRows = Array.isArray(memberRes)
+        ? Array.isArray(memberRes[0])
+          ? memberRes[0]
+          : memberRes
+        : [];
+      for (const m of memberRows) {
+        if (m && m.group) {
+          const rights = Array.isArray(m.rights)
+            ? m.rights
+            : typeof m.rights === "string"
+              ? m.rights
+              : ["view", "use"];
+          dbClaims.push(formatGroupClaim(String(m.group), rights));
+        }
+      }
+    } catch {
+      // group_member table might not exist yet
+    }
+
+    // Also include spaces owned by this user in group_namespace as :manager
+    try {
+      const ownedRes = await db.query(
+        `SELECT name FROM group_namespace WHERE owner = $owner;`,
+        { owner: user.sub }
+      );
+      const ownedRows = Array.isArray(ownedRes)
+        ? Array.isArray(ownedRes[0])
+          ? ownedRes[0]
+          : ownedRes
+        : [];
+      for (const row of ownedRows) {
+        if (row?.name) {
+          dbClaims.push(`${normalizeGroupName(String(row.name))}:manager`);
+        }
+      }
+    } catch {
+      // group_namespace table might not exist yet
     }
 
     // Collect groups that this user has tagged on their own resources so they can simulate them
@@ -119,7 +231,9 @@ export async function getEffectiveAccessContext(
     sub: user.sub,
     username: user.username || user.name || user.sub,
     email: user.email,
-    jwtClaims: user.idpGroups || [],
+    idpRole,
+    simulatedRole,
+    dbClaims,
     sessionClaims,
     taggedGroups: [...taggedGroups],
     disabledGroups,

@@ -8,7 +8,10 @@ import {
   saveUserNamespace,
   publishingErrorResponse,
 } from "~/lib/dashboard/publishing";
-import { normalizeGroupName } from "~/lib/groupAuth";
+import {
+  normalizeGroupName,
+  normalizePlatformRole,
+} from "~/lib/groupAuth";
 import { readJsonBody } from "~/lib/requestUtils";
 
 async function buildFullProfilePayload(request: Request, db: any, sub: string) {
@@ -26,6 +29,10 @@ async function buildFullProfilePayload(request: Request, db: any, sub: string) {
       email: user?.email,
       image: user?.image,
     },
+    idpRole: ctx.idpRole,
+    platformRole: ctx.platformRole,
+    simulatedRole: ctx.simulatedRole,
+    capabilities: ctx.capabilities,
     allGrants: ctx.allGrants,
     activeGrants: ctx.activeGrants,
     disabledGroups: ctx.disabledGroups,
@@ -66,13 +73,17 @@ export async function PUT(event: APIEvent) {
 
     if (body.resetSimulation === true) {
       await db.query(
-        `UPSERT $profile MERGE { disabledGroups: [], disableOwnerBypass: false, updated_at: $now };`,
+        `UPSERT $profile MERGE { disabledGroups: [], disableOwnerBypass: false, simulatedRole: NONE, updated_at: $now };`,
         {
           profile: new RecordId("user_profile", user.sub),
           now: new Date().toISOString(),
         }
       );
-    } else if (body.disabledGroups !== undefined || body.disableOwnerBypass !== undefined) {
+    } else if (
+      body.disabledGroups !== undefined ||
+      body.disableOwnerBypass !== undefined ||
+      body.simulatedRole !== undefined
+    ) {
       const patch: Record<string, any> = { updated_at: new Date().toISOString() };
       if (Array.isArray(body.disabledGroups)) {
         patch.disabledGroups = body.disabledGroups
@@ -81,6 +92,9 @@ export async function PUT(event: APIEvent) {
       }
       if (typeof body.disableOwnerBypass === "boolean") {
         patch.disableOwnerBypass = body.disableOwnerBypass;
+      }
+      if (body.simulatedRole !== undefined) {
+        patch.simulatedRole = normalizePlatformRole(body.simulatedRole) || null;
       }
       await db.query(`UPSERT $profile MERGE $patch;`, {
         profile: new RecordId("user_profile", user.sub),

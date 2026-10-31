@@ -49,6 +49,12 @@ export async function PUT(event: APIEvent) {
     const id = event.params.id;
     const db = await getDb();
     const ctx = await getEffectiveAccessContext(event.request, db);
+    if (ctx.sub !== "anonymous" && !ctx.capabilities.canManageWorkflows) {
+      return Response.json(
+        { success: false, error: "Creator or Admin role is required to modify workflows." },
+        { status: 403 }
+      );
+    }
     const body = await readJsonBody(event);
 
     const dbId = (id.includes(":") ? id.split(":")[1] : id).replace(/[⟨⟩]/g, "").trim();
@@ -118,6 +124,12 @@ export async function DELETE(event: APIEvent) {
     const id = event.params.id;
     const db = await getDb();
     const ctx = await getEffectiveAccessContext(event.request, db);
+    if (ctx.sub !== "anonymous" && !ctx.capabilities.canManageWorkflows) {
+      return Response.json(
+        { success: false, error: "Creator or Admin role is required to delete workflows." },
+        { status: 403 }
+      );
+    }
 
     const dbId = (id.includes(":") ? id.split(":")[1] : id).replace(/[⟨⟩]/g, "").trim();
     const sId = new RecordId("workflow", dbId);

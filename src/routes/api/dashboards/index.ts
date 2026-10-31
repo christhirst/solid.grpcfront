@@ -82,6 +82,12 @@ export async function POST(event: APIEvent) {
   try {
     const db = await getDb();
     const ctx = await getEffectiveAccessContext(event.request, db);
+    if (!ctx.capabilities.canEditDashboards) {
+      return Response.json(
+        { success: false, error: "Your platform role (viewer) can only use the Library and cannot create dashboards." },
+        { status: 403 }
+      );
+    }
     const body = await readJsonBody(event);
     const record = await saveDashboard(db, user.sub, uuidv4(), body, true, ctx);
     return Response.json({

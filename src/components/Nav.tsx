@@ -61,6 +61,37 @@ export default function Nav() {
 
   const isConfigActive = createMemo(() => configLinks.some((l) => currentPath() === l.path));
 
+  const canEditDashboards = createMemo(() => {
+    const p = profileData();
+    if (!p) return true;
+    return p.capabilities ? p.capabilities.canEditDashboards : p.platformRole !== "viewer";
+  });
+
+  const canManageWorkflows = createMemo(() => {
+    const p = profileData();
+    if (!p) return false;
+    return Boolean(p.capabilities?.canManageWorkflows);
+  });
+
+  const canUseRequests = createMemo(() => {
+    const p = profileData();
+    if (!p) return false;
+    return Boolean(p.capabilities?.canUseRequests);
+  });
+
+  const visibleConfigLinks = createMemo(() => {
+    const p = profileData();
+    if (!p || !p.capabilities) return [];
+    const c = p.capabilities;
+    return configLinks.filter((item) => {
+      if (item.path === "/database") return c.canManageDatabase;
+      if (item.path === "/connections") return c.canManageConnections;
+      if (item.path === "/TrustedCA") return c.canManageCAs;
+      if (item.path === "/protos") return c.canManageProtos;
+      return false;
+    });
+  });
+
   createEffect(() => {
     if (isConfigActive()) setMobileConfigOpen(true);
   });
@@ -219,81 +250,89 @@ export default function Nav() {
                 Library
               </a>
             </li>
-            <li>
-              <a
-                href="/dashboards"
-                rel="external"
-                class={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors duration-200 ${active("/dashboards")}`}
-              >
-                Dashboards
-              </a>
-            </li>
-            <li>
-              <a
-                href="/workflows"
-                rel="external"
-                class={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors duration-200 ${active("/workflows")}`}
-              >
-                Workflows
-              </a>
-            </li>
-            <li>
-              <a
-                href="/requests"
-                rel="external"
-                class={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors duration-200 ${active("/requests")}`}
-              >
-                Requests
-              </a>
-            </li>
-            {/* Config dropdown */}
-            <li class="relative" ref={configDropdownRef}>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setConfigOpen(!configOpen());
-                }}
-                class={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors duration-200 inline-flex items-center gap-1.5 ${
-                  isConfigActive() || configOpen()
-                    ? "text-white bg-zinc-800/80 font-semibold shadow-sm"
-                    : "text-zinc-400 hover:text-white hover:bg-zinc-800/50"
-                }`}
-                aria-expanded={configOpen()}
-                aria-haspopup="true"
-              >
-                <span>Config</span>
-                <svg
-                  width="12"
-                  height="12"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  class={`transition-transform duration-200 ${configOpen() ? "rotate-180" : ""}`}
+            <Show when={canEditDashboards()}>
+              <li>
+                <a
+                  href="/dashboards"
+                  rel="external"
+                  class={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors duration-200 ${active("/dashboards")}`}
                 >
-                  <polyline points="6 9 12 15 18 9" />
-                </svg>
-              </button>
-              <Show when={configOpen()}>
-                <div class="absolute left-0 top-full mt-1.5 w-44 rounded-xl border border-zinc-800/90 bg-zinc-950/95 p-1.5 shadow-2xl backdrop-blur-xl z-50">
-                  <For each={configLinks}>
-                    {(item) => (
-                      <a
-                        href={item.path}
-                        rel="external"
-                        onClick={() => setConfigOpen(false)}
-                        class={`block rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-150 ${active(item.path)}`}
-                      >
-                        {item.label}
-                      </a>
-                    )}
-                  </For>
-                </div>
-              </Show>
-            </li>
+                  Dashboards
+                </a>
+              </li>
+            </Show>
+            <Show when={canManageWorkflows()}>
+              <li>
+                <a
+                  href="/workflows"
+                  rel="external"
+                  class={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors duration-200 ${active("/workflows")}`}
+                >
+                  Workflows
+                </a>
+              </li>
+            </Show>
+            <Show when={canUseRequests()}>
+              <li>
+                <a
+                  href="/requests"
+                  rel="external"
+                  class={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors duration-200 ${active("/requests")}`}
+                >
+                  Requests
+                </a>
+              </li>
+            </Show>
+            {/* Config dropdown (Creator & Admin) */}
+            <Show when={visibleConfigLinks().length > 0}>
+              <li class="relative" ref={configDropdownRef}>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setConfigOpen(!configOpen());
+                  }}
+                  class={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors duration-200 inline-flex items-center gap-1.5 ${
+                    isConfigActive() || configOpen()
+                      ? "text-white bg-zinc-800/80 font-semibold shadow-sm"
+                      : "text-zinc-400 hover:text-white hover:bg-zinc-800/50"
+                  }`}
+                  aria-expanded={configOpen()}
+                  aria-haspopup="true"
+                >
+                  <span>Config</span>
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    class={`transition-transform duration-200 ${configOpen() ? "rotate-180" : ""}`}
+                  >
+                    <polyline points="6 9 12 15 18 9" />
+                  </svg>
+                </button>
+                <Show when={configOpen()}>
+                  <div class="absolute left-0 top-full mt-1.5 w-44 rounded-xl border border-zinc-800/90 bg-zinc-950/95 p-1.5 shadow-2xl backdrop-blur-xl z-50">
+                    <For each={visibleConfigLinks()}>
+                      {(item) => (
+                        <a
+                          href={item.path}
+                          rel="external"
+                          onClick={() => setConfigOpen(false)}
+                          class={`block rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-150 ${active(item.path)}`}
+                        >
+                          {item.label}
+                        </a>
+                      )}
+                    </For>
+                  </div>
+                </Show>
+              </li>
+            </Show>
             <li>
               <a
                 href="/about"
@@ -396,6 +435,21 @@ export default function Nav() {
                     <span class="truncate">
                       {namespace() ? `@${namespace()}` : session()?.user?.name || session()?.user?.sub || "Profile"}
                     </span>
+                    <Show when={profileData()?.platformRole}>
+                      <span
+                        class={`rounded-md px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase ${
+                          profileData()?.platformRole === "admin"
+                            ? "bg-emerald-500/25 text-emerald-300"
+                            : profileData()?.platformRole === "creator"
+                              ? "bg-blue-500/25 text-blue-300"
+                              : profileData()?.platformRole === "user"
+                                ? "bg-cyan-500/25 text-cyan-300"
+                                : "bg-zinc-700/60 text-zinc-300"
+                        }`}
+                      >
+                        {profileData()?.platformRole}
+                      </span>
+                    </Show>
                     <Show when={(profileData()?.allGrants?.length || 0) > 0 || profileData()?.isSimulating}>
                       <span
                         class={`rounded-md px-1.5 py-0.5 font-mono text-[10px] font-bold ${
@@ -414,7 +468,7 @@ export default function Nav() {
                       variant="secondary"
                       size="sm"
                       onClick={quickResetGroups}
-                      title="Reset — Enable back all groups and personal ownership"
+                      title="Reset — Enable back your full FerrisKey role, spaces, and personal ownership"
                       class="border-amber-500/50 bg-amber-500/20 text-amber-200 hover:bg-amber-500/35 text-xs px-2.5 gap-1"
                     >
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
@@ -480,72 +534,80 @@ export default function Nav() {
               >
                 Library
               </a>
-              <a
-                href="/dashboards"
-                rel="external"
-                onClick={() => setMobileOpen(false)}
-                class={`block rounded-lg px-4 py-2.5 text-sm font-medium transition-colors duration-200 ${active("/dashboards")}`}
-              >
-                Dashboards
-              </a>
-              <a
-                href="/workflows"
-                rel="external"
-                onClick={() => setMobileOpen(false)}
-                class={`block rounded-lg px-4 py-2.5 text-sm font-medium transition-colors duration-200 ${active("/workflows")}`}
-              >
-                Workflows
-              </a>
-              <a
-                href="/requests"
-                rel="external"
-                onClick={() => setMobileOpen(false)}
-                class={`block rounded-lg px-4 py-2.5 text-sm font-medium transition-colors duration-200 ${active("/requests")}`}
-              >
-                Requests
-              </a>
-              {/* Mobile Config Accordion */}
-              <div class="rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-2 my-1">
-                <button
-                  type="button"
-                  onClick={() => setMobileConfigOpen(!mobileConfigOpen())}
-                  class="flex w-full items-center justify-between px-2 py-1.5 text-sm font-medium text-zinc-300 hover:text-white"
+              <Show when={canEditDashboards()}>
+                <a
+                  href="/dashboards"
+                  rel="external"
+                  onClick={() => setMobileOpen(false)}
+                  class={`block rounded-lg px-4 py-2.5 text-sm font-medium transition-colors duration-200 ${active("/dashboards")}`}
                 >
-                  <span class={isConfigActive() ? "text-purple-400 font-semibold" : ""}>Config</span>
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    class={`transition-transform duration-200 ${mobileConfigOpen() ? "rotate-180" : ""}`}
+                  Dashboards
+                </a>
+              </Show>
+              <Show when={canManageWorkflows()}>
+                <a
+                  href="/workflows"
+                  rel="external"
+                  onClick={() => setMobileOpen(false)}
+                  class={`block rounded-lg px-4 py-2.5 text-sm font-medium transition-colors duration-200 ${active("/workflows")}`}
+                >
+                  Workflows
+                </a>
+              </Show>
+              <Show when={canUseRequests()}>
+                <a
+                  href="/requests"
+                  rel="external"
+                  onClick={() => setMobileOpen(false)}
+                  class={`block rounded-lg px-4 py-2.5 text-sm font-medium transition-colors duration-200 ${active("/requests")}`}
+                >
+                  Requests
+                </a>
+              </Show>
+              {/* Mobile Config Accordion */}
+              <Show when={visibleConfigLinks().length > 0}>
+                <div class="rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-2 my-1">
+                  <button
+                    type="button"
+                    onClick={() => setMobileConfigOpen(!mobileConfigOpen())}
+                    class="flex w-full items-center justify-between px-2 py-1.5 text-sm font-medium text-zinc-300 hover:text-white"
                   >
-                    <polyline points="6 9 12 15 18 9" />
-                  </svg>
-                </button>
-                <Show when={mobileConfigOpen()}>
-                  <div class="mt-1 space-y-1 pl-2 border-l border-zinc-800 ml-2">
-                    <For each={configLinks}>
-                      {(item) => (
-                        <a
-                          href={item.path}
-                          rel="external"
-                          onClick={() => {
-                            setMobileOpen(false);
-                            setMobileConfigOpen(false);
-                          }}
-                          class={`block rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-200 ${active(item.path)}`}
-                        >
-                          {item.label}
-                        </a>
-                      )}
-                    </For>
-                  </div>
-                </Show>
-              </div>
+                    <span class={isConfigActive() ? "text-purple-400 font-semibold" : ""}>Config</span>
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      class={`transition-transform duration-200 ${mobileConfigOpen() ? "rotate-180" : ""}`}
+                    >
+                      <polyline points="6 9 12 15 18 9" />
+                    </svg>
+                  </button>
+                  <Show when={mobileConfigOpen()}>
+                    <div class="mt-1 space-y-1 pl-2 border-l border-zinc-800 ml-2">
+                      <For each={visibleConfigLinks()}>
+                        {(item) => (
+                          <a
+                            href={item.path}
+                            rel="external"
+                            onClick={() => {
+                              setMobileOpen(false);
+                              setMobileConfigOpen(false);
+                            }}
+                            class={`block rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-200 ${active(item.path)}`}
+                          >
+                            {item.label}
+                          </a>
+                        )}
+                      </For>
+                    </div>
+                  </Show>
+                </div>
+              </Show>
               <a
                 href="/about"
                 rel="external"

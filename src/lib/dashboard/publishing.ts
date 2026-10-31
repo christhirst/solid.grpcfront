@@ -26,8 +26,10 @@ export async function ensurePublishingSchema(db: PublishingDb): Promise<void> {
       DEFINE TABLE IF NOT EXISTS user_profile TYPE NORMAL SCHEMALESS;
       DEFINE TABLE IF NOT EXISTS dashboard TYPE NORMAL SCHEMALESS;
       DEFINE TABLE IF NOT EXISTS group_namespace TYPE NORMAL SCHEMALESS;
+      DEFINE TABLE IF NOT EXISTS group_member TYPE NORMAL SCHEMALESS;
       DEFINE INDEX IF NOT EXISTS user_namespace ON user_profile FIELDS namespace UNIQUE;
       DEFINE INDEX IF NOT EXISTS dashboard_public_url ON dashboard FIELDS namespace, slug UNIQUE;
+      DEFINE INDEX IF NOT EXISTS group_member_idx ON group_member FIELDS group, username UNIQUE;
     `).then(() => {}).catch((err: unknown) => { schemas.delete(db); throw err; });
     schemas.set(db, pending);
   }
