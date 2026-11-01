@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { buildMemberRecordKey, collectAllExistingGroups } from "./groups";
+import { buildMemberRecordKey, collectAllExistingGroups, deleteGroupCascade } from "./groups";
 
 describe("groups domain utilities", () => {
   it("buildMemberRecordKey produces lowercase normalized key", () => {
@@ -45,4 +45,48 @@ describe("groups domain utilities", () => {
     const groups = await collectAllExistingGroups(throwingDb);
     expect(groups.size).toBe(0);
   });
+
+  it("deleteGroupCascade removes target group and sub-groups across namespaces, members, and resource tags", async () => {
+    const deletedQueries: string[] = [];
+    const updateQueries: { sql: string; params: any }[] = [];
+
+    const mockDb = {
+      query: async (sql: string, params?: any) => {
+        if (sql.includes("SELECT name FROM group_namespace")) {
+          return [[{ name: "group1" }, { name: "group1.sub1" }, { name: "group2" }]];
+        }
+        if (sql.includes("SELECT group FROM group_member")) {
+          return [[{ group: "group1.sub2" }, { group: "group2" }]];
+        }
+        if (sql.startsWith("DELETE")) {
+          deletedQueries.push(sql);
+          return [[]];
+        }
+        if (sql.includes("SELECT id, tags FROM dashboard")) {
+          return [[{ id: "dashboard:d1", tags: ["group1:write", "other_team", "public"] }]];
+        }
+        if (sql.includes("SELECT id, tags FROM")) {
+          return [[]];
+        }
+        if (sql.startsWith("UPDATE")) {
+          updateQueries.push({ sql, params });
+          return [[]];
+        }
+        return [[]];
+      },
+    };
+
+    const result = await deleteGroupCascade(mockDb, "group1");
+    expect(result.deletedGroup).toBe("group1");
+    expect(result.deletedSubGroups).toContain("group1.sub1");
+    expect(result.deletedSubGroups).toContain("group1.sub2");
+    expect(result.deletedSubGroups).not.toContain("group2");
+    expect(result.removedFromResources).toBe(1);
+
+    // Verify tag update stripped group1
+    const tagUpdate = updateQueries.find((u) => u.params?.id === "dashboard:d1");
+    expect(tagUpdate).toBeDefined();
+    expect(tagUpdate?.params?.tags).toEqual(["other_team", "public"]);
+  });
 });
+

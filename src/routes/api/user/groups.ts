@@ -15,7 +15,7 @@ import {
   type GroupRight,
 } from "~/lib/groupAuth";
 import { readJsonBody } from "~/lib/requestUtils";
-import { buildMemberRecordKey, collectAllExistingGroups } from "~/lib/groups";
+import { buildMemberRecordKey, collectAllExistingGroups, deleteGroupCascade } from "~/lib/groups";
 
 export async function GET(event: APIEvent) {
   const user = await getAuthUser(event.request);
@@ -397,7 +397,7 @@ export async function POST(event: APIEvent) {
       });
     }
 
-    // 4. DELETE SPACE / GROUP FROM SURREALDB
+    // 4. DELETE SPACE / GROUP FROM SURREALDB (WITH CASCADE)
     if (action === "delete_group") {
       const groupName = normalizeGroupName(body.groupName || "");
       if (!groupName) {
@@ -414,14 +414,19 @@ export async function POST(event: APIEvent) {
         );
       }
 
-      await db.query(`DELETE $id;`, { id: new RecordId("group_namespace", groupName) });
-      await db.query(`DELETE FROM group_member WHERE group = $group;`, { group: groupName });
+      const cascadeResult = await deleteGroupCascade(db, groupName);
+      const [updatedCtx, remainingGroups] = await Promise.all([
+        getEffectiveAccessContext(event.request, db),
+        collectAllExistingGroups(db),
+      ]);
 
-      const updatedCtx = await getEffectiveAccessContext(event.request, db);
       return Response.json({
         success: true,
         data: {
           deletedGroup: groupName,
+          deletedSubGroups: cascadeResult.deletedSubGroups,
+          removedFromResources: cascadeResult.removedFromResources,
+          existingGroupNames: [...remainingGroups].sort(),
           allGrants: updatedCtx.allGrants,
           activeGrants: updatedCtx.activeGrants,
         },

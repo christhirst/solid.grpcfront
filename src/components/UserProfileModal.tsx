@@ -585,6 +585,12 @@ export default function UserProfileModal(props: UserProfileModalProps) {
 
   const handleDeleteSpace = async (groupName: string) => {
     if (deletingSpace() || !groupName) return;
+    const confirmed = confirm(
+      `Are you sure you want to permanently delete space "${groupName}"?\n\n` +
+      `This will remove all member assignments, sub-spaces, and remove the "${groupName}" tag from workflows and dashboards.`
+    );
+    if (!confirmed) return;
+
     setDeletingSpace(true);
     setError("");
     setSuccessMsg("");
@@ -602,11 +608,15 @@ export default function UserProfileModal(props: UserProfileModalProps) {
         throw new Error(json.error || "Failed to delete space.");
       }
       setSelectedSpace("");
-      setSuccessMsg(`Deleted space "${groupName}" and its member grants from SurrealDB.`);
+      const subInfo = json.data?.deletedSubGroups?.length
+        ? ` (and ${json.data.deletedSubGroups.length} sub-spaces: ${json.data.deletedSubGroups.join(", ")})`
+        : "";
+      setSuccessMsg(`Deleted space "${groupName}"${subInfo} and unlinked from ${json.data?.removedFromResources || 0} resource(s).`);
       await loadAll();
       if (profile()) {
         emitProfileChange(profile()!);
       }
+      window.dispatchEvent(new CustomEvent("user-groups-changed"));
     } catch (err: any) {
       setError(err?.message || "Failed to delete space.");
     } finally {
@@ -1321,9 +1331,23 @@ export default function UserProfileModal(props: UserProfileModalProps) {
                   <form onSubmit={handleAssignMember} class="space-y-4">
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div class="space-y-1.5">
-                        <label class="block text-xs font-semibold text-zinc-300">
-                          Target Space
-                        </label>
+                        <div class="flex items-center justify-between">
+                          <label class="block text-xs font-semibold text-zinc-300">
+                            Target Space
+                          </label>
+                          <Show when={selectedSpace() && currentSpaceRecord()?.canManage}>
+                            <button
+                              type="button"
+                              disabled={deletingSpace()}
+                              onClick={() => handleDeleteSpace(selectedSpace())}
+                              class="text-[11px] font-semibold text-rose-400 hover:text-rose-300 transition-colors flex items-center gap-1"
+                              title={`Delete space "${selectedSpace()}"`}
+                            >
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18m-2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                              <span>{deletingSpace() ? "Deleting..." : "Delete Space"}</span>
+                            </button>
+                          </Show>
+                        </div>
                         <select
                           value={selectedSpace()}
                           onChange={(e) => setSelectedSpace(e.currentTarget.value)}
