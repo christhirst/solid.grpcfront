@@ -11,7 +11,7 @@ import {
   normalizeTagList,
 } from "~/lib/groupAuth";
 import { canUseWorkflowViaDashboard } from "~/lib/dashboard/dashboardScope";
-import { collectAllExistingGroups } from "~/routes/api/user/groups";
+import { collectAllExistingGroups } from "~/lib/groups";
 import { readJsonBody } from "~/lib/requestUtils";
 
 export async function GET(event: APIEvent) {
