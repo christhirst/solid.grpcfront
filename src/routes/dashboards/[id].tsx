@@ -56,7 +56,10 @@ export default function DashboardBuilder() {
   const [name, setName] = createSignal("New Dashboard");
   const [description, setDescription] = createSignal("");
   const [tags, setTags] = createSignal<string[]>([]);
+  const [contentTags, setContentTags] = createSignal<string[]>([]);
   const [tagInput, setTagInput] = createSignal("");
+  const [tagSuggestions, setTagSuggestions] = createSignal<string[]>([]);
+  const [showTagDropdown, setShowTagDropdown] = createSignal(false);
   const [isPublic, setIsPublic] = createSignal(false);
   const [namespace, setNamespace] = createSignal("");
   const [availableNamespaces, setAvailableNamespaces] = createSignal<
@@ -134,6 +137,7 @@ export default function DashboardBuilder() {
       setButtons(reconcile(json.data.buttons || []));
       setDescription(json.data.description || "");
       setTags(json.data.tags || []);
+      setContentTags(json.data.content_tags || []);
     }
   };
 
@@ -156,8 +160,36 @@ export default function DashboardBuilder() {
     }
   };
 
+  const loadAllExistingContentTags = async () => {
+    try {
+      const res = await fetch("/api/dashboards/tags");
+      const json = await res.json();
+      if (json.success && Array.isArray(json.data)) {
+        setTagSuggestions(json.data);
+      }
+    } catch {
+      // Ignore
+    }
+  };
+
+  const addContentTag = (rawTag: string) => {
+    const clean = rawTag.trim().replace(/^#+/, "");
+    if (!clean) return;
+    const current = contentTags();
+    if (!current.some((t) => t.toLowerCase() === clean.toLowerCase())) {
+      setContentTags([...current, clean]);
+    }
+    setTagInput("");
+    setShowTagDropdown(false);
+  };
+
+  const removeContentTag = (tagToRemove: string) => {
+    setContentTags(contentTags().filter((t) => t !== tagToRemove));
+  };
+
   onMount(() => {
     refetchWorkflows();
+    loadAllExistingContentTags();
     const handleWorkflowsRefresh = () => {
       refetchWorkflows();
       loadUserNamespaces();
@@ -206,6 +238,7 @@ export default function DashboardBuilder() {
       namespace: namespace() || undefined,
       isPublic: isPublic(),
       slug: slug(),
+      content_tags: contentTags(),
       buttons: buttons,
     };
 
@@ -456,6 +489,105 @@ export default function DashboardBuilder() {
               onInput={(e) => setDescription(e.currentTarget.value)}
               placeholder="Add a description for this dashboard..."
             />
+          </div>
+
+          {/* Descriptive Content Tags with Auto-suggestions */}
+          <div class="mt-3 relative">
+            <div class="flex flex-wrap items-center gap-1.5 rounded-xl border border-zinc-800 bg-zinc-900/40 p-2 focus-within:border-purple-500/80 focus-within:ring-1 focus-within:ring-purple-500/40 transition-colors">
+              <span class="text-xs font-semibold uppercase tracking-wider text-purple-400 pl-1 pr-1 flex items-center gap-1">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path><line x1="7" y1="7" x2="7.01" y2="7"></line></svg>
+                Tags:
+              </span>
+              <For each={contentTags()}>
+                {(tag) => (
+                  <span class="inline-flex items-center gap-1 rounded-lg border border-purple-500/40 bg-purple-500/15 px-2 py-0.5 text-xs font-medium text-purple-200">
+                    <span>{tag}</span>
+                    <button
+                      type="button"
+                      onClick={() => removeContentTag(tag)}
+                      class="text-purple-400 hover:text-white transition-colors"
+                      title="Remove tag"
+                    >
+                      ×
+                    </button>
+                  </span>
+                )}
+              </For>
+              <div class="relative flex-1 min-w-[140px]">
+                <input
+                  type="text"
+                  value={tagInput()}
+                  onFocus={() => setShowTagDropdown(true)}
+                  onBlur={() => setTimeout(() => setShowTagDropdown(false), 200)}
+                  onInput={(e) => {
+                    setTagInput(e.currentTarget.value);
+                    setShowTagDropdown(true);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === ",") {
+                      e.preventDefault();
+                      addContentTag(tagInput());
+                    } else if (e.key === "Backspace" && !tagInput() && contentTags().length > 0) {
+                      removeContentTag(contentTags()[contentTags().length - 1]);
+                    } else if (e.key === "Escape") {
+                      setShowTagDropdown(false);
+                    }
+                  }}
+                  placeholder={contentTags().length === 0 ? "Add tags (e.g. GDP, Germany, Yearly, Profit)..." : "Add more tags..."}
+                  class="w-full bg-transparent px-2 py-0.5 text-xs text-white placeholder:text-zinc-500 focus:outline-none"
+                />
+
+                {/* Auto-suggestion Dropdown */}
+                <Show when={showTagDropdown()}>
+                  {(() => {
+                    const q = tagInput().trim().toLowerCase();
+                    const existing = new Set(contentTags().map((t) => t.toLowerCase()));
+                    const filtered = tagSuggestions().filter(
+                      (s) => !existing.has(s.toLowerCase()) && (!q || s.toLowerCase().includes(q))
+                    );
+                    const canCreateNew = q && !tagSuggestions().some((s) => s.toLowerCase() === q);
+
+                    return (
+                      <Show when={filtered.length > 0 || canCreateNew}>
+                        <div class="absolute left-0 top-full mt-1.5 z-50 w-64 max-h-48 overflow-y-auto rounded-xl border border-zinc-700 bg-zinc-900 shadow-2xl p-1.5">
+                          <Show when={canCreateNew}>
+                            <button
+                              type="button"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                addContentTag(tagInput());
+                              }}
+                              class="w-full text-left rounded-lg px-2.5 py-1.5 text-xs font-semibold text-purple-300 hover:bg-purple-500/20 flex items-center justify-between"
+                            >
+                              <span>+ Create tag <strong>"{tagInput().trim()}"</strong></span>
+                              <span class="text-[10px] text-zinc-500">New</span>
+                            </button>
+                          </Show>
+                          <For each={filtered}>
+                            {(suggestion) => (
+                              <button
+                                type="button"
+                                onMouseDown={(e) => {
+                                  e.preventDefault();
+                                  addContentTag(suggestion);
+                                }}
+                                class="w-full text-left rounded-lg px-2.5 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors flex items-center justify-between"
+                              >
+                                <span>{suggestion}</span>
+                                <span class="text-[10px] text-zinc-500">existing</span>
+                              </button>
+                            )}
+                          </For>
+                        </div>
+                      </Show>
+                    );
+                  })()}
+                </Show>
+              </div>
+            </div>
+            <p class="mt-1 text-[11px] text-zinc-500 pl-1">
+              Descriptive content tags are visible to everyone in the Public Dashboard Library to discover and cross-filter data.
+            </p>
           </div>
         </div>
 

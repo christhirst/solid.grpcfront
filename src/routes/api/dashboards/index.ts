@@ -37,7 +37,7 @@ export async function GET(event: APIEvent) {
       let result;
       if (q) {
         result = await db.query(
-          "SELECT * FROM dashboard WHERE (string::lowercase(name) CONTAINS string::lowercase($q) OR string::lowercase(description ?? '') CONTAINS string::lowercase($q) OR $q INSIDE tags) ORDER BY updated_at DESC",
+          "SELECT * FROM dashboard WHERE (string::lowercase(name) CONTAINS string::lowercase($q) OR string::lowercase(description ?? '') CONTAINS string::lowercase($q) OR $q INSIDE tags OR $q INSIDE content_tags) ORDER BY updated_at DESC",
           { q }
         );
       } else {
@@ -72,6 +72,11 @@ export async function GET(event: APIEvent) {
         .map((d: any) => ({
           ...d,
           tags: normalizeTagList(d.tags),
+          content_tags: Array.isArray(d.content_tags)
+            ? d.content_tags
+                .map((t: any) => String(t || "").trim())
+                .filter(Boolean)
+            : [],
           permissions: getObjectPermissions(ctx, d, "dashboard"),
         }));
     } catch (e: any) {

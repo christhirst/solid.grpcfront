@@ -2,7 +2,7 @@ import { createSignal, createResource, onMount, onCleanup, For, Show } from "sol
 import { isServer } from "solid-js/web";
 import { A } from "@solidjs/router";
 
-import { checkWorkflowConfiguredInDashboards } from "~/lib/workflowVariableChecker";
+import { checkWorkflowConfiguredInDashboards, getWorkflowDashboardUsage } from "~/lib/workflowVariableChecker";
 import { GroupTagPicker } from "~/components/GroupTagPicker";
 
 export default function Workflows() {
@@ -76,9 +76,15 @@ export default function Workflows() {
     debounceTimer = setTimeout(() => setSearchQuery(value), 300);
   };
 
-  const deleteWorkflow = async (id: string, e: Event) => {
+  const deleteWorkflow = async (workflow: any, e: Event) => {
     e.preventDefault();
-    if (!confirm("Are you sure you want to delete this workflow?")) return;
+    const id = typeof workflow?.id === "string" ? workflow.id : String(workflow?.id || "");
+    const usage = getWorkflowDashboardUsage(workflow, dashboards() || []);
+    let confirmMsg = `Are you sure you want to delete workflow "${workflow.name || "Untitled"}"?`;
+    if (usage.count > 0) {
+      confirmMsg = `⚠️ WARNING: This workflow is actively configured in ${usage.count} dashboard(s):\n• ${usage.dashboardNames.join("\n• ")}\n\nDeleting it may break these dashboards. Are you sure you want to proceed?`;
+    }
+    if (!confirm(confirmMsg)) return;
     
     setIsDeleting(id);
     try {
@@ -226,6 +232,7 @@ export default function Workflows() {
           <For each={workflows()}>
             {(workflow: any) => {
               const vStatus = () => checkWorkflowConfiguredInDashboards(workflow, dashboards() || []);
+              const usage = () => getWorkflowDashboardUsage(workflow, dashboards() || []);
               const rawWfId = () => {
                 const idStr = typeof workflow?.id === "string" ? workflow.id : String(workflow?.id || "");
                 return idStr.includes(":") ? idStr.split(":")[1] : idStr;
@@ -259,6 +266,35 @@ export default function Workflows() {
                               : "border-red-500/40 bg-red-500/20 text-red-300"
                           }`}>
                             {vStatus().allConfigured ? "✓ Vars Configured" : "⚠️ Vars Unconfigured"}
+                          </span>
+                        </Show>
+
+                        {/* Dashboard configuration counter */}
+                        <Show
+                          when={usage().count > 0}
+                          fallback={
+                            <span
+                              class="inline-flex items-center gap-1 rounded-full border border-slate-700/60 bg-slate-800/60 px-2 py-0.5 text-[10px] font-medium text-slate-300 backdrop-blur-sm"
+                              title="Not configured in any dashboard. Can be safely deleted."
+                            >
+                              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="text-emerald-400">
+                                <polyline points="20 6 9 17 4 12"></polyline>
+                              </svg>
+                              <span>0 Dashboards • Safe to delete</span>
+                            </span>
+                          }
+                        >
+                          <span
+                            class="inline-flex items-center gap-1 rounded-full border border-blue-500/40 bg-blue-500/15 px-2 py-0.5 text-[10px] font-semibold text-blue-300 backdrop-blur-sm"
+                            title={`Configured in ${usage().count} dashboard(s): ${usage().dashboardNames.join(", ")}`}
+                          >
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-blue-400">
+                              <rect x="3" y="3" width="7" height="7"></rect>
+                              <rect x="14" y="3" width="7" height="7"></rect>
+                              <rect x="14" y="14" width="7" height="7"></rect>
+                              <rect x="3" y="14" width="7" height="7"></rect>
+                            </svg>
+                            <span>{usage().count} {usage().count === 1 ? "Dashboard" : "Dashboards"}</span>
                           </span>
                         </Show>
 
@@ -305,7 +341,7 @@ export default function Workflows() {
                         <Show when={workflow.permissions?.canDelete !== false}>
                           <button 
                             class="text-[#5b5b6e] transition-colors hover:text-red-400"
-                            onClick={(e) => deleteWorkflow(workflow.id, e)}
+                            onClick={(e) => deleteWorkflow(workflow, e)}
                             disabled={isDeleting() === workflow.id}
                             title="Delete Workflow"
                           >

@@ -615,6 +615,7 @@ export async function saveDashboard(
     created_at: _created,
     permissions: _perms,
     tags: bodyTags,
+    content_tags: bodyContentTags,
     ...fields
   } = body;
 
@@ -626,11 +627,21 @@ export async function saveDashboard(
       ? normalizeTagList(existing.tags)
       : normalizeTagList(bodyTags);
 
+  const resolvedContentTags = Array.isArray(bodyContentTags)
+    ? bodyContentTags
+        .map((t: any) => String(t || "").trim())
+        .filter((t: string) => t.length > 0)
+        .filter((t: string, idx: number, arr: string[]) => arr.indexOf(t) === idx)
+    : Array.isArray(existing?.content_tags)
+      ? existing.content_tags
+      : [];
+
   const now = new Date().toISOString();
   const data: Record<string, any> = {
     ...existing,
     ...fields,
     tags: resolvedTags,
+    content_tags: resolvedContentTags,
     owner: effectiveOwner,
     namespace: chosenNamespace || undefined,
     isPublic,

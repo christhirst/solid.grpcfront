@@ -19,7 +19,8 @@ export default function DashboardLibrary() {
   const [widgetFilter, setWidgetFilter] = createSignal("all");
   const [sortBy, setSortBy] = createSignal<"updated" | "widgets" | "name">("updated");
   const [error, setError] = createSignal("");
-  const [selectedTags, setSelectedTags] = createSignal<string[]>([]);
+  const [selectedGroupTags, setSelectedGroupTags] = createSignal<string[]>([]);
+  const [selectedContentTags, setSelectedContentTags] = createSignal<string[]>([]);
 
   const [dashboards, { refetch }] = createResource<DashboardSummary[]>(async () => {
     setError("");
@@ -38,31 +39,43 @@ export default function DashboardLibrary() {
     }
   });
 
-  const allTags = createMemo(() => {
+  const allGroupTags = createMemo(() => {
     const tagSet = new Set<string>();
     for (const d of dashboards() || []) {
       for (const tag of d.tags || []) {
-        tagSet.add(tag);
+        if (tag) tagSet.add(tag);
       }
     }
-    return [...tagSet].sort();
+    return [...tagSet].sort((a, b) => a.localeCompare(b));
+  });
+
+  const allContentTags = createMemo(() => {
+    const tagSet = new Set<string>();
+    for (const d of dashboards() || []) {
+      for (const tag of d.content_tags || []) {
+        if (tag) tagSet.add(tag);
+      }
+    }
+    return [...tagSet].sort((a, b) => a.localeCompare(b));
   });
 
   const filteredDashboards = createMemo(() => {
     let list = [...(dashboards() || [])];
     const q = search().toLowerCase().trim();
     const tag = widgetFilter();
-    const sTags = selectedTags();
+    const gTags = selectedGroupTags();
+    const cTags = selectedContentTags();
 
     if (q) {
       list = list.filter((d) => {
         const nameMatch = (d.name || "").toLowerCase().includes(q);
         const descMatch = (d.description || "").toLowerCase().includes(q);
-        const tagMatch = (d.tags || []).some((t) => t.toLowerCase().includes(q));
+        const groupMatch = (d.tags || []).some((t) => t.toLowerCase().includes(q));
+        const contentMatch = (d.content_tags || []).some((t) => t.toLowerCase().includes(q));
         const widgetMatch = (d.buttons || []).some((b: any) =>
           (b.label || "").toLowerCase().includes(q) || (b.widgetType || "").toLowerCase().includes(q)
         );
-        return nameMatch || descMatch || tagMatch || widgetMatch;
+        return nameMatch || descMatch || groupMatch || contentMatch || widgetMatch;
       });
     }
 
@@ -72,9 +85,17 @@ export default function DashboardLibrary() {
       );
     }
 
-    if (sTags.length > 0) {
+    // Filter by group tags (AND logic)
+    if (gTags.length > 0) {
       list = list.filter((d) =>
-        sTags.every((st) => (d.tags || []).includes(st))
+        gTags.every((gt) => (d.tags || []).includes(gt))
+      );
+    }
+
+    // Filter by content tags (AND logic)
+    if (cTags.length > 0) {
+      list = list.filter((d) =>
+        cTags.every((ct) => (d.content_tags || []).includes(ct))
       );
     }
 
@@ -218,9 +239,24 @@ export default function DashboardLibrary() {
             </Show>
           </div>
 
-          <Show when={p.d.tags && p.d.tags.length > 0}>
+          <Show when={(p.d.tags && p.d.tags.length > 0) || (p.d.content_tags && p.d.content_tags.length > 0)}>
             <div class="flex flex-wrap gap-1.5 pt-1">
-              <For each={p.d.tags}>{(tag) => <Badge variant="purple">{tag}</Badge>}</For>
+              <For each={p.d.tags}>
+                {(tag) => (
+                  <Badge variant="purple" class="gap-1 font-mono text-[11px]">
+                    <span class="opacity-70">👥</span>
+                    <span>{tag}</span>
+                  </Badge>
+                )}
+              </For>
+              <For each={p.d.content_tags}>
+                {(tag) => (
+                  <Badge variant="secondary" class="gap-0.5 border-purple-500/30 bg-purple-500/10 text-purple-200 text-[11px]">
+                    <span class="text-purple-400 font-bold">#</span>
+                    <span>{tag}</span>
+                  </Badge>
+                )}
+              </For>
             </div>
           </Show>
 
@@ -349,39 +385,83 @@ export default function DashboardLibrary() {
             </div>
           </div>
 
-          {/* Tag Filter Chips */}
-          <Show when={allTags().length > 0}>
+          {/* Content Topic Tags Filter Chips */}
+          <Show when={allContentTags().length > 0}>
             <div class="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 border-t border-zinc-800/60 pt-3 mt-1 px-5">
-              <span class="text-xs font-semibold uppercase tracking-wide text-zinc-500 shrink-0 mr-1">Tags:</span>
-              <For each={allTags()}>
-                {(tag) => (
+              <span class="text-xs font-semibold uppercase tracking-wide text-purple-400 shrink-0 mr-1 flex items-center gap-1">
+                <span>#</span> Content Tags:
+              </span>
+              <For each={allContentTags()}>
+                {(cTag) => (
                   <button
                     type="button"
                     onClick={() => {
-                      const current = selectedTags();
-                      if (current.includes(tag)) {
-                        setSelectedTags(current.filter((t) => t !== tag));
+                      const current = selectedContentTags();
+                      if (current.includes(cTag)) {
+                        setSelectedContentTags(current.filter((t) => t !== cTag));
                       } else {
-                        setSelectedTags([...current, tag]);
+                        setSelectedContentTags([...current, cTag]);
                       }
                     }}
-                    class={`rounded-lg px-3 py-2 text-sm font-semibold transition-all shrink-0 select-none ${
-                      selectedTags().includes(tag)
+                    class={`rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-all shrink-0 select-none flex items-center gap-1 ${
+                      selectedContentTags().includes(cTag)
                         ? "bg-purple-600 text-white shadow-md shadow-purple-500/20"
-                        : "bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-white border border-zinc-800/80"
+                        : "bg-zinc-900 text-zinc-300 hover:bg-zinc-800 hover:text-white border border-zinc-800/80"
                     }`}
                   >
-                    {tag}
+                    <span class={selectedContentTags().includes(cTag) ? "text-purple-200" : "text-purple-400 font-bold"}>#</span>
+                    <span>{cTag}</span>
                   </button>
                 )}
               </For>
-              <Show when={selectedTags().length > 0}>
+              <Show when={selectedContentTags().length > 0}>
                 <button
                   type="button"
-                  onClick={() => setSelectedTags([])}
-                  class="rounded-lg px-2 py-2 text-xs font-medium text-zinc-500 hover:text-white transition-colors shrink-0"
+                  onClick={() => setSelectedContentTags([])}
+                  class="rounded-lg px-2 py-1.5 text-xs font-medium text-zinc-500 hover:text-white transition-colors shrink-0"
                 >
-                  Clear
+                  Clear Tags
+                </button>
+              </Show>
+            </div>
+          </Show>
+
+          {/* Group Access Tags Filter Chips */}
+          <Show when={allGroupTags().length > 0}>
+            <div class="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 border-t border-zinc-800/60 pt-3 mt-1 px-5">
+              <span class="text-xs font-semibold uppercase tracking-wide text-blue-400 shrink-0 mr-1 flex items-center gap-1">
+                <span>👥</span> Groups:
+              </span>
+              <For each={allGroupTags()}>
+                {(gTag) => (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const current = selectedGroupTags();
+                      if (current.includes(gTag)) {
+                        setSelectedGroupTags(current.filter((t) => t !== gTag));
+                      } else {
+                        setSelectedGroupTags([...current, gTag]);
+                      }
+                    }}
+                    class={`rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-all shrink-0 select-none flex items-center gap-1 font-mono ${
+                      selectedGroupTags().includes(gTag)
+                        ? "bg-blue-600 text-white shadow-md shadow-blue-500/20"
+                        : "bg-zinc-900 text-zinc-300 hover:bg-zinc-800 hover:text-white border border-zinc-800/80"
+                    }`}
+                  >
+                    <span class="opacity-70">👥</span>
+                    <span>{gTag}</span>
+                  </button>
+                )}
+              </For>
+              <Show when={selectedGroupTags().length > 0}>
+                <button
+                  type="button"
+                  onClick={() => setSelectedGroupTags([])}
+                  class="rounded-lg px-2 py-1.5 text-xs font-medium text-zinc-500 hover:text-white transition-colors shrink-0"
+                >
+                  Clear Groups
                 </button>
               </Show>
             </div>
@@ -389,6 +469,22 @@ export default function DashboardLibrary() {
 
           {/* Sort Selector & Count */}
           <div class="flex items-center gap-3 shrink-0 p-5 pt-3">
+            <Show when={selectedGroupTags().length > 0 || selectedContentTags().length > 0}>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedGroupTags([]);
+                  setSelectedContentTags([]);
+                }}
+                class="rounded-xl border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 px-3 py-1.5 text-xs font-semibold transition-colors flex items-center gap-1"
+                title="Reset all tag filters"
+              >
+                <span>Reset All Filters</span>
+                <span class="rounded-full bg-rose-500/30 px-1 text-[10px]">
+                  {selectedGroupTags().length + selectedContentTags().length}
+                </span>
+              </button>
+            </Show>
             <label class="text-sm text-zinc-400">Sort by:</label>
             <select
               value={sortBy()}

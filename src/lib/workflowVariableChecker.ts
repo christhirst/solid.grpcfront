@@ -1,4 +1,5 @@
 import type { StepVariable } from "./stepCategories";
+import { normalizeId } from "~/lib/dashboard/triggerHelpers";
 
 /**
  * Parses all {{ ... }} brackets from a text string and categorizes them into
@@ -39,6 +40,81 @@ export function parseBracketTokens(text?: string): StepVariable[] {
     });
   }
   return results;
+}
+
+export interface WorkflowDashboardUsage {
+  count: number;
+  dashboardNames: string[];
+  dashboardIds: string[];
+}
+
+/**
+ * Computes how many dashboards configure/reference this workflow across:
+ * - Direct execution: btn.workflowId
+ * - Condition workflows: btn.conditionWorkflowId
+ * - Conditional rerouting rules: btn.conditionRules (setWorkflow action and elseAction)
+ * - Multi-series charts: btn.chartSeries (series.workflowId)
+ * Returns deduplicated count and dashboard names.
+ */
+export function getWorkflowDashboardUsage(
+  workflowOrId: any,
+  dashboards: any[]
+): WorkflowDashboardUsage {
+  const idStr = typeof workflowOrId === "string" ? workflowOrId : String(workflowOrId?.id || "");
+  const rawId = normalizeId(idStr);
+  if (!rawId) {
+    return { count: 0, dashboardNames: [], dashboardIds: [] };
+  }
+
+  const matchedDashboards = new Map<string, string>();
+
+  for (const dash of dashboards || []) {
+    const dashId = normalizeId(typeof dash?.id === "string" ? dash.id : String(dash?.id || ""));
+    const dashName = dash?.name || "Untitled Dashboard";
+    let isUsedInDash = false;
+
+    for (const btn of dash?.buttons || []) {
+      if (btn.workflowId && normalizeId(btn.workflowId) === rawId) {
+        isUsedInDash = true;
+        break;
+      }
+      if (btn.conditionWorkflowId && normalizeId(btn.conditionWorkflowId) === rawId) {
+        isUsedInDash = true;
+        break;
+      }
+      if (Array.isArray(btn.conditionRules)) {
+        for (const rule of btn.conditionRules) {
+          if (
+            (rule.action === "setWorkflow" && rule.targetValue && normalizeId(rule.targetValue) === rawId) ||
+            (rule.elseAction === "setWorkflow" && rule.elseTargetValue && normalizeId(rule.elseTargetValue) === rawId)
+          ) {
+            isUsedInDash = true;
+            break;
+          }
+        }
+        if (isUsedInDash) break;
+      }
+      if (Array.isArray(btn.chartSeries)) {
+        for (const series of btn.chartSeries) {
+          if (series.workflowId && normalizeId(series.workflowId) === rawId) {
+            isUsedInDash = true;
+            break;
+          }
+        }
+        if (isUsedInDash) break;
+      }
+    }
+
+    if (isUsedInDash && dashId) {
+      matchedDashboards.set(dashId, dashName);
+    }
+  }
+
+  return {
+    count: matchedDashboards.size,
+    dashboardNames: Array.from(matchedDashboards.values()),
+    dashboardIds: Array.from(matchedDashboards.keys()),
+  };
 }
 
 /**
@@ -310,3 +386,4 @@ export function extractUpstreamVariables(workflow: any): UpstreamVariable[] {
 
   return results;
 }
+

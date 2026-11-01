@@ -87,9 +87,24 @@ export default function BoardPreview(props: BoardPreviewProps) {
           <p class="mt-2 max-w-3xl text-base leading-relaxed text-zinc-400">{props.dash.description}</p>
         </Show>
 
-        <Show when={props.dash.tags && props.dash.tags.length > 0}>
+        <Show when={(props.dash.tags && props.dash.tags.length > 0) || (props.dash.content_tags && props.dash.content_tags.length > 0)}>
           <div class="mt-3 flex flex-wrap gap-1.5">
-            <For each={props.dash.tags}>{(tag) => <Badge variant="purple">{tag}</Badge>}</For>
+            <For each={props.dash.tags}>
+              {(tag) => (
+                <Badge variant="purple" class="gap-1 font-mono text-xs">
+                  <span class="opacity-70">👥</span>
+                  <span>{tag}</span>
+                </Badge>
+              )}
+            </For>
+            <For each={props.dash.content_tags}>
+              {(tag) => (
+                <Badge variant="secondary" class="gap-1 border-purple-500/30 bg-purple-500/10 text-purple-200 text-xs">
+                  <span class="text-purple-400 font-bold">#</span>
+                  <span>{tag}</span>
+                </Badge>
+              )}
+            </For>
           </div>
         </Show>
       </div>

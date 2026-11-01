@@ -257,5 +257,105 @@ describe("interpolateTemplate with upstream query expressions", () => {
   });
 });
 
+describe("getWorkflowDashboardUsage", () => {
+  it("detects usage across button executions, condition workflows, conditional rules, and series", async () => {
+    const { getWorkflowDashboardUsage } = await import("./workflowVariableChecker");
+
+    const targetWfId = "workflow:wf_main";
+    const dashboards = [
+      {
+        id: "dash_1",
+        name: "Dashboard One",
+        buttons: [
+          { id: "b1", workflowId: "workflow:wf_main" },
+          { id: "b2", workflowId: "workflow:wf_other" },
+        ],
+      },
+      {
+        id: "dash_2",
+        name: "Dashboard Two",
+        buttons: [
+          {
+            id: "b3",
+            workflowId: "workflow:wf_other",
+            conditionWorkflowId: "workflow:wf_main",
+          },
+        ],
+      },
+      {
+        id: "dash_3",
+        name: "Dashboard Three",
+        buttons: [
+          {
+            id: "b4",
+            workflowId: "workflow:wf_other",
+            conditionRules: [
+              { action: "setWorkflow", targetValue: "wf_main" },
+            ],
+          },
+        ],
+      },
+      {
+        id: "dash_4",
+        name: "Dashboard Four",
+        buttons: [
+          {
+            id: "b5",
+            workflowId: "workflow:wf_other",
+            chartSeries: [
+              { workflowId: "workflow:wf_main" },
+            ],
+          },
+        ],
+      },
+    ];
+
+    const usage = getWorkflowDashboardUsage(targetWfId, dashboards);
+    expect(usage.count).toBe(4);
+    expect(usage.dashboardNames).toContain("Dashboard One");
+    expect(usage.dashboardNames).toContain("Dashboard Two");
+    expect(usage.dashboardNames).toContain("Dashboard Three");
+    expect(usage.dashboardNames).toContain("Dashboard Four");
+  });
+
+  it("deduplicates multiple references within the same dashboard", async () => {
+    const { getWorkflowDashboardUsage } = await import("./workflowVariableChecker");
+
+    const dashboards = [
+      {
+        id: "dash_shared",
+        name: "Shared Dashboard",
+        buttons: [
+          { id: "b1", workflowId: "wf_target" },
+          { id: "b2", conditionWorkflowId: "workflow:wf_target" },
+          { id: "b3", chartSeries: [{ workflowId: "workflow:⟨wf_target⟩" }] },
+        ],
+      },
+    ];
+
+    const usage = getWorkflowDashboardUsage("wf_target", dashboards);
+    expect(usage.count).toBe(1);
+    expect(usage.dashboardNames).toEqual(["Shared Dashboard"]);
+  });
+
+  it("returns 0 when workflow is not configured in any dashboard", async () => {
+    const { getWorkflowDashboardUsage } = await import("./workflowVariableChecker");
+
+    const dashboards = [
+      {
+        id: "dash_1",
+        name: "Dashboard One",
+        buttons: [{ id: "b1", workflowId: "workflow:other" }],
+      },
+    ];
+
+    const usage = getWorkflowDashboardUsage("workflow:wf_unused", dashboards);
+    expect(usage.count).toBe(0);
+    expect(usage.dashboardNames).toEqual([]);
+    expect(usage.dashboardIds).toEqual([]);
+  });
+});
+
+
 
 

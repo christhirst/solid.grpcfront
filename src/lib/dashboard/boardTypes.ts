@@ -9,6 +9,7 @@ export type DashboardSummary = {
   created_at?: string;
   description?: string;
   tags?: string[];
+  content_tags?: string[];
 };
 
 /** Dashboard id without the "dashboard:" table prefix or chevrons (used in URLs and API paths). */

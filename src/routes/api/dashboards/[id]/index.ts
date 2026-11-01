@@ -57,6 +57,11 @@ export async function GET(event: APIEvent) {
     if (record) {
       record.id = `dashboard:${dbId}`;
       record.tags = tags;
+      record.content_tags = Array.isArray(record.content_tags)
+        ? record.content_tags
+            .map((t: any) => String(t || "").trim())
+            .filter(Boolean)
+        : [];
       record.permissions = getObjectPermissions(ctx, record, "dashboard");
     }
     return new Response(JSON.stringify({ success: true, data: record }), {

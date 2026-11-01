@@ -139,12 +139,21 @@ export default function BoardSidebar(props: BoardSidebarProps) {
                 >
                   <p class="mt-1.5 line-clamp-3 text-xs leading-relaxed text-zinc-400">{d.description}</p>
                 </Show>
-                <Show when={d.tags && d.tags.length > 0}>
+                <Show when={(d.tags && d.tags.length > 0) || (d.content_tags && d.content_tags.length > 0)}>
                   <div class="mt-2 flex flex-wrap gap-1">
-                    <For each={(d.tags || []).slice(0, 3)}>
+                    <For each={(d.tags || []).slice(0, 2)}>
                       {(tag) => (
-                        <Badge variant="purple" class="px-2 py-0 text-[10px]">
-                          {tag}
+                        <Badge variant="purple" class="px-1.5 py-0 text-[10px] gap-0.5">
+                          <span class="opacity-70">👥</span>
+                          <span>{tag}</span>
+                        </Badge>
+                      )}
+                    </For>
+                    <For each={(d.content_tags || []).slice(0, 2)}>
+                      {(tag) => (
+                        <Badge variant="secondary" class="border-purple-500/30 bg-purple-500/10 text-purple-200 px-1.5 py-0 text-[10px] gap-0.5">
+                          <span class="text-purple-400 font-bold">#</span>
+                          <span>{tag}</span>
                         </Badge>
                       )}
                     </For>
