@@ -4,6 +4,8 @@ import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { TabsList, TabsTrigger } from "~/components/ui/tabs";
 import { NAMESPACE_MAX_LENGTH, urlPartError } from "~/lib/dashboard/publicUrl";
+import type { PublishNamespaceItem } from "~/lib/dashboard/publishing";
+import { invalidateTaggableGroupsCache } from "~/lib/taggableGroups";
 import {
   ALL_PLATFORM_ROLES,
   PLATFORM_ROLE_RANK,
@@ -20,6 +22,7 @@ import {
 
 export interface UserProfileData {
   namespace: string;
+  namespaces?: PublishNamespaceItem[];
   user?: {
     sub: string;
     name?: string;
@@ -53,6 +56,7 @@ interface SpaceMemberRecord {
   username: string;
   displayName?: string;
   userSub?: string;
+  role?: "member" | "manager";
   rights: GroupRight[];
   claim: string;
   assignedBy?: string;
@@ -156,8 +160,14 @@ export default function UserProfileModal(props: UserProfileModalProps) {
 
   // Profile & simulation state
   const [profile, setProfile] = createSignal<UserProfileData | null>(null);
-  const [namespace, setNamespace] = createSignal("");
-  const [originalNamespace, setOriginalNamespace] = createSignal("");
+  const [namespaces, setNamespaces] = createSignal<PublishNamespaceItem[]>([]);
+  const [newNsName, setNewNsName] = createSignal("");
+  const [newNsOwner, setNewNsOwner] = createSignal<string>("__user__");
+  const [renamingNs, setRenamingNs] = createSignal<string | null>(null);
+  const [renameNsValue, setRenameNsValue] = createSignal("");
+  const [transferringNs, setTransferringNs] = createSignal<string | null>(null);
+  const [transferNsOwner, setTransferNsOwner] = createSignal<string>("__user__");
+  const [nsBusy, setNsBusy] = createSignal(false);
 
   // JWT Inspection state
   const [jwtSearch, setJwtSearch] = createSignal("");
@@ -178,8 +188,7 @@ export default function UserProfileModal(props: UserProfileModalProps) {
   // Manage Space Members & Rights form state (SurrealDB)
   const [selectedSpace, setSelectedSpace] = createSignal("");
   const [targetUsername, setTargetUsername] = createSignal("");
-  const [rolePreset, setRolePreset] = createSignal<RolePreset>("use");
-  const [customRights, setCustomRights] = createSignal<GroupRight[]>(["view", "use"]);
+  const [memberRole, setMemberRole] = createSignal<"member" | "manager">("member");
   const [assigningMember, setAssigningMember] = createSignal(false);
   const [removingUser, setRemovingUser] = createSignal<string | null>(null);
   const [deletingSpace, setDeletingSpace] = createSignal(false);
@@ -275,8 +284,7 @@ export default function UserProfileModal(props: UserProfileModalProps) {
         throw new Error(profJson.error || "Unable to load profile.");
       }
       setProfile(profJson.data);
-      setNamespace(profJson.data.namespace || "");
-      setOriginalNamespace(profJson.data.namespace || "");
+      setNamespaces(Array.isArray(profJson.data.namespaces) ? profJson.data.namespaces : []);
 
       const grpJson = await grpRes.json().catch(() => ({}));
       if (grpJson.success && grpJson.data) {
@@ -305,7 +313,11 @@ export default function UserProfileModal(props: UserProfileModalProps) {
   });
 
   const emitProfileChange = (nextProfile: UserProfileData) => {
+    invalidateTaggableGroupsCache();
     setProfile(nextProfile);
+    if (Array.isArray(nextProfile.namespaces)) {
+      setNamespaces(nextProfile.namespaces);
+    }
     props.onUpdated(nextProfile);
     window.dispatchEvent(new CustomEvent("user-groups-changed", { detail: nextProfile }));
     window.dispatchEvent(new CustomEvent("user-namespace-changed", { detail: nextProfile }));
@@ -491,38 +503,10 @@ export default function UserProfileModal(props: UserProfileModalProps) {
     spaces().find((s) => s.name === selectedSpace()) || null
   );
 
-  const selectedRightsArray = createMemo<GroupRight[]>(() => {
-    switch (rolePreset()) {
-      case "manager":
-        return ["view", "use", "write", "delete", "manager"];
-      case "maintainer":
-        return ["view", "use", "write", "delete"];
-      case "editor":
-        return ["view", "use", "write"];
-      case "use":
-        return ["view", "use"];
-      case "view":
-        return ["view"];
-      case "custom":
-      default:
-        return customRights();
-    }
-  });
-
   const previewAssignClaim = createMemo(() => {
     const grp = normalizeGroupName(selectedSpace() || "space");
-    return formatGroupClaim(grp, selectedRightsArray());
+    return `${grp}:${memberRole()}`;
   });
-
-  const toggleCustomRight = (r: GroupRight) => {
-    const cur = new Set(customRights());
-    if (cur.has(r)) {
-      if (cur.size > 1) cur.delete(r);
-    } else {
-      cur.add(r);
-    }
-    setCustomRights([...cur]);
-  };
 
   const handleAssignMember = async (e: SubmitEvent) => {
     e.preventDefault();
@@ -538,15 +522,15 @@ export default function UserProfileModal(props: UserProfileModalProps) {
           action: "assign_member",
           groupName: selectedSpace(),
           targetUsername: targetUsername(),
-          rights: selectedRightsArray(),
+          role: memberRole(),
         }),
       });
       const json = await res.json();
       if (!res.ok || !json.success) {
-        throw new Error(json.error || "Failed to save member rights in SurrealDB.");
+        throw new Error(json.error || "Failed to save member role in SurrealDB.");
       }
       setSuccessMsg(
-        `Saved rights in SurrealDB: user "${json.data.targetUsername}" now has "${json.data.fullClaim}".`
+        `Saved in SurrealDB: user "${json.data.targetUsername}" is now "${json.data.fullClaim}".`
       );
       setTargetUsername("");
       await loadAll();
@@ -554,7 +538,7 @@ export default function UserProfileModal(props: UserProfileModalProps) {
         emitProfileChange(profile()!);
       }
     } catch (err: any) {
-      setError(err?.message || "Failed to assign member rights.");
+      setError(err?.message || "Failed to assign member role.");
     } finally {
       setAssigningMember(false);
     }
@@ -562,21 +546,10 @@ export default function UserProfileModal(props: UserProfileModalProps) {
 
   const prefillMemberForEdit = (member: SpaceMemberRecord) => {
     setTargetUsername(member.username);
-    const r = member.rights || [];
-    if (r.includes("manager")) {
-      setRolePreset("manager");
-    } else if (r.includes("write") && r.includes("delete")) {
-      setRolePreset("maintainer");
-    } else if (r.includes("write")) {
-      setRolePreset("editor");
-    } else if (r.length === 1 && r[0] === "view") {
-      setRolePreset("view");
-    } else if (r.length === 2 && r.includes("view") && r.includes("use")) {
-      setRolePreset("use");
-    } else {
-      setRolePreset("custom");
-      setCustomRights([...r]);
-    }
+    const isMgr =
+      member.role === "manager" ||
+      (Array.isArray(member.rights) && member.rights.includes("manager"));
+    setMemberRole(isMgr ? "manager" : "member");
   };
 
   const handleRemoveMember = async (groupName: string, username: string) => {
@@ -641,34 +614,156 @@ export default function UserProfileModal(props: UserProfileModalProps) {
     }
   };
 
-  const saveNamespaceForm = async (e: SubmitEvent) => {
+  const syncNamespaceResponse = (data: { namespaces?: PublishNamespaceItem[]; namespace?: string }) => {
+    const list = Array.isArray(data?.namespaces) ? data.namespaces : [];
+    setNamespaces(list);
+    if (profile()) {
+      const nextProf: UserProfileData = {
+        ...profile()!,
+        namespace: data?.namespace ?? list[0]?.name ?? profile()!.namespace,
+        namespaces: list,
+      };
+      emitProfileChange(nextProf);
+    }
+  };
+
+  const handleCreateNamespace = async (e: SubmitEvent) => {
     e.preventDefault();
-    if (loading() || saving()) return;
-    const validation = urlPartError(namespace(), "Namespace");
+    if (nsBusy() || !newNsName().trim()) return;
+    const validation = urlPartError(newNsName().trim().toLowerCase(), "Namespace");
     if (validation) {
       setError(validation);
       return;
     }
-    setSaving(true);
+    setNsBusy(true);
     setError("");
     setSuccessMsg("");
     try {
-      const response = await fetch("/api/user/profile", {
-        method: "PUT",
+      const ownerSel = newNsOwner();
+      const isGroup = ownerSel !== "__user__";
+      const response = await fetch("/api/user/namespaces", {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ namespace: namespace() }),
+        body: JSON.stringify({
+          action: "create",
+          name: newNsName().trim().toLowerCase(),
+          ownerType: isGroup ? "group" : "user",
+          ownerGroup: isGroup ? ownerSel : undefined,
+        }),
       });
       const json = await response.json();
       if (!response.ok || !json.success) {
-        throw new Error(json.error || "Unable to save your namespace.");
+        throw new Error(json.error || "Unable to create namespace.");
       }
-      setOriginalNamespace(json.data.namespace || "");
-      emitProfileChange(json.data);
-      setSuccessMsg(`Saved public namespace "@${json.data.namespace}".`);
+      setNewNsName("");
+      syncNamespaceResponse(json.data);
+      setSuccessMsg(
+        `Created namespace "@${json.data.item?.name}" (${
+          isGroup ? `owned by group ${ownerSel}` : "personal"
+        }).`
+      );
     } catch (err: any) {
-      setError(err?.message || "Unable to save your namespace.");
+      setError(err?.message || "Unable to create namespace.");
     } finally {
-      setSaving(false);
+      setNsBusy(false);
+    }
+  };
+
+  const handleRenameNamespace = async (oldName: string) => {
+    if (nsBusy()) return;
+    const target = renameNsValue().trim().toLowerCase();
+    const validation = urlPartError(target, "Namespace");
+    if (validation) {
+      setError(validation);
+      return;
+    }
+    setNsBusy(true);
+    setError("");
+    setSuccessMsg("");
+    try {
+      const res = await fetch("/api/user/namespaces", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "rename",
+          oldName,
+          newName: target,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        throw new Error(json.error || "Unable to rename namespace.");
+      }
+      setRenamingNs(null);
+      syncNamespaceResponse(json.data);
+      setSuccessMsg(`Renamed namespace "@${oldName}" to "@${target}".`);
+    } catch (err: any) {
+      setError(err?.message || "Unable to rename namespace.");
+    } finally {
+      setNsBusy(false);
+    }
+  };
+
+  const handleTransferNamespace = async (name: string) => {
+    if (nsBusy()) return;
+    setNsBusy(true);
+    setError("");
+    setSuccessMsg("");
+    try {
+      const sel = transferNsOwner();
+      const isGroup = sel !== "__user__";
+      const res = await fetch("/api/user/namespaces", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "transfer",
+          name,
+          ownerType: isGroup ? "group" : "user",
+          ownerGroup: isGroup ? sel : undefined,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        throw new Error(json.error || "Unable to transfer namespace.");
+      }
+      setTransferringNs(null);
+      syncNamespaceResponse(json.data);
+      setSuccessMsg(
+        `Updated ownership of "@${name}" to ${
+          isGroup ? `group "${sel}"` : "your personal account"
+        }.`
+      );
+    } catch (err: any) {
+      setError(err?.message || "Unable to transfer namespace.");
+    } finally {
+      setNsBusy(false);
+    }
+  };
+
+  const handleDeleteNamespace = async (name: string) => {
+    if (nsBusy()) return;
+    setNsBusy(true);
+    setError("");
+    setSuccessMsg("");
+    try {
+      const res = await fetch("/api/user/namespaces", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "delete",
+          name,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        throw new Error(json.error || "Unable to delete namespace.");
+      }
+      syncNamespaceResponse(json.data);
+      setSuccessMsg(`Deleted namespace "@${name}".`);
+    } catch (err: any) {
+      setError(err?.message || "Unable to delete namespace.");
+    } finally {
+      setNsBusy(false);
     }
   };
 
@@ -789,7 +884,10 @@ export default function UserProfileModal(props: UserProfileModalProps) {
                 setSuccessMsg("");
               }}
             >
-              Public Namespace
+              <span>Namespaces</span>
+              <Badge variant="secondary" class="ml-1.5 px-1.5 py-0 text-[10px]">
+                {namespaces().length}
+              </Badge>
             </TabsTrigger>
             <TabsTrigger
               active={activeTab() === "jwt"}
@@ -1267,99 +1365,41 @@ export default function UserProfileModal(props: UserProfileModalProps) {
                       </div>
                     </div>
 
-                    {/* Role / Rights Presets */}
+                    {/* Member / Manager Role Toggle */}
                     <div class="space-y-2">
                       <label class="block text-xs font-semibold text-zinc-300">
-                        Space Role / Rights Preset
+                        Group Membership Role
                       </label>
+                      <p class="text-[11px] text-zinc-400">
+                        Group membership decides which tagged Workflows and Dashboards a user sees; their FerrisKey platform role decides whether they can edit them.
+                      </p>
                       <div class="flex flex-wrap items-center gap-2">
                         <button
                           type="button"
-                          onClick={() => setRolePreset("manager")}
-                          class={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${
-                            rolePreset() === "manager"
+                          onClick={() => setMemberRole("member")}
+                          class={`rounded-lg border px-3.5 py-2 text-xs font-semibold transition-colors ${
+                            memberRole() === "member"
+                              ? "border-purple-500 bg-purple-500/20 text-purple-200"
+                              : "border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-white"
+                          }`}
+                        >
+                          👤 Member (see &amp; use group objects, publish to group namespaces)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setMemberRole("manager")}
+                          class={`rounded-lg border px-3.5 py-2 text-xs font-semibold transition-colors ${
+                            memberRole() === "manager"
                               ? "border-amber-500 bg-amber-500/20 text-amber-200"
                               : "border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-white"
                           }`}
                         >
-                          Manager (M, W, D, U, V)
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setRolePreset("maintainer")}
-                          class={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${
-                            rolePreset() === "maintainer"
-                              ? "border-rose-500 bg-rose-500/20 text-rose-200"
-                              : "border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-white"
-                          }`}
-                        >
-                          Maintainer (W, D, U, V)
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setRolePreset("editor")}
-                          class={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${
-                            rolePreset() === "editor"
-                              ? "border-blue-500 bg-blue-500/20 text-blue-200"
-                              : "border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-white"
-                          }`}
-                        >
-                          Editor (W, U, V)
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setRolePreset("use")}
-                          class={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${
-                            rolePreset() === "use"
-                              ? "border-emerald-500 bg-emerald-500/20 text-emerald-200"
-                              : "border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-white"
-                          }`}
-                        >
-                          Operator (U, V)
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setRolePreset("view")}
-                          class={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${
-                            rolePreset() === "view"
-                              ? "border-purple-500 bg-purple-500/20 text-purple-200"
-                              : "border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-white"
-                          }`}
-                        >
-                          Viewer (V)
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setRolePreset("custom")}
-                          class={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${
-                            rolePreset() === "custom"
-                              ? "border-purple-500 bg-purple-500/20 text-purple-200"
-                              : "border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-white"
-                          }`}
-                        >
-                          Custom Rights (...)
+                          ⭐ Manager (add/remove members, create sub-groups &amp; group namespaces)
                         </button>
                       </div>
 
-                      <Show when={rolePreset() === "custom"}>
-                        <div class="flex flex-wrap items-center gap-2 pt-1">
-                          <For each={["view", "use", "write", "delete", "manager"] as GroupRight[]}>
-                            {(r) => (
-                              <label class="inline-flex items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/70 px-2.5 py-1 text-xs cursor-pointer">
-                                <input
-                                  type="checkbox"
-                                  checked={customRights().includes(r)}
-                                  onChange={() => toggleCustomRight(r)}
-                                />
-                                <span class="font-mono">{r}</span>
-                              </label>
-                            )}
-                          </For>
-                        </div>
-                      </Show>
-
                       <div class="rounded-lg bg-zinc-950 border border-zinc-800/80 px-3 py-2 text-xs flex items-center justify-between">
-                        <span class="text-zinc-400">SurrealDB Space Grant:</span>
+                        <span class="text-zinc-400">SurrealDB Group Grant:</span>
                         <code class="font-mono font-bold text-purple-300">{previewAssignClaim()}</code>
                       </div>
                     </div>
@@ -1375,7 +1415,7 @@ export default function UserProfileModal(props: UserProfileModalProps) {
                           !targetUsername().trim()
                         }
                       >
-                        {assigningMember() ? "Saving..." : "Save Member Rights"}
+                        {assigningMember() ? "Saving..." : "Save Member"}
                       </Button>
                     </div>
                   </form>
@@ -1415,46 +1455,47 @@ export default function UserProfileModal(props: UserProfileModalProps) {
                         >
                           <div class="divide-y divide-zinc-800/70 rounded-xl border border-zinc-800/80 bg-zinc-950/60 overflow-hidden">
                             <For each={space().members}>
-                              {(mem) => (
-                                <div class="flex flex-wrap items-center justify-between gap-3 px-3.5 py-2.5 text-xs">
-                                  <div class="flex items-center gap-2.5 min-w-0">
-                                    <span class="font-mono font-bold text-white truncate">
-                                      {mem.displayName || mem.username}
-                                    </span>
-                                    <div class="flex flex-wrap items-center gap-1">
-                                      <For each={mem.rights}>
-                                        {(r) => (
-                                          <span
-                                            title={RIGHT_BADGE_META[r].label}
-                                            class={`inline-flex items-center gap-0.5 rounded border px-1.5 py-0.5 font-mono text-[10px] font-semibold ${RIGHT_BADGE_META[r].color}`}
-                                          >
-                                            <span>{RIGHT_BADGE_META[r].short}</span>
-                                            <span class="capitalize">{r}</span>
-                                          </span>
-                                        )}
-                                      </For>
+                              {(mem) => {
+                                const isMgr = () =>
+                                  mem.role === "manager" ||
+                                  (Array.isArray(mem.rights) && mem.rights.includes("manager"));
+                                return (
+                                  <div class="flex flex-wrap items-center justify-between gap-3 px-3.5 py-2.5 text-xs">
+                                    <div class="flex items-center gap-2.5 min-w-0">
+                                      <span class="font-mono font-bold text-white truncate">
+                                        {mem.displayName || mem.username}
+                                      </span>
+                                      <span
+                                        class={`inline-flex items-center gap-1 rounded border px-2 py-0.5 font-mono text-[10px] font-bold uppercase ${
+                                          isMgr()
+                                            ? "border-amber-500/50 bg-amber-500/20 text-amber-300"
+                                            : "border-purple-500/40 bg-purple-500/15 text-purple-200"
+                                        }`}
+                                      >
+                                        {isMgr() ? "⭐ Manager" : "👤 Member"}
+                                      </span>
+                                    </div>
+
+                                    <div class="flex items-center gap-2 ml-auto">
+                                      <button
+                                        type="button"
+                                        onClick={() => prefillMemberForEdit(mem)}
+                                        class="rounded-md border border-zinc-700/80 bg-zinc-900 px-2 py-1 text-[11px] font-medium text-zinc-300 hover:border-purple-500/50 hover:text-white transition-colors"
+                                      >
+                                        Edit Role
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={removingUser() === mem.username}
+                                        onClick={() => handleRemoveMember(space().name, mem.username)}
+                                        class="rounded-md border border-rose-500/30 bg-rose-950/30 px-2 py-1 text-[11px] font-medium text-rose-300 hover:bg-rose-900/50 transition-colors"
+                                      >
+                                        {removingUser() === mem.username ? "..." : "Remove"}
+                                      </button>
                                     </div>
                                   </div>
-
-                                  <div class="flex items-center gap-2 ml-auto">
-                                    <button
-                                      type="button"
-                                      onClick={() => prefillMemberForEdit(mem)}
-                                      class="rounded-md border border-zinc-700/80 bg-zinc-900 px-2 py-1 text-[11px] font-medium text-zinc-300 hover:border-purple-500/50 hover:text-white transition-colors"
-                                    >
-                                      Edit Rights
-                                    </button>
-                                    <button
-                                      type="button"
-                                      disabled={removingUser() === mem.username}
-                                      onClick={() => handleRemoveMember(space().name, mem.username)}
-                                      class="rounded-md border border-rose-500/30 bg-rose-950/30 px-2 py-1 text-[11px] font-medium text-rose-300 hover:bg-rose-900/50 transition-colors"
-                                    >
-                                      {removingUser() === mem.username ? "..." : "Remove"}
-                                    </button>
-                                  </div>
-                                </div>
-                              )}
+                                );
+                              }}
                             </For>
                           </div>
                         </Show>
@@ -1466,55 +1507,249 @@ export default function UserProfileModal(props: UserProfileModalProps) {
             </div>
           </Show>
 
-          {/* TAB 3: PUBLIC NAMESPACE */}
+          {/* TAB 3: PUBLISH NAMESPACES (Personal & Group-Owned) */}
           <Show when={activeTab() === "namespace"}>
-            <form onSubmit={saveNamespaceForm} class="space-y-4">
+            <div class="space-y-6">
               <div>
-                <h3 class="text-base font-bold text-white">Public Dashboard Namespace</h3>
+                <h3 class="text-base font-bold text-white">Publish Namespaces</h3>
                 <p class="mt-1 text-xs text-zinc-400">
-                  Choose the URL namespace used when you publish dashboards publicly.
+                  Create multiple URL namespaces (<code class="text-purple-300">/p/&lt;namespace&gt;/&lt;slug&gt;</code>) owned personally or by a group. Only the owner or members of the owning group can publish dashboards under a namespace.
                 </p>
               </div>
-              <div class="space-y-2">
-                <label for="user-namespace-input" class="text-xs font-semibold text-zinc-300">
-                  Namespace
-                </label>
-                <Input
-                  id="user-namespace-input"
-                  value={namespace()}
-                  disabled={saving()}
-                  placeholder="my-team"
-                  maxLength={NAMESPACE_MAX_LENGTH}
-                  autocomplete="off"
-                  spellcheck={false}
-                  onInput={(event) => {
-                    setNamespace(event.currentTarget.value.toLowerCase().trim());
-                    setError("");
-                  }}
-                />
-                <p class="text-xs text-zinc-400">
-                  Lowercase letters, numbers, and hyphens. Must be unique.
-                </p>
-                <p class="break-all rounded-lg bg-zinc-900 p-3 font-mono text-xs text-purple-300">
-                  /p/{namespace() || "your-namespace"}/dashboard-name
-                </p>
-                <Show when={originalNamespace() && originalNamespace() !== namespace()}>
-                  <p class="text-xs text-amber-300">
-                    Changing your namespace updates all your published dashboard URLs atomically.
+
+              {/* Create Namespace Form */}
+              <Show when={effectiveCapabilities().canEditDashboards || profile()?.isAdmin}>
+                <form
+                  onSubmit={handleCreateNamespace}
+                  class="rounded-xl border border-zinc-800 bg-zinc-900/50 p-4 space-y-3"
+                >
+                  <div class="text-xs font-bold uppercase tracking-wider text-zinc-300">
+                    Create New Namespace
+                  </div>
+                  <div class="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
+                    <div class="sm:col-span-5 space-y-1">
+                      <label for="new-namespace-input" class="block text-xs font-semibold text-zinc-300">
+                        Namespace Name
+                      </label>
+                      <Input
+                        id="new-namespace-input"
+                        value={newNsName()}
+                        disabled={nsBusy()}
+                        placeholder="my-team-ops"
+                        maxLength={NAMESPACE_MAX_LENGTH}
+                        autocomplete="off"
+                        spellcheck={false}
+                        onInput={(event) => {
+                          setNewNsName(event.currentTarget.value.toLowerCase().trim());
+                          setError("");
+                        }}
+                      />
+                    </div>
+                    <div class="sm:col-span-5 space-y-1">
+                      <label for="new-namespace-owner" class="block text-xs font-semibold text-zinc-300">
+                        Owner
+                      </label>
+                      <select
+                        id="new-namespace-owner"
+                        value={newNsOwner()}
+                        disabled={nsBusy()}
+                        onChange={(e) => setNewNsOwner(e.currentTarget.value)}
+                        class="h-10 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 font-mono text-xs text-white focus:border-purple-500 focus:outline-none"
+                      >
+                        <option value="__user__">👤 Personal (only me)</option>
+                        <For each={manageableSpaces()}>
+                          {(sp) => (
+                            <option value={sp.name}>
+                              👥 Group: {sp.name}
+                            </option>
+                          )}
+                        </For>
+                      </select>
+                    </div>
+                    <div class="sm:col-span-2">
+                      <Button
+                        type="submit"
+                        variant="primary"
+                        size="sm"
+                        disabled={nsBusy() || !newNsName().trim()}
+                        class="w-full h-10"
+                      >
+                        {nsBusy() ? "..." : "+ Create"}
+                      </Button>
+                    </div>
+                  </div>
+                  <p class="text-[11px] text-zinc-400">
+                    Preview URL:{" "}
+                    <code class="font-mono text-purple-300">
+                      /p/{newNsName() || "namespace"}/dashboard-name
+                    </code>
                   </p>
+                </form>
+              </Show>
+
+              {/* Existing Namespaces List */}
+              <div class="space-y-2.5">
+                <div class="flex items-center justify-between">
+                  <span class="text-xs font-bold uppercase tracking-wider text-zinc-300">
+                    Available Namespaces ({namespaces().length})
+                  </span>
+                </div>
+
+                <Show
+                  when={namespaces().length > 0}
+                  fallback={
+                    <div class="rounded-xl border border-dashed border-zinc-800 bg-zinc-950/50 p-6 text-center text-xs text-zinc-400">
+                      No namespaces available yet. Create one above to publish dashboards.
+                    </div>
+                  }
+                >
+                  <div class="divide-y divide-zinc-800/80 rounded-xl border border-zinc-800 bg-zinc-950/60 overflow-hidden">
+                    <For each={namespaces()}>
+                      {(ns) => (
+                        <div class="p-3.5 space-y-2.5">
+                          <div class="flex flex-wrap items-center justify-between gap-2">
+                            <div class="flex flex-wrap items-center gap-2 min-w-0">
+                              <span class="font-mono text-sm font-bold text-purple-300">
+                                @{ns.name}
+                              </span>
+                              <Show
+                                when={ns.ownerType === "group" && ns.ownerGroup}
+                                fallback={
+                                  <Badge variant="secondary" class="text-[10px]">
+                                    👤 Personal
+                                  </Badge>
+                                }
+                              >
+                                <Badge variant="purple" class="font-mono text-[10px]">
+                                  👥 Group: {ns.ownerGroup}
+                                </Badge>
+                              </Show>
+                              <Badge variant="secondary" class="text-[10px]">
+                                {ns.dashboardCount} published
+                              </Badge>
+                            </div>
+
+                            <Show when={ns.canManage}>
+                              <div class="flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setTransferringNs(null);
+                                    if (renamingNs() === ns.name) {
+                                      setRenamingNs(null);
+                                    } else {
+                                      setRenamingNs(ns.name);
+                                      setRenameNsValue(ns.name);
+                                    }
+                                  }}
+                                  class="rounded-md border border-zinc-700/80 bg-zinc-900 px-2 py-1 text-[11px] font-medium text-zinc-300 hover:border-purple-500/50 hover:text-white transition-colors"
+                                >
+                                  Rename
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setRenamingNs(null);
+                                    if (transferringNs() === ns.name) {
+                                      setTransferringNs(null);
+                                    } else {
+                                      setTransferringNs(ns.name);
+                                      setTransferNsOwner(
+                                        ns.ownerType === "group" && ns.ownerGroup
+                                          ? ns.ownerGroup
+                                          : "__user__"
+                                      );
+                                    }
+                                  }}
+                                  class="rounded-md border border-zinc-700/80 bg-zinc-900 px-2 py-1 text-[11px] font-medium text-zinc-300 hover:border-blue-500/50 hover:text-white transition-colors"
+                                >
+                                  Transfer Owner
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={nsBusy()}
+                                  onClick={() => handleDeleteNamespace(ns.name)}
+                                  class="rounded-md border border-rose-500/30 bg-rose-950/30 px-2 py-1 text-[11px] font-medium text-rose-300 hover:bg-rose-900/50 transition-colors"
+                                >
+                                  Delete
+                                </button>
+                              </div>
+                            </Show>
+                          </div>
+
+                          {/* Inline Rename Box */}
+                          <Show when={renamingNs() === ns.name}>
+                            <div class="flex items-center gap-2 pt-1">
+                              <Input
+                                value={renameNsValue()}
+                                maxLength={NAMESPACE_MAX_LENGTH}
+                                onInput={(e) =>
+                                  setRenameNsValue(e.currentTarget.value.toLowerCase().trim())
+                                }
+                                placeholder="new-namespace-name"
+                                class="h-8 text-xs font-mono"
+                              />
+                              <Button
+                                type="button"
+                                variant="primary"
+                                size="sm"
+                                disabled={nsBusy() || !renameNsValue().trim()}
+                                onClick={() => handleRenameNamespace(ns.name)}
+                              >
+                                Save Rename
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => setRenamingNs(null)}
+                              >
+                                Cancel
+                              </Button>
+                            </div>
+                          </Show>
+
+                          {/* Inline Transfer Ownership Box */}
+                          <Show when={transferringNs() === ns.name}>
+                            <div class="flex items-center gap-2 pt-1">
+                              <select
+                                value={transferNsOwner()}
+                                onChange={(e) => setTransferNsOwner(e.currentTarget.value)}
+                                class="h-8 flex-1 rounded-lg border border-zinc-800 bg-zinc-900 px-2.5 font-mono text-xs text-white"
+                              >
+                                <option value="__user__">👤 Personal (me)</option>
+                                <For each={spaces()}>
+                                  {(sp) => (
+                                    <option value={sp.name}>👥 Group: {sp.name}</option>
+                                  )}
+                                </For>
+                              </select>
+                              <Button
+                                type="button"
+                                variant="primary"
+                                size="sm"
+                                disabled={nsBusy()}
+                                onClick={() => handleTransferNamespace(ns.name)}
+                              >
+                                Confirm Transfer
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => setTransferringNs(null)}
+                              >
+                                Cancel
+                              </Button>
+                            </div>
+                          </Show>
+                        </div>
+                      )}
+                    </For>
+                  </div>
                 </Show>
               </div>
-              <div class="flex justify-end gap-2">
-                <Button
-                  type="submit"
-                  variant="primary"
-                  size="sm"
-                  disabled={saving()}
-                >
-                  {saving() ? "Saving..." : "Save Namespace"}
-                </Button>
-              </div>
-            </form>
+            </div>
           </Show>
 
           {/* TAB 4: JWT CLAIMS INSPECTION */}

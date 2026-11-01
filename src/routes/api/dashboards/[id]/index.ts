@@ -8,7 +8,14 @@ import {
   firstRecord,
   publishingErrorResponse,
 } from "~/lib/dashboard/publishing";
-import { canAccessResource, getResourcePermissions } from "~/lib/groupAuth";
+import {
+  canAccessObject,
+  getObjectPermissions,
+  getTaggableGroups,
+  mergeTagUpdate,
+  normalizeTagList,
+} from "~/lib/groupAuth";
+import { collectAllExistingGroups } from "~/routes/api/user/groups";
 import { readJsonBody } from "~/lib/requestUtils";
 
 export async function GET(event: APIEvent) {
@@ -34,13 +41,13 @@ export async function GET(event: APIEvent) {
 
     const record = Array.isArray(records) ? records[0] : records;
     const hasRealOwner = Boolean(record.owner && record.owner !== "anonymous");
-    const hasTags = Array.isArray(record.tags) && record.tags.length > 0;
+    const tags = normalizeTagList(record.tags);
 
     if (ctx.sub === "anonymous") {
-      if (record.isPublic !== true && (hasRealOwner || hasTags)) {
+      if (record.isPublic !== true && (hasRealOwner || tags.length > 0)) {
         return Response.json({ success: false, error: "Not found" }, { status: 404 });
       }
-    } else if (!canAccessResource(ctx, record, "view") && record.isPublic !== true) {
+    } else if (!canAccessObject(ctx, record, "dashboard", "view") && record.isPublic !== true) {
       return Response.json(
         { success: false, error: "You do not have permission to view this dashboard." },
         { status: 403 }
@@ -49,7 +56,8 @@ export async function GET(event: APIEvent) {
 
     if (record) {
       record.id = `dashboard:${dbId}`;
-      record.permissions = getResourcePermissions(ctx, record);
+      record.tags = tags;
+      record.permissions = getObjectPermissions(ctx, record, "dashboard");
     }
     return new Response(JSON.stringify({ success: true, data: record }), {
       headers: { "Content-Type": "application/json" },
@@ -82,7 +90,56 @@ export async function PUT(event: APIEvent) {
       success: true,
       data: {
         ...record,
-        permissions: getResourcePermissions(ctx, record),
+        permissions: getObjectPermissions(ctx, record, "dashboard"),
+      },
+    });
+  } catch (err) {
+    return publishingErrorResponse(err);
+  }
+}
+
+export async function PATCH(event: APIEvent) {
+  const user = await getAuthUser(event.request);
+  if (!user || user.sub === "anonymous") {
+    return Response.json({ success: false, error: "Please log in." }, { status: 401 });
+  }
+  try {
+    const id = event.params.id;
+    const db = await getDb();
+    const ctx = await getEffectiveAccessContext(event.request, db);
+    if (!ctx.capabilities.canEditDashboards) {
+      return Response.json(
+        { success: false, error: "Your platform role (viewer) cannot tag dashboards." },
+        { status: 403 }
+      );
+    }
+    const body = await readJsonBody(event);
+    const dbId = (id.includes(":") ? id.split(":")[1] : id).replace(/[⟨⟩]/g, "").trim();
+    const sId = new RecordId("dashboard", dbId);
+    const existing = firstRecord(await db.select(sId));
+    if (!existing) {
+      return Response.json({ success: false, error: "Dashboard not found." }, { status: 404 });
+    }
+    assertDashboardOwner(existing, user.sub, "write", ctx);
+
+    const allGroups = ctx.isAdmin ? await collectAllExistingGroups(db) : [];
+    const allowed = getTaggableGroups(ctx, allGroups);
+    const nextTags = mergeTagUpdate(existing.tags, body.tags, allowed);
+    const now = new Date().toISOString();
+
+    await db.query(`UPDATE $id MERGE { tags: $tags, updated_at: $now };`, {
+      id: sId,
+      tags: nextTags,
+      now,
+    });
+
+    const updated = { ...existing, id: `dashboard:${dbId}`, tags: nextTags, updated_at: now };
+    return Response.json({
+      success: true,
+      data: {
+        id: `dashboard:${dbId}`,
+        tags: nextTags,
+        permissions: getObjectPermissions(ctx, updated, "dashboard"),
       },
     });
   } catch (err) {

@@ -1058,7 +1058,6 @@ export default function WorkflowBuilder() {
       const payload = {
         id: currentIsNew ? undefined : `workflow:${params.id}`,
         name: name(),
-        tags: tags(),
         direction: direction(),
         protoId: protoId() || undefined,
         caId: caId() || undefined,
@@ -1429,9 +1428,6 @@ export default function WorkflowBuilder() {
                 📤 Write to Source
               </button>
             </div>
-          </div>
-          <div class="mt-2.5 ml-1">
-            <ResourceTagEditor tags={tags()} onChange={setTags} />
           </div>
         </div>
         <div class="flex items-center gap-4">

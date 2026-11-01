@@ -59,6 +59,9 @@ export default function DashboardBuilder() {
   const [tagInput, setTagInput] = createSignal("");
   const [isPublic, setIsPublic] = createSignal(false);
   const [namespace, setNamespace] = createSignal("");
+  const [availableNamespaces, setAvailableNamespaces] = createSignal<
+    { name: string; ownerType: "user" | "group"; ownerGroup?: string | null; canPublish: boolean }[]
+  >([]);
   const [customSlug, setCustomSlug] = createSignal<string>();
   const slug = createMemo(() => customSlug() ?? slugFromName(name()));
   const [savedPath, setSavedPath] = createSignal("");
@@ -126,6 +129,7 @@ export default function DashboardBuilder() {
       setIsPublic(json.data.isPublic || false);
       setSavedPublished(json.data.isPublic || false);
       setCustomSlug(json.data.slug || undefined);
+      if (json.data.namespace) setNamespace(json.data.namespace);
       setSavedPath(publicDashboardPath(json.data));
       setButtons(reconcile(json.data.buttons || []));
       setDescription(json.data.description || "");
@@ -133,27 +137,47 @@ export default function DashboardBuilder() {
     }
   };
 
+  const loadUserNamespaces = async () => {
+    try {
+      const response = await fetch("/api/user/profile");
+      const json = await response.json();
+      if (!response.ok || !json.success) throw new Error(json.error || "Unable to load your namespace.");
+      const list = Array.isArray(json.data.namespaces)
+        ? json.data.namespaces.filter((n: any) => n.canPublish)
+        : [];
+      setAvailableNamespaces(list);
+      if (!namespace()) {
+        setNamespace(json.data.namespace || list[0]?.name || "");
+      }
+    } catch (error: any) {
+      setSaveError(error.message);
+    } finally {
+      setProfileLoading(false);
+    }
+  };
+
   onMount(() => {
     refetchWorkflows();
     const handleWorkflowsRefresh = () => {
       refetchWorkflows();
+      loadUserNamespaces();
     };
     window.addEventListener("user-groups-changed", handleWorkflowsRefresh);
     window.addEventListener("focus", handleWorkflowsRefresh);
 
     fetchDashboard().catch(() => setSaveError("Unable to load this dashboard."));
     setOrigin(window.location.origin);
-    fetch("/api/user/profile").then(async (response) => {
-      const json = await response.json();
-      if (!response.ok || !json.success) throw new Error(json.error || "Unable to load your namespace.");
-      setNamespace(json.data.namespace || "");
-    }).catch((error) => setSaveError(error.message)).finally(() => setProfileLoading(false));
+    loadUserNamespaces();
     const onNamespaceChanged = (event: Event) => {
-      const next = (event as CustomEvent<{ namespace: string }>).detail.namespace;
-      if (savedPath().startsWith(`/p/${namespace()}/`)) {
-        setSavedPath(savedPath().replace(`/p/${namespace()}/`, `/p/${next}/`));
+      const detail = (event as CustomEvent<{ namespace?: string; namespaces?: any[] }>).detail || {};
+      if (Array.isArray(detail.namespaces)) {
+        setAvailableNamespaces(detail.namespaces.filter((n: any) => n.canPublish));
+      } else {
+        loadUserNamespaces();
       }
-      setNamespace(next);
+      if (detail.namespace && !namespace()) {
+        setNamespace(detail.namespace);
+      }
       setSaveError("");
       setCopied(false);
     };
@@ -179,7 +203,7 @@ export default function DashboardBuilder() {
       id: isNew() ? undefined : `dashboard:${params.id}`,
       name: name(),
       description: description(),
-      tags: tags(),
+      namespace: namespace() || undefined,
       isPublic: isPublic(),
       slug: slug(),
       buttons: buttons,
@@ -373,10 +397,10 @@ export default function DashboardBuilder() {
 
   const renderLiveWidget = (btn: any) => {
     const wtype = btn.widgetType || widgetKind(btn);
-    if (wtype === "table" || wtype === "chart") {
+      if (wtype === "table" || wtype === "chart") {
       return (
         <ConditionalPreviewWrapper btn={btn} dashboardId={params.id}>
-          <PreviewWidget btn={btn} />
+          <PreviewWidget btn={btn} dashboardId={params.id} />
         </ConditionalPreviewWrapper>
       );
     }
@@ -433,9 +457,6 @@ export default function DashboardBuilder() {
               placeholder="Add a description for this dashboard..."
             />
           </div>
-          <div class="mt-2.5">
-            <ResourceTagEditor tags={tags()} onChange={setTags} />
-          </div>
         </div>
 
         {/* View Mode Switcher */}
@@ -489,12 +510,65 @@ export default function DashboardBuilder() {
 
       <section aria-label="Published dashboard URL" class="mb-8 space-y-3 rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
         <div class="flex flex-col gap-4 sm:flex-row sm:items-end">
-          <div class="sm:w-56">
-            <span class="mb-1 block text-sm font-semibold text-zinc-300">Namespace</span>
-            <Button type="button" variant="secondary" class="w-full justify-between" disabled={profileLoading() || saving()}
-              onClick={() => window.dispatchEvent(new Event("open-user-settings"))}>
-              <span class="truncate">{namespace() || "Set your namespace"}</span><span aria-hidden="true">✎</span>
-            </Button>
+          <div class="sm:w-72">
+            <div class="mb-1 flex items-center justify-between">
+              <label for="dashboard-namespace-select" class="block text-sm font-semibold text-zinc-300">
+                Namespace
+              </label>
+              <button
+                type="button"
+                onClick={() => window.dispatchEvent(new Event("open-user-settings"))}
+                class="text-xs font-medium text-purple-400 hover:text-purple-300 transition-colors"
+              >
+                Manage namespaces…
+              </button>
+            </div>
+            <Show
+              when={availableNamespaces().length > 0 || namespace()}
+              fallback={
+                <Button
+                  type="button"
+                  variant="secondary"
+                  class="w-full justify-between"
+                  disabled={profileLoading() || saving()}
+                  onClick={() => window.dispatchEvent(new Event("open-user-settings"))}
+                >
+                  <span class="truncate">Create a namespace…</span>
+                  <span aria-hidden="true">✎</span>
+                </Button>
+              }
+            >
+              <select
+                id="dashboard-namespace-select"
+                value={namespace()}
+                disabled={profileLoading() || saving()}
+                onChange={(e) => {
+                  setNamespace(e.currentTarget.value);
+                  setSaveError("");
+                  setCopied(false);
+                }}
+                class="h-10 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 font-mono text-sm text-white focus:border-purple-500 focus:outline-none"
+              >
+                <Show
+                  when={
+                    namespace() &&
+                    !availableNamespaces().some((n) => n.name === namespace())
+                  }
+                >
+                  <option value={namespace()}>@{namespace()}</option>
+                </Show>
+                <For each={availableNamespaces()}>
+                  {(ns) => (
+                    <option value={ns.name}>
+                      @{ns.name}{" "}
+                      {ns.ownerType === "group" && ns.ownerGroup
+                        ? `(group: ${ns.ownerGroup})`
+                        : "(personal)"}
+                    </option>
+                  )}
+                </For>
+              </select>
+            </Show>
           </div>
           <div class="min-w-0 flex-1">
             <label for="dashboard-url-slug" class="mb-1 block text-sm font-semibold text-zinc-300">Dashboard URL name</label>
@@ -2554,7 +2628,7 @@ function DashChart(props: {
   );
 }
 
-function PreviewWidget(props: { btn: any }) {
+function PreviewWidget(props: { btn: any; dashboardId?: string }) {
   const [status, setStatus] = createSignal<"idle" | "loading" | "ready" | "error">("idle");
   const [data, setData] = createSignal<any[]>([]);
   const [dataBySource, setDataBySource] = createSignal<Record<string, any[]>>({});
@@ -2563,12 +2637,16 @@ function PreviewWidget(props: { btn: any }) {
 
   const runWorkflowPromise = (wfId: string): Promise<{ data: any[]; meta: any }> => {
     const rawId = wfId.includes(":") ? wfId.split(":")[1].replace(/[⟨⟩]/g, "") : wfId.replace(/[⟨⟩]/g, "");
+    const dashQuery =
+      props.dashboardId && props.dashboardId !== "new"
+        ? `?dashboard=${encodeURIComponent(props.dashboardId)}`
+        : "";
     return new Promise(async (resolve, reject) => {
       try {
-        const res = await fetch(`/api/workflows/${rawId}/run`, {
+        const res = await fetch(`/api/workflows/${rawId}/run${dashQuery}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ form: {} })
+          body: JSON.stringify({ form: {}, dashboardId: props.dashboardId })
         });
         const json = await res.json();
         if (!json.success) throw new Error(json.error || `Failed to start workflow ${rawId}`);
@@ -2719,7 +2797,11 @@ function NewsWidgetComponent(props: { btn: any; dashboardId?: string }) {
 
     if (props.btn.streamActive !== false) {
       setStatus("live");
-      const es = new EventSource(`/api/workflows/${wfId}/stream`);
+      const dashQuery =
+        props.dashboardId && props.dashboardId !== "new"
+          ? `?dashboard=${encodeURIComponent(props.dashboardId)}`
+          : "";
+      const es = new EventSource(`/api/workflows/${wfId}/stream${dashQuery}`);
 
       es.onmessage = (e) => {
         try {
@@ -2765,10 +2847,14 @@ function NewsWidgetComponent(props: { btn: any; dashboardId?: string }) {
     const wfId = (props.btn.workflowId.includes(":") ? props.btn.workflowId.split(":")[1] : props.btn.workflowId).replace(/[⟨⟩]/g, "");
     setStatus("loading");
     try {
-      const res = await fetch(`/api/workflows/${wfId}/run`, {
+      const dashQuery =
+        props.dashboardId && props.dashboardId !== "new"
+          ? `?dashboard=${encodeURIComponent(props.dashboardId)}`
+          : "";
+      const res = await fetch(`/api/workflows/${wfId}/run${dashQuery}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ form: {} }),
+        body: JSON.stringify({ form: {}, dashboardId: props.dashboardId }),
       });
       const json = await res.json();
       if (json.success) setStatus("idle");

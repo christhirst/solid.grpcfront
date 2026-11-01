@@ -3,7 +3,12 @@ import { getDb } from "~/lib/db";
 import { v4 as uuidv4 } from "uuid";
 import { getAuthUser, getEffectiveAccessContext } from "~/lib/auth";
 import { saveDashboard, publishingErrorResponse } from "~/lib/dashboard/publishing";
-import { canAccessResource, getResourcePermissions } from "~/lib/groupAuth";
+import {
+  PUBLIC_TAG,
+  canAccessObject,
+  getObjectPermissions,
+  normalizeTagList,
+} from "~/lib/groupAuth";
 import { readJsonBody } from "~/lib/requestUtils";
 
 export async function GET(event: APIEvent) {
@@ -12,8 +17,20 @@ export async function GET(event: APIEvent) {
     const ctx = await getEffectiveAccessContext(event.request, db);
     const url = new URL(event.request.url);
     const q = url.searchParams.get("q")?.trim() || "";
-    const publishedOnly =
-      url.searchParams.get("published") === "true" || url.searchParams.get("public") === "true";
+    const libraryOnly =
+      url.searchParams.get("library") === "true" ||
+      url.searchParams.get("published") === "true" ||
+      url.searchParams.get("public") === "true";
+
+    if (!libraryOnly && ctx.sub !== "anonymous" && !ctx.capabilities.canEditDashboards) {
+      return Response.json(
+        {
+          success: false,
+          error: "Your platform role (viewer) can only use the Library.",
+        },
+        { status: 403 }
+      );
+    }
 
     let dashboards: any[] = [];
     try {
@@ -34,29 +51,28 @@ export async function GET(event: APIEvent) {
       dashboards = raw
         .filter((d: any) => {
           const hasRealOwner = Boolean(d.owner && d.owner !== "anonymous");
-          const hasTags = Array.isArray(d.tags) && d.tags.length > 0;
+          const tags = normalizeTagList(d.tags);
+          const groupTags = tags.filter((t) => t !== PUBLIC_TAG);
 
-          if (publishedOnly) {
-            // In library view: must be published (or shared with user's active group)
-            if (!d.isPublic) return false;
-            if (ctx.isSimulating) {
-              return canAccessResource(ctx, d, "view");
+          if (libraryOnly) {
+            if (canAccessObject(ctx, d, "dashboard", "view")) return true;
+            if (d.isPublic === true && !ctx.isSimulating) {
+              // Published dashboards without group restrictions (or with 'public' tag) are visible to all in Library
+              if (!hasRealOwner || groupTags.length === 0) return true;
             }
-            if (hasRealOwner && hasTags) {
-              return canAccessResource(ctx, d, "view");
-            }
-            return true;
+            return false;
           }
 
           // Management view (/dashboards)
           if (ctx.sub === "anonymous") {
-            return !hasRealOwner && !hasTags;
+            return !hasRealOwner && tags.length === 0;
           }
-          return canAccessResource(ctx, d, "view");
+          return canAccessObject(ctx, d, "dashboard", "view");
         })
         .map((d: any) => ({
           ...d,
-          permissions: getResourcePermissions(ctx, d),
+          tags: normalizeTagList(d.tags),
+          permissions: getObjectPermissions(ctx, d, "dashboard"),
         }));
     } catch (e: any) {
       if (!e.message?.includes("does not exist")) throw e;
@@ -94,7 +110,7 @@ export async function POST(event: APIEvent) {
       success: true,
       data: {
         ...record,
-        permissions: getResourcePermissions(ctx, record),
+        permissions: getObjectPermissions(ctx, record, "dashboard"),
       },
     });
   } catch (err) {

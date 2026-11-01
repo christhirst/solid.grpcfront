@@ -28,7 +28,7 @@ export default function PublicDashboardPage(props: { endpoint: string }) {
       if (controller.signal.aborted) return;
       if (!res.ok || !json.success || json.data?.isPublic !== true) { setDashboard(null); return; }
       setDashboard(json.data);
-      const workflows = await loadWorkflowMap(json.data.buttons || []);
+      const workflows = await loadWorkflowMap(json.data.buttons || [], dashboardId(json.data.id || ""));
       if (!controller.signal.aborted) setWorkflowMap(workflows);
     }).catch(() => { if (!controller.signal.aborted) setDashboard(null); });
   });

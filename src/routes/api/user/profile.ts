@@ -5,7 +5,7 @@ import { getDb } from "~/lib/db";
 import {
   ensurePublishingSchema,
   getUserProfile,
-  saveUserNamespace,
+  listNamespacesForUser,
   publishingErrorResponse,
 } from "~/lib/dashboard/publishing";
 import {
@@ -15,18 +15,22 @@ import {
 import { readJsonBody } from "~/lib/requestUtils";
 
 async function buildFullProfilePayload(request: Request, db: any, sub: string) {
-  const [{ namespace }, ctx, user, profileRes] = await Promise.all([
+  const [{ namespace: primaryNs }, ctx, user, profileRes] = await Promise.all([
     getUserProfile(db, sub),
     getEffectiveAccessContext(request, db),
     getAuthUser(request),
     db.select(new RecordId("user_profile", sub)).catch(() => null),
   ]);
+  const namespaces = await listNamespacesForUser(db, ctx);
+  const firstPub = namespaces.find((n) => n.canPublish);
+  const namespace = primaryNs || firstPub?.name || "";
   const profileRecord = Array.isArray(profileRes) ? profileRes[0] : profileRes;
   const jwtClaims = user?.jwtClaims || profileRecord?.lastJwtClaims || null;
   const jwtHeader = user?.jwtHeader || profileRecord?.lastJwtHeader || null;
 
   return {
     namespace,
+    namespaces,
     user: {
       sub,
       name: user?.name || user?.username || sub,
@@ -73,10 +77,6 @@ export async function PUT(event: APIEvent) {
     const db = await getDb();
     await ensurePublishingSchema(db);
     const body = await readJsonBody(event);
-
-    if (body.namespace !== undefined) {
-      await saveUserNamespace(db, user.sub, body.namespace);
-    }
 
     if (body.resetSimulation === true) {
       await db.query(

@@ -78,7 +78,6 @@ export async function getEffectiveAccessContext(
   let disableOwnerBypass = false;
   const dbClaims: string[] = [];
   const sessionClaims: string[] = [];
-  const taggedGroups = new Set<string>();
 
   if (db) {
     try {
@@ -178,12 +177,14 @@ export async function getEffectiveAccessContext(
         : [];
       for (const m of memberRows) {
         if (m && m.group) {
-          const rights = Array.isArray(m.rights)
-            ? m.rights
-            : typeof m.rights === "string"
-              ? m.rights
-              : ["view", "use"];
-          dbClaims.push(formatGroupClaim(String(m.group), rights));
+          const isMgr =
+            m.role === "manager" ||
+            (Array.isArray(m.rights) && m.rights.includes("manager")) ||
+            (typeof m.rights === "string" && m.rights.includes("manager"));
+          const rights = isMgr
+            ? "manager"
+            : ["view", "use", "write", "delete"];
+          dbClaims.push(formatGroupClaim(String(m.group), rights as any));
         }
       }
     } catch {
@@ -209,27 +210,6 @@ export async function getEffectiveAccessContext(
     } catch {
       // group_namespace table might not exist yet
     }
-
-    // Collect groups that this user has tagged on their own resources so they can simulate them
-    const tagTables = ["dashboard", "workflow", "connection", "database_meta", "proto_file", "ca_cert"];
-    await Promise.allSettled(
-      tagTables.map(async (tbl) => {
-        try {
-          const tableRes = await db.query(`SELECT tags FROM ${tbl} WHERE owner = $owner;`, { owner: user.sub });
-          const rows = Array.isArray(tableRes) ? (Array.isArray(tableRes[0]) ? tableRes[0] : tableRes) : [];
-          for (const row of rows) {
-            if (row && Array.isArray(row.tags)) {
-              for (const t of row.tags) {
-                const norm = normalizeGroupName(String(t).split(":")[0] || "");
-                if (norm) taggedGroups.add(norm);
-              }
-            }
-          }
-        } catch {
-          // Table might not exist yet or cannot be queried
-        }
-      })
-    );
   }
 
   return buildAccessContext({
@@ -240,7 +220,6 @@ export async function getEffectiveAccessContext(
     simulatedRole,
     dbClaims,
     sessionClaims,
-    taggedGroups: [...taggedGroups],
     disabledGroups,
     disableOwnerBypass,
   });

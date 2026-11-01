@@ -116,9 +116,10 @@ Dashboards (`/dashboards`) provide the presentation layer for users.
   - Unprivileged or anonymous users MUST ONLY access published public dashboards (e.g. `/p/[id]`).
   - Access to administrative routes and backend management APIs must remain protected.
 - **Publishing & Group Access**:
-  - Before publishing a dashboard or diagram, visibility and trigger permissions MUST be configurable:
-    - Target audience / visibility: Public vs. specific user groups.
-    - Execution rights: Which groups are permitted to trigger underlying workflows or submit form data.
+  - Two-stage visibility for Workflows and Dashboards:
+    1. **Stage 1 (IdP Platform Role)**: `admin` and `creator` can access Workflows and Dashboards; `user` can access Dashboards and Library (never Workflows); `viewer` can access Library only (never Workflows).
+    2. **Stage 2 (Local Group Tags)**: Objects are tagged via a searchable checklist dropdown on list tiles. Users see objects they created, objects tagged with their active SurrealDB groups, or objects tagged `public` (view/use for everyone in that category).
+  - Publish namespaces (`/p/<namespace>/<slug>`) are stored in `publish_namespace` and can be owned personally or by a group. Only the owner or members of the owning group can publish dashboards under a namespace.
 
 ---
 

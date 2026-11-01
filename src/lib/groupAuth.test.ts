@@ -15,6 +15,12 @@ import {
   resolveEffectivePlatformRole,
   decodeJwtHeaderSafe,
   formatJwtTimestamp,
+  getObjectPermissions,
+  canAccessObject,
+  mergeTagUpdate,
+  getTaggableGroups,
+  canPublishToNamespace,
+  canManageNamespace,
 } from "./groupAuth";
 
 describe("groupAuth - claim parsing and normalization", () => {
@@ -322,5 +328,134 @@ describe("groupAuth - OIDC claim extraction", () => {
     expect(formatJwtTimestamp(null)).toBe("");
     expect(formatJwtTimestamp(undefined)).toBe("");
     expect(formatJwtTimestamp("not-a-number")).toBe("");
+  });
+});
+
+describe("groupAuth - two-stage object visibility & group-owned namespaces", () => {
+  const creatorInGroup1 = buildAccessContext({
+    sub: "creator-1",
+    idpRole: "creator",
+    dbClaims: ["group1:(view,use,write,delete)"],
+  });
+  const managerInGroup1 = buildAccessContext({
+    sub: "mgr-1",
+    idpRole: "creator",
+    dbClaims: ["group1:manager"],
+  });
+  const creatorOutside = buildAccessContext({
+    sub: "creator-2",
+    idpRole: "creator",
+    dbClaims: ["other-group:(view,use,write,delete)"],
+  });
+  const userInGroup1 = buildAccessContext({
+    sub: "user-1",
+    idpRole: "user",
+    dbClaims: ["group1:(view,use,write,delete)"],
+  });
+  const viewerInGroup1 = buildAccessContext({
+    sub: "viewer-1",
+    idpRole: "viewer",
+    dbClaims: ["group1:(view,use,write,delete)"],
+  });
+
+  test("Stage 1: user and viewer can never see workflows even if owner, in group1, or tagged public", () => {
+    const wfGroup1 = { owner: "user-1", tags: ["group1", "public"] };
+    expect(getObjectPermissions(userInGroup1, wfGroup1, "workflow").canView).toBe(false);
+    expect(getObjectPermissions(viewerInGroup1, wfGroup1, "workflow").canView).toBe(false);
+    expect(canAccessObject(userInGroup1, wfGroup1, "workflow", "view")).toBe(false);
+    expect(canAccessObject(viewerInGroup1, wfGroup1, "workflow", "view")).toBe(false);
+  });
+
+  test("Stage 2: creator in group1 can see and edit group1 and hierarchical child workflows, plus own workflows", () => {
+    const wfGroup1 = { owner: "someone-else", tags: ["group1"] };
+    const wfChild = { owner: "someone-else", tags: ["group1.sub"] };
+    const wfOwnPrivate = { owner: "creator-1", tags: [] };
+    const wfForeign = { owner: "someone-else", tags: ["secret-group"] };
+
+    const p1 = getObjectPermissions(creatorInGroup1, wfGroup1, "workflow");
+    expect(p1.canView).toBe(true);
+    expect(p1.canWrite).toBe(true);
+    expect(p1.canDelete).toBe(false); // plain member cannot delete another user's workflow
+
+    // Group manager can also delete
+    const pMgr = getObjectPermissions(managerInGroup1, wfChild, "workflow");
+    expect(pMgr.canView).toBe(true);
+    expect(pMgr.canWrite).toBe(true);
+    expect(pMgr.canDelete).toBe(true);
+
+    // Own private workflow
+    const pOwn = getObjectPermissions(creatorInGroup1, wfOwnPrivate, "workflow");
+    expect(pOwn.canView).toBe(true);
+    expect(pOwn.canWrite).toBe(true);
+    expect(pOwn.canDelete).toBe(true);
+
+    // Foreign workflow is hidden
+    expect(getObjectPermissions(creatorInGroup1, wfForeign, "workflow").canView).toBe(false);
+  });
+
+  test("'public' tag grants view+use to everyone whose role can see the category, but not write", () => {
+    const publicWf = { owner: "creator-1", tags: ["public"] };
+    const publicDash = { owner: "creator-1", tags: ["public"] };
+
+    // Outside creator can view & use public workflow, but cannot edit
+    const wfPerms = getObjectPermissions(creatorOutside, publicWf, "workflow");
+    expect(wfPerms.canView).toBe(true);
+    expect(wfPerms.canUse).toBe(true);
+    expect(wfPerms.canWrite).toBe(false);
+
+    // User and viewer can view & use public dashboard, but cannot edit (unless in another group on it)
+    const userDashPerms = getObjectPermissions(userInGroup1, publicDash, "dashboard");
+    expect(userDashPerms.canView).toBe(true);
+    expect(userDashPerms.canWrite).toBe(false);
+
+    const viewerDashPerms = getObjectPermissions(viewerInGroup1, publicDash, "dashboard");
+    expect(viewerDashPerms.canView).toBe(true);
+    expect(viewerDashPerms.canWrite).toBe(false);
+
+    // If dashboard is tagged ["public", "group1"], userInGroup1 CAN edit it, viewerInGroup1 can only view
+    const groupAndPublicDash = { owner: "creator-1", tags: ["public", "group1"] };
+    expect(getObjectPermissions(userInGroup1, groupAndPublicDash, "dashboard").canWrite).toBe(true);
+    expect(getObjectPermissions(viewerInGroup1, groupAndPublicDash, "dashboard").canWrite).toBe(false);
+  });
+
+  test("mergeTagUpdate preserves foreign tags and updates allowed tags", () => {
+    const existing = ["finance", "group1"];
+    const allowed = ["public", "group1", "group1.sub"];
+
+    // User unchecks group1 and checks public + group1.sub; 'finance' must stay intact
+    const merged = mergeTagUpdate(existing, ["public", "group1.sub", "hacked-group"], allowed);
+    expect(merged).toEqual(["finance", "public", "group1.sub"]);
+  });
+
+  test("getTaggableGroups returns 'public' first followed by user's active groups", () => {
+    expect(getTaggableGroups(creatorInGroup1, ["group1", "secret"])).toEqual(["public", "group1"]);
+    const adminCtx = buildAccessContext({ sub: "admin-1", idpRole: "admin" });
+    expect(getTaggableGroups(adminCtx, ["zeta", "alpha"])).toEqual(["public", "alpha", "zeta"]);
+  });
+
+  test("canCreateGroupNamespace rejects reserved 'public' tag", () => {
+    const res = canCreateGroupNamespace(creatorInGroup1, "public", []);
+    expect(res.allowed).toBe(false);
+    expect(res.error).toContain("reserved");
+  });
+
+  test("canPublishToNamespace and canManageNamespace enforce personal and group ownership", () => {
+    const personalNs = { name: "alice-ns", ownerType: "user" as const, ownerSub: "creator-1" };
+    const groupNs = { name: "team-ops", ownerType: "group" as const, ownerGroup: "group1" };
+
+    // Personal namespace: only owner (or admin) can publish & manage
+    expect(canPublishToNamespace(creatorInGroup1, personalNs)).toBe(true);
+    expect(canManageNamespace(creatorInGroup1, personalNs)).toBe(true);
+    expect(canPublishToNamespace(creatorOutside, personalNs)).toBe(false);
+
+    // Group namespace: any member with dashboard edit capability (creator, user) can publish; viewer cannot
+    expect(canPublishToNamespace(creatorInGroup1, groupNs)).toBe(true);
+    expect(canPublishToNamespace(userInGroup1, groupNs)).toBe(true);
+    expect(canPublishToNamespace(viewerInGroup1, groupNs)).toBe(false);
+    expect(canPublishToNamespace(creatorOutside, groupNs)).toBe(false);
+
+    // Only group manager (or admin) can manage (rename/transfer/delete) group namespace
+    expect(canManageNamespace(creatorInGroup1, groupNs)).toBe(false);
+    expect(canManageNamespace(managerInGroup1, groupNs)).toBe(true);
   });
 });

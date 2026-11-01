@@ -7,6 +7,7 @@ import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { dashboardId, type DashboardSummary } from "~/lib/dashboard/boardTypes";
 import { publicDashboardPath } from "~/lib/dashboard/publicUrl";
+import { GroupTagPicker } from "~/components/GroupTagPicker";
 
 const formatDate = (value?: string) => {
   if (!value) return "No activity yet";
@@ -25,7 +26,7 @@ export default function Dashboards() {
   const [error, setError] = createSignal("");
   let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 
-  const [dashboards, { refetch }] = createResource<DashboardSummary[], string>(() => query(), async (q) => {
+  const [dashboards, { refetch, mutate }] = createResource<DashboardSummary[], string>(() => query(), async (q) => {
     setError("");
     try {
       const params = q ? `?q=${encodeURIComponent(q)}` : "";
@@ -221,7 +222,7 @@ export default function Dashboards() {
                 class="group flex h-full cursor-pointer flex-col overflow-hidden border-l-4 border-l-blue-500 hover:border-blue-500/50 hover:bg-zinc-900/60 transition-all duration-200"
               >
                 <CardHeader class="p-5 pb-3">
-                  <div class="flex items-start justify-between gap-4">
+                  <div class="flex items-start justify-between gap-3">
                     <div class="min-w-0">
                       <CardTitle class="truncate text-lg font-bold text-white transition-colors group-hover:text-blue-300">
                         {d.name || "Untitled Dashboard"}
@@ -230,22 +231,35 @@ export default function Dashboards() {
                         Updated {formatDate(d.updated_at || d.created_at)}
                       </CardDescription>
                     </div>
-                    <Badge variant={d.isPublic ? "success" : "secondary"} class="shrink-0">
-                      {d.isPublic ? "Public" : "Private"}
-                    </Badge>
+                    <div class="flex items-center gap-1.5 shrink-0">
+                      <GroupTagPicker
+                        tags={d.tags || []}
+                        endpoint={`/api/dashboards/${dashboardId(d.id)}`}
+                        canEdit={(d as any).permissions?.canWrite !== false}
+                        onUpdated={(nextTags, nextPerms) => {
+                          mutate((prev) =>
+                            (prev || []).map((item) =>
+                              item.id === d.id
+                                ? ({
+                                    ...item,
+                                    tags: nextTags,
+                                    permissions: nextPerms || (item as any).permissions,
+                                  } as DashboardSummary)
+                                : item
+                            )
+                          );
+                        }}
+                      />
+                      <Badge variant={d.isPublic ? "success" : "secondary"} class="shrink-0">
+                        {d.isPublic ? "Published" : "Draft"}
+                      </Badge>
+                    </div>
                   </div>
                 </CardHeader>
                 
                 <CardContent class="px-5 pb-4">
                   <Show when={d.description}>
                     <p class="text-sm text-zinc-400 line-clamp-2 mb-3">{d.description}</p>
-                  </Show>
-                  <Show when={d.tags && d.tags.length > 0}>
-                    <div class="flex flex-wrap gap-1.5 mb-3">
-                      <For each={d.tags}>
-                        {(tag) => <Badge variant="purple">{tag}</Badge>}
-                      </For>
-                    </div>
                   </Show>
                   <div class="grid grid-cols-2 gap-3">
                     <div class="rounded-xl border border-zinc-800/80 bg-zinc-900/50 p-3">

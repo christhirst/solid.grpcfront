@@ -3,12 +3,14 @@ import { isServer } from "solid-js/web";
 import { A } from "@solidjs/router";
 
 import { checkWorkflowConfiguredInDashboards } from "~/lib/workflowVariableChecker";
+import { GroupTagPicker } from "~/components/GroupTagPicker";
 
 export default function Workflows() {
   const [searchQuery, setSearchQuery] = createSignal("");
   const [isDeleting, setIsDeleting] = createSignal<string | null>(null);
   const [isCloning, setIsCloning] = createSignal<string | null>(null);
   const [error, setError] = createSignal<string | null>(null);
+  const [noAccess, setNoAccess] = createSignal<string | null>(null);
   let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 
   const [dashboards, { refetch: refetchDashboards }] = createResource(async () => {
@@ -27,6 +29,7 @@ export default function Workflows() {
 
   const fetchWorkflows = async (q: string) => {
     setError(null);
+    setNoAccess(null);
     try {
       const params = q ? `?q=${encodeURIComponent(q)}` : "";
       const url = isServer
@@ -34,6 +37,12 @@ export default function Workflows() {
         : `/api/workflows${params}`;
       const res = await fetch(url);
       const json = await res.json().catch(() => ({}));
+      if (res.status === 403) {
+        if (!isServer) {
+          setNoAccess(json.error || "Creator or Admin role is required to view workflows.");
+        }
+        return [];
+      }
       if (!res.ok || !json.success) {
         throw new Error(json.error || `Failed to load workflows (${res.status})`);
       }
@@ -47,7 +56,7 @@ export default function Workflows() {
     }
   };
 
-  const [workflows, { refetch }] = createResource(() => searchQuery(), fetchWorkflows);
+  const [workflows, { refetch, mutate }] = createResource(() => searchQuery(), fetchWorkflows);
 
   onMount(() => {
     refetch();
@@ -155,6 +164,14 @@ export default function Workflows() {
         </div>
       </div>
 
+      {/* Restricted access notice for user / viewer roles */}
+      <Show when={noAccess()}>
+        <div class="mb-6 rounded-2xl border border-amber-500/30 bg-amber-950/20 p-8 text-center">
+          <h3 class="text-lg font-bold text-amber-200 mb-1">Workflows Require Creator or Admin Role</h3>
+          <p class="text-sm text-zinc-400">{noAccess()}</p>
+        </div>
+      </Show>
+
       {/* Error state with retry */}
       <Show when={error()}>
         <div class="mb-6 p-4 rounded-xl border border-rose-500/40 bg-rose-950/30 text-rose-200 flex items-center justify-between shadow-lg">
@@ -181,7 +198,7 @@ export default function Workflows() {
       <Show
         when={workflows() && workflows().length > 0}
         fallback={
-          <Show when={!error()}>
+          <Show when={!error() && !noAccess()}>
             <div class="card flex flex-col items-center justify-center p-16 text-center border-dashed border-[#2a2a3a]">
               <div class="mb-6 rounded-full bg-[#1e1e2e] p-6 text-[#5b5b6e]">
                 <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -245,13 +262,24 @@ export default function Workflows() {
                           </span>
                         </Show>
 
-                        <span class={`rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide ${
-                          (workflow.visibility || "private") === "public"
-                            ? "border-emerald-500/30 bg-emerald-500/15 text-emerald-300"
-                            : "border-[#2a2a3a] bg-[#0a0a0f] text-[#8b8b9e]"
-                        }`}>
-                          {workflow.tags?.length > 0 ? "Group Shared" : "Private"}
-                        </span>
+                        <GroupTagPicker
+                          tags={workflow.tags || []}
+                          endpoint={`/api/workflows/${rawWfId()}`}
+                          canEdit={workflow.permissions?.canWrite !== false}
+                          onUpdated={(nextTags, nextPerms) => {
+                            mutate((prev: any[] | undefined) =>
+                              (prev || []).map((w) =>
+                                w.id === workflow.id
+                                  ? {
+                                      ...w,
+                                      tags: nextTags,
+                                      permissions: nextPerms || w.permissions,
+                                    }
+                                  : w
+                              )
+                            );
+                          }}
+                        />
                         <button
                           type="button"
                           class="text-[#5b5b6e] transition-colors hover:text-blue-400 p-1 rounded hover:bg-blue-500/10"
@@ -293,17 +321,6 @@ export default function Workflows() {
 
                   
                   <h3 class="text-lg font-semibold text-white group-hover:text-blue-400 transition-colors">{workflow.name || "Untitled Workflow"}</h3>
-                  <Show when={Array.isArray(workflow.tags) && workflow.tags.length > 0}>
-                    <div class="mt-2 flex flex-wrap gap-1.5">
-                      <For each={workflow.tags}>
-                        {(tag: string) => (
-                          <span class="rounded-full border border-purple-500/30 bg-purple-500/15 px-2 py-0.5 font-mono text-[10px] font-semibold text-purple-300">
-                            {tag}
-                          </span>
-                        )}
-                      </For>
-                    </div>
-                  </Show>
                   <p class="mt-2 text-sm text-[#8b8b9e] line-clamp-2">
                     {workflow.steps?.length || 0} steps connected to {workflow.serverAddress}
                   </p>

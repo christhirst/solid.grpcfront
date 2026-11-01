@@ -9,7 +9,7 @@ import { publicDashboardPath } from "~/lib/dashboard/publicUrl";
 export function BoardLive(props: { dash: DashboardSummary }) {
   const [workflowMap] = createResource(
     () => props.dash.id,
-    () => loadWorkflowMap(props.dash.buttons || [])
+    () => loadWorkflowMap(props.dash.buttons || [], dashboardId(props.dash.id))
   );
 
   return (

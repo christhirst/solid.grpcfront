@@ -4,13 +4,26 @@ import { v4 as uuidv4 } from "uuid";
 import { RecordId } from "surrealdb";
 import { scheduleWorkflow } from "~/lib/workflowScheduler";
 import { getEffectiveAccessContext, getOwnerFromRequest } from "~/lib/auth";
-import { canAccessResource, getResourcePermissions, normalizeGroupName } from "~/lib/groupAuth";
+import {
+  canAccessObject,
+  getObjectPermissions,
+  normalizeTagList,
+} from "~/lib/groupAuth";
 import { readJsonBody } from "~/lib/requestUtils";
 
 export async function GET(event: APIEvent) {
   try {
     const db = await getDb();
     const ctx = await getEffectiveAccessContext(event.request, db);
+    if (!ctx.capabilities.canManageWorkflows) {
+      return Response.json(
+        {
+          success: false,
+          error: "Creator or Admin role is required to view workflows.",
+        },
+        { status: 403 }
+      );
+    }
     const url = new URL(event.request.url);
     const q = url.searchParams.get("q")?.trim() || "";
 
@@ -31,18 +44,11 @@ export async function GET(event: APIEvent) {
       }));
 
       workflows = raw
-        .filter((w: any) => {
-          const hasRealOwner = Boolean(w.owner && w.owner !== "anonymous");
-          const hasTags = Array.isArray(w.tags) && w.tags.length > 0;
-          if (ctx.sub === "anonymous") {
-            return !hasRealOwner && !hasTags;
-          }
-          return canAccessResource(ctx, w, "view");
-        })
+        .filter((w: any) => canAccessObject(ctx, w, "workflow", "view"))
         .map((w: any) => ({
           ...w,
-          tags: Array.isArray(w.tags) ? w.tags : [],
-          permissions: getResourcePermissions(ctx, w),
+          tags: normalizeTagList(w.tags),
+          permissions: getObjectPermissions(ctx, w, "workflow"),
         }));
     } catch (e: any) {
       if (!e.message?.includes("does not exist")) throw e;
@@ -76,9 +82,7 @@ export async function POST(event: APIEvent) {
     const rawId = body.id || `workflow:${uuidv4()}`;
     const dbId = rawId.includes(":") ? rawId.split(":")[1] : rawId;
     const now = new Date().toISOString();
-    const tags = Array.isArray(body.tags)
-      ? body.tags.map((t: unknown) => normalizeGroupName(String(t).split(":")[0] || "")).filter(Boolean)
-      : [];
+    const tags = normalizeTagList(body.tags);
 
     const workflow = {
       ...body,
@@ -97,7 +101,7 @@ export async function POST(event: APIEvent) {
     const record = Array.isArray(records) ? records[0] : records;
     if (record) {
       record.id = `workflow:${dbId}`;
-      record.permissions = getResourcePermissions(ctx, record);
+      record.permissions = getObjectPermissions(ctx, record, "workflow");
       // Schedule the workflow if it has a cron expression
       scheduleWorkflow(record);
     }

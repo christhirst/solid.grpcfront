@@ -25,12 +25,12 @@ export default function DashboardLibrary() {
     setError("");
     try {
       const url = isServer
-        ? `http://127.0.0.1:${process.env.PORT || 3000}/api/dashboards?published=true`
-        : `/api/dashboards?published=true`;
+        ? `http://127.0.0.1:${process.env.PORT || 3000}/api/dashboards?library=true`
+        : `/api/dashboards?library=true`;
       const res = await fetch(url);
       const json = await res.json();
       if (!res.ok || !json.success) throw new Error(json.error || "Failed to load library");
-      return (json.data || []).filter((d: any) => d.isPublic);
+      return json.data || [];
     } catch (e: any) {
       console.error("[Dashboard Library] Fetch error:", e);
       setError(e.message);

@@ -36,7 +36,10 @@ function NewsWidgetComponent(props: { btn: any; dashboardId?: string }) {
 
     if (props.btn.streamActive !== false) {
       setStatus("live");
-      const es = new EventSource(`/api/workflows/${wfId}/stream`);
+      const dashQuery = props.dashboardId
+        ? `?dashboard=${encodeURIComponent(props.dashboardId)}`
+        : "";
+      const es = new EventSource(`/api/workflows/${wfId}/stream${dashQuery}`);
 
       es.onmessage = (e) => {
         try {
@@ -83,10 +86,13 @@ function NewsWidgetComponent(props: { btn: any; dashboardId?: string }) {
     const wfId = (props.btn.workflowId.includes(":") ? props.btn.workflowId.split(":")[1] : props.btn.workflowId).replace(/[⟨⟩]/g, "");
     setStatus("loading");
     try {
-      const res = await fetch(`/api/workflows/${wfId}/run`, {
+      const dashQuery = props.dashboardId
+        ? `?dashboard=${encodeURIComponent(props.dashboardId)}`
+        : "";
+      const res = await fetch(`/api/workflows/${wfId}/run${dashQuery}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ form: {} }),
+        body: JSON.stringify({ form: {}, dashboardId: props.dashboardId }),
       });
       const json = await res.json();
       if (json.success) setStatus("idle");
@@ -889,16 +895,20 @@ function InfographicWidget(props: { syntax?: string; data?: any; editable?: bool
 // ─── Shared public dashboard view (used by /p/[id] and the /library preview) ──
 
 /** Fetches every workflow referenced by the given buttons, keyed by the raw workflowId. */
-export async function loadWorkflowMap(buttons: any[]): Promise<Record<string, any>> {
+export async function loadWorkflowMap(buttons: any[], dashId?: string): Promise<Record<string, any>> {
   const ids: string[] = [...new Set((buttons || []).flatMap((b: any) => [
     b.workflowId,
     ...(b.chartSeries || []).map((s: any) => s.workflowId)
   ]).filter(Boolean))] as string[];
+  const cleanDashId = dashId
+    ? (dashId.includes(":") ? dashId.split(":")[1] : dashId).replace(/[⟨⟩]/g, "")
+    : "";
+  const dashQuery = cleanDashId ? `?dashboard=${encodeURIComponent(cleanDashId)}` : "";
   const entries = await Promise.all(
     ids.map(async (wid) => {
       const rawId = (wid.includes(":") ? wid.split(":")[1] : wid).replace(/[⟨⟩]/g, "");
       try {
-        const r = await fetch(`/api/workflows/${rawId}`);
+        const r = await fetch(`/api/workflows/${rawId}${dashQuery}`);
         const j = await r.json();
         return j.success ? [wid, j.data] : null;
       } catch {

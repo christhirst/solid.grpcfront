@@ -761,6 +761,256 @@ export function canAccessResource(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Two-stage object access for Workflows & Dashboards
+//   Stage 1: IdP platform role decides whether the category is visible/editable.
+//   Stage 2: Local object groups (tags) decide WHICH objects are visible.
+// ---------------------------------------------------------------------------
+
+/** Reserved tag making an object visible (view + use) to everyone whose role can see its category. */
+export const PUBLIC_TAG = "public";
+
+export function isPublicTag(tag: unknown): boolean {
+  return normalizeGroupName(String(tag ?? "").split(":")[0] || "") === PUBLIC_TAG;
+}
+
+export type ObjectCategory = "workflow" | "dashboard";
+
+/**
+ * Stage 1: Category visibility & edit capability for a platform role.
+ * - workflow: admin & creator only (user/viewer can NEVER see workflows)
+ * - dashboard: admin, creator & user can see + edit; viewer can only view (Library)
+ */
+export function categoryAccess(
+  role: PlatformRole,
+  category: ObjectCategory
+): { canSee: boolean; canEdit: boolean } {
+  if (category === "workflow") {
+    const ok = role === "admin" || role === "creator";
+    return { canSee: ok, canEdit: ok };
+  }
+  // dashboard
+  if (role === "viewer") return { canSee: true, canEdit: false };
+  return { canSee: true, canEdit: true };
+}
+
+/** Normalize a list of raw tags into unique canonical group names. */
+export function normalizeTagList(tags: unknown): string[] {
+  if (!Array.isArray(tags)) return [];
+  const out: string[] = [];
+  for (const t of tags) {
+    const norm = normalizeGroupName(String(t ?? "").split(":")[0] || "");
+    if (norm && !out.includes(norm)) out.push(norm);
+  }
+  return out;
+}
+
+/** Whether the user is an active member of (a group covering) `group`. */
+export function isGroupMember(ctx: EffectiveAccessContext, group: string): boolean {
+  if (ctx.isAdmin) return true;
+  const norm = normalizeGroupName(group);
+  if (!norm || norm === PUBLIC_TAG) return false;
+  return ctx.activeGrants.some((g) => groupCoversTag(g.group, norm));
+}
+
+/** Whether the user is an active manager of (a group covering) `group`. */
+export function isGroupManager(ctx: EffectiveAccessContext, group: string): boolean {
+  if (ctx.isAdmin) return true;
+  const norm = normalizeGroupName(group);
+  if (!norm || norm === PUBLIC_TAG) return false;
+  return ctx.activeGrants.some(
+    (g) => g.rights.includes("manager") && groupCoversTag(g.group, norm)
+  );
+}
+
+const NO_PERMISSIONS: ResourcePermissions = {
+  canView: false,
+  canUse: false,
+  canWrite: false,
+  canDelete: false,
+  isManager: false,
+  isOwner: false,
+};
+
+/**
+ * Compute permissions for a Workflow or Dashboard using the two-stage model:
+ *  1. Role must be able to see the category (else: no access at all).
+ *  2. Admin → everything. Owner → view/use + edit/delete if role can edit.
+ *     Member of a tagged group → view/use + edit if role can edit (+ delete if group manager).
+ *     Tagged "public" → view/use.
+ *     Legacy unowned & untagged objects → view/use (+ edit if role can edit) for logged-in users.
+ */
+export function getObjectPermissions(
+  ctx: EffectiveAccessContext,
+  resource: { owner?: string; tags?: string[] } | null | undefined,
+  category: ObjectCategory
+): ResourcePermissions {
+  if (!resource) return { ...NO_PERMISSIONS };
+
+  const isAuthenticated = Boolean(ctx.sub && ctx.sub !== "anonymous");
+  const hasRealOwner = Boolean(resource.owner && resource.owner !== "anonymous");
+  const isOwner = Boolean(isAuthenticated && hasRealOwner && resource.owner === ctx.sub);
+
+  const access = categoryAccess(ctx.platformRole, category);
+  if (!access.canSee && !ctx.isAdmin) return { ...NO_PERMISSIONS, isOwner };
+
+  if (ctx.isAdmin) {
+    return { canView: true, canUse: true, canWrite: true, canDelete: true, isManager: true, isOwner };
+  }
+
+  const tags = normalizeTagList(resource.tags);
+  const groupTags = tags.filter((t) => t !== PUBLIC_TAG);
+  const hasPublic = tags.includes(PUBLIC_TAG);
+
+  let canView = false;
+  let canWrite = false;
+  let canDelete = false;
+  let isManager = false;
+
+  if (isOwner && !ctx.disableOwnerBypass) {
+    canView = true;
+    canWrite = access.canEdit;
+    canDelete = access.canEdit;
+    isManager = access.canEdit;
+  }
+
+  if (isAuthenticated) {
+    for (const tag of groupTags) {
+      if (isGroupMember(ctx, tag)) {
+        canView = true;
+        if (access.canEdit) canWrite = true;
+        if (access.canEdit && isGroupManager(ctx, tag)) {
+          canDelete = true;
+          isManager = true;
+        }
+      }
+    }
+
+    if (hasPublic) canView = true;
+
+    // Legacy / seeded objects without owner and without tags
+    if (!hasRealOwner && tags.length === 0 && !ctx.isSimulating) {
+      canView = true;
+      if (access.canEdit) canWrite = true;
+    }
+  }
+
+  return {
+    canView,
+    canUse: canView,
+    canWrite,
+    canDelete,
+    isManager,
+    isOwner,
+  };
+}
+
+/** Convenience check for a single right on a Workflow or Dashboard. */
+export function canAccessObject(
+  ctx: EffectiveAccessContext,
+  resource: { owner?: string; tags?: string[] } | null | undefined,
+  category: ObjectCategory,
+  right: GroupRight
+): boolean {
+  const p = getObjectPermissions(ctx, resource, category);
+  switch (right) {
+    case "view":
+      return p.canView;
+    case "use":
+      return p.canUse;
+    case "write":
+      return p.canWrite;
+    case "delete":
+      return p.canDelete;
+    case "manager":
+      return p.isManager;
+    default:
+      return false;
+  }
+}
+
+/**
+ * Merge a requested tag list into the existing one, only allowing changes to `allowed` tags.
+ * Tags the user is not allowed to manage (foreign groups) are preserved untouched.
+ */
+export function mergeTagUpdate(
+  existing: unknown,
+  requested: unknown,
+  allowed: Iterable<string>
+): string[] {
+  const allowedSet = new Set<string>();
+  for (const a of allowed) {
+    const n = normalizeGroupName(String(a));
+    if (n) allowedSet.add(n);
+  }
+  const cur = normalizeTagList(existing);
+  const req = normalizeTagList(requested);
+  const result: string[] = [];
+  for (const t of cur) {
+    if (!allowedSet.has(t) && !result.includes(t)) result.push(t);
+  }
+  for (const t of req) {
+    if (allowedSet.has(t) && !result.includes(t)) result.push(t);
+  }
+  return result;
+}
+
+/** Groups (plus "public") the user may add/remove as tags. Admins may use any known group. */
+export function getTaggableGroups(
+  ctx: EffectiveAccessContext,
+  allExistingGroups: Iterable<string> = []
+): string[] {
+  const set = new Set<string>();
+  if (ctx.isAdmin) {
+    for (const g of allExistingGroups) {
+      const n = normalizeGroupName(String(g));
+      if (n && n !== PUBLIC_TAG) set.add(n);
+    }
+  }
+  for (const g of ctx.activeGrants) {
+    if (g.group && !isAdminGroupName(g.group) && g.group !== PUBLIC_TAG) set.add(g.group);
+  }
+  return [PUBLIC_TAG, ...[...set].sort()];
+}
+
+// ---------------------------------------------------------------------------
+// Publish namespaces (user- or group-owned)
+// ---------------------------------------------------------------------------
+
+export interface PublishNamespaceRecord {
+  name: string;
+  ownerType: "user" | "group";
+  ownerSub?: string | null;
+  ownerGroup?: string | null;
+}
+
+/** Whether the user may publish dashboards under the given namespace. */
+export function canPublishToNamespace(
+  ctx: EffectiveAccessContext,
+  ns: PublishNamespaceRecord | null | undefined
+): boolean {
+  if (!ns || !ctx.sub || ctx.sub === "anonymous") return false;
+  if (ctx.isAdmin) return true;
+  if (!categoryAccess(ctx.platformRole, "dashboard").canEdit) return false;
+  if (ns.ownerType === "group") {
+    return Boolean(ns.ownerGroup && isGroupMember(ctx, ns.ownerGroup));
+  }
+  return Boolean(ns.ownerSub && ns.ownerSub === ctx.sub);
+}
+
+/** Whether the user may rename, transfer or delete the given namespace. */
+export function canManageNamespace(
+  ctx: EffectiveAccessContext,
+  ns: PublishNamespaceRecord | null | undefined
+): boolean {
+  if (!ns || !ctx.sub || ctx.sub === "anonymous") return false;
+  if (ctx.isAdmin) return true;
+  if (ns.ownerType === "group") {
+    return Boolean(ns.ownerGroup && isGroupManager(ctx, ns.ownerGroup));
+  }
+  return Boolean(ns.ownerSub && ns.ownerSub === ctx.sub);
+}
+
 /**
  * Check whether the user has a specific right on a target group namespace itself
  * (e.g., checking if user has "manager" or "use" on "group1" or "group1.test1").
@@ -840,6 +1090,16 @@ export function canCreateGroupNamespace(
       parent,
       leaf,
       error: formatError,
+    };
+  }
+
+  if (normalized === PUBLIC_TAG) {
+    return {
+      allowed: false,
+      normalized,
+      parent,
+      leaf,
+      error: `"${PUBLIC_TAG}" is a reserved tag and cannot be used as a group name.`,
     };
   }
 

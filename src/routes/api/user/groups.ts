@@ -4,8 +4,10 @@ import { getAuthUser, getEffectiveAccessContext } from "~/lib/auth";
 import { getDb } from "~/lib/db";
 import { ensurePublishingSchema } from "~/lib/dashboard/publishing";
 import {
+  PUBLIC_TAG,
   canCreateGroupNamespace,
   formatGroupClaim,
+  getTaggableGroups,
   groupCoversTag,
   hasGroupRight,
   normalizeGroupName,
@@ -14,7 +16,7 @@ import {
 } from "~/lib/groupAuth";
 import { readJsonBody } from "~/lib/requestUtils";
 
-async function collectAllExistingGroups(db: any): Promise<Set<string>> {
+export async function collectAllExistingGroups(db: any): Promise<Set<string>> {
   const existing = new Set<string>();
 
   // 1. Group namespaces
@@ -22,7 +24,8 @@ async function collectAllExistingGroups(db: any): Promise<Set<string>> {
     const nsRes = await db.query(`SELECT name FROM group_namespace;`);
     const groupRows = Array.isArray(nsRes) ? (Array.isArray(nsRes[0]) ? nsRes[0] : nsRes) : [];
     for (const r of groupRows) {
-      if (r?.name) existing.add(normalizeGroupName(String(r.name)));
+      const n = normalizeGroupName(String(r?.name || ""));
+      if (n && n !== PUBLIC_TAG) existing.add(n);
     }
   } catch {
     // group_namespace might not exist yet
@@ -33,7 +36,8 @@ async function collectAllExistingGroups(db: any): Promise<Set<string>> {
     const memRes = await db.query(`SELECT group FROM group_member;`);
     const memRows = Array.isArray(memRes) ? (Array.isArray(memRes[0]) ? memRes[0] : memRes) : [];
     for (const r of memRows) {
-      if (r?.group) existing.add(normalizeGroupName(String(r.group)));
+      const n = normalizeGroupName(String(r?.group || ""));
+      if (n && n !== PUBLIC_TAG) existing.add(n);
     }
   } catch {
     // group_member might not exist yet
@@ -50,7 +54,7 @@ async function collectAllExistingGroups(db: any): Promise<Set<string>> {
           if (Array.isArray(r?.tags)) {
             for (const t of r.tags) {
               const norm = normalizeGroupName(String(t).split(":")[0] || "");
-              if (norm) existing.add(norm);
+              if (norm && norm !== PUBLIC_TAG) existing.add(norm);
             }
           }
         }
@@ -123,16 +127,25 @@ export async function GET(event: APIEvent) {
     const membersByGroup: Record<string, any[]> = {};
     for (const m of memberRecords) {
       const grp = normalizeGroupName(m.group || "");
-      if (!grp) continue;
+      if (!grp || grp === PUBLIC_TAG) continue;
       if (!membersByGroup[grp]) membersByGroup[grp] = [];
+      const isMgr =
+        m.role === "manager" ||
+        (Array.isArray(m.rights) && m.rights.includes("manager")) ||
+        (typeof m.rights === "string" && m.rights.includes("manager"));
+      const role: "member" | "manager" = isMgr ? "manager" : "member";
+      const rights: GroupRight[] = isMgr
+        ? ["view", "use", "write", "delete", "manager"]
+        : ["view", "use", "write", "delete"];
       membersByGroup[grp].push({
         id: m.id?.toString().replace(/[⟨⟩]/g, ""),
         group: grp,
         username: m.username || m.userSub || "",
         userSub: m.userSub || undefined,
         displayName: m.displayName || m.username || m.userSub || "",
-        rights: Array.isArray(m.rights) ? m.rights : ["view", "use"],
-        claim: formatGroupClaim(grp, Array.isArray(m.rights) ? m.rights : ["view", "use"]),
+        role,
+        rights,
+        claim: `${grp}:${role}`,
         assignedBy: m.assignedBy || "",
         updated_at: m.updated_at || m.created_at || "",
       });
@@ -186,6 +199,7 @@ export async function GET(event: APIEvent) {
       data: {
         groups: visibleGroups,
         existingGroupNames: [...existingSet].sort(),
+        taggableGroups: getTaggableGroups(ctx, existingSet),
         knownUsers,
       },
     });
@@ -303,14 +317,19 @@ export async function POST(event: APIEvent) {
         );
       }
 
-      // Normalize & expand requested rights using parseGroupClaim
-      const rightsInput = body.rights || ["view", "use"];
+      // Resolve member role ("member" or "manager")
+      const requestedRole = String(body.role || "").trim().toLowerCase();
+      const rightsInput = body.rights || [];
       const rightsStr = Array.isArray(rightsInput) ? `(${rightsInput.join(",")})` : String(rightsInput);
       const parsedClaim = parseGroupClaim(`${groupName}:${rightsStr}`, "db");
-      const effectiveRights: GroupRight[] = parsedClaim?.rights?.length
-        ? parsedClaim.rights
-        : ["view", "use"];
-      const fullClaim = formatGroupClaim(groupName, effectiveRights);
+      const isMgr =
+        requestedRole === "manager" ||
+        Boolean(parsedClaim?.rights.includes("manager"));
+      const memberRole: "member" | "manager" = isMgr ? "manager" : "member";
+      const effectiveRights: GroupRight[] = isMgr
+        ? ["view", "use", "write", "delete", "manager"]
+        : ["view", "use", "write", "delete"];
+      const fullClaim = `${groupName}:${memberRole}`;
 
       // Look up if target user already exists in user_profile
       let resolvedSub: string | undefined;
@@ -363,6 +382,7 @@ export async function POST(event: APIEvent) {
         username: canonicalUsername,
         displayName,
         userSub: resolvedSub,
+        role: memberRole,
         rights: effectiveRights,
         assignedBy: user.sub,
         created_at: now,

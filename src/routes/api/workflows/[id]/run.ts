@@ -5,13 +5,15 @@ import { v4 as uuidv4 } from "uuid";
 import { RecordId } from "surrealdb";
 import { readJsonBody } from "~/lib/requestUtils";
 import { getEffectiveAccessContext } from "~/lib/auth";
-import { canAccessResource } from "~/lib/groupAuth";
+import { canAccessObject } from "~/lib/groupAuth";
+import { canUseWorkflowViaDashboard } from "~/lib/dashboard/dashboardScope";
 
 export async function POST(event: APIEvent) {
   try {
     const id = event.params.id;
     const db = await getDb();
     const ctx = await getEffectiveAccessContext(event.request, db);
+    const url = new URL(event.request.url);
 
     const dbId = (id || "").replace(/^workflow:/, "").replace(/[⟨⟩]/g, "").trim();
     let records: any = [];
@@ -35,9 +37,32 @@ export async function POST(event: APIEvent) {
       ...(Array.isArray(records) ? records[0] : records),
       id: `workflow:${dbId}`,
     };
-    const hasRealOwner = Boolean(workflow.owner && workflow.owner !== "anonymous");
-    const hasTags = Array.isArray(workflow.tags) && workflow.tags.length > 0;
-    if ((hasRealOwner || hasTags) && ctx.sub !== "anonymous" && !canAccessResource(ctx, workflow, "use")) {
+
+    // Read form data from payload if present
+    let formPayload = {};
+    let bodyDashboardId = "";
+    try {
+      const body = await readJsonBody(event);
+      if (body && body.form) {
+        formPayload = body.form;
+      }
+      if (body && (body.dashboard || body.dashboardId)) {
+        bodyDashboardId = String(body.dashboard || body.dashboardId);
+      }
+    } catch (e) {
+      // Ignored
+    }
+
+    const dashboardIdParam = url.searchParams.get("dashboard") || bodyDashboardId;
+    const directAllowed =
+      ctx.capabilities.canManageWorkflows &&
+      canAccessObject(ctx, workflow, "workflow", "use");
+    const dashboardAllowed =
+      !directAllowed &&
+      Boolean(dashboardIdParam) &&
+      (await canUseWorkflowViaDashboard(db, ctx, dashboardIdParam, dbId));
+
+    if (!directAllowed && !dashboardAllowed) {
       return Response.json(
         {
           success: false,
@@ -48,17 +73,6 @@ export async function POST(event: APIEvent) {
     }
 
     const runId = `workflow_run:${uuidv4()}`;
-
-    // Read form data from payload if present
-    let formPayload = {};
-    try {
-      const body = await readJsonBody(event);
-      if (body && body.form) {
-        formPayload = body.form;
-      }
-    } catch (e) {
-      // Ignored
-    }
 
     // Kick off the background execution!
     runWorkflowBackground(workflow, runId, { form: formPayload }).catch(console.error);
