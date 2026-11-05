@@ -6,6 +6,7 @@ import { createSignal, createEffect, onMount, onCleanup, For, Show, createResour
 import { extractFormVariables, checkWorkflowConfiguredInDashboards, detectStepVariables, type VariableConfigStatus } from "~/lib/workflowVariableChecker";
 import { collectFieldNames, type FieldInfo } from "~/lib/dashboard/chartSeries";
 import { executeTextTransform, type TextTransformOperation, type TextTransformOpType } from "~/lib/textProcessor";
+import { isVaultSecretRef } from "~/lib/vaultRef";
 
 
 import { createStore, reconcile, produce } from "solid-js/store";
@@ -2512,7 +2513,19 @@ export default function WorkflowBuilder() {
                                           <div class="flex items-center gap-3">
                                             <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-500/20 text-blue-400 text-sm">🌐</span>
                                             <div>
-                                              <div class="font-semibold text-white">{(conn() as any).name}</div>
+                                              <div class="font-semibold text-white flex items-center gap-2">
+                                                <span>{(conn() as any).name}</span>
+                                                <Show when={(conn() as any).credentialSecurity === "openbao"}>
+                                                  <span class="rounded border border-emerald-500/40 bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-bold text-emerald-300">
+                                                    🔒 OpenBao Safe
+                                                  </span>
+                                                </Show>
+                                                <Show when={(conn() as any).credentialSecurity === "cleartext" || (conn() as any).credentialSecurity === "mixed"}>
+                                                  <span class="rounded border border-amber-500/40 bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-bold text-amber-300">
+                                                    ⚠️ DB Cleartext
+                                                  </span>
+                                                </Show>
+                                              </div>
                                               <div class="text-[11px] font-mono text-[#8b8b9e]">
                                                 {(conn() as any).url || (conn() as any).tokenUrl}
                                                 <Show when={(conn() as any).authType && (conn() as any).authType !== "none"}>
@@ -4697,6 +4710,7 @@ function StepAuthSettings(props: {
   onRefresh?: () => void;
   isLoading?: boolean;
 }) {
+  const [offloadingField, setOffloadingField] = createSignal<string | null>(null);
   const currentAuthType = () => props.step?.authType || "none";
   const oauthConnections = () => (props.connections || []).filter((c: any) => isOAuthProvider(c));
   const currentAuthConnId = () =>
@@ -4705,6 +4719,33 @@ function StepAuthSettings(props: {
     if (!props.connections) return undefined;
     const targetId = currentAuthConnId();
     return (props.connections || []).find((c: any) => c.id === targetId);
+  };
+
+  const offloadStepSecret = async (field: string, currentValue: string) => {
+    if (!currentValue || isVaultSecretRef(currentValue)) return;
+    setOffloadingField(field);
+    try {
+      const res = await fetch("/api/vault", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "offload_step_secret",
+          stepId: props.step?.id || `step_${props.index + 1}`,
+          field,
+          value: currentValue,
+        }),
+      });
+      const json = await res.json();
+      if (res.ok && json.ref) {
+        props.updateStep(props.index, field, json.ref);
+      } else {
+        alert(json.error || "Could not store secret in OpenBao. Ensure OpenBao is configured in /connections.");
+      }
+    } catch (e: any) {
+      alert(e.message || "Failed to store secret in OpenBao");
+    } finally {
+      setOffloadingField(null);
+    }
   };
 
   return (
@@ -4739,12 +4780,35 @@ function StepAuthSettings(props: {
       </div>
 
       <Show when={currentAuthType() === "bearer"}>
-        <div class="max-w-md">
-          <label class="mb-1 block text-[10px] text-[#8b8b9e]">Bearer Token</label>
+        <div class="max-w-md space-y-1">
+          <div class="flex items-center justify-between">
+            <label class="text-[10px] text-[#8b8b9e]">Bearer Token</label>
+            <Show when={(props.step?.bearerToken || "").trim()}>
+              <div class="flex items-center gap-1.5">
+                <span class={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${
+                  isVaultSecretRef(props.step?.bearerToken)
+                    ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
+                    : "bg-amber-500/15 text-amber-300 border-amber-500/30"
+                }`}>
+                  {isVaultSecretRef(props.step?.bearerToken) ? "🔒 OpenBao Safe" : "⚠️ Cleartext in DB"}
+                </span>
+                <Show when={!isVaultSecretRef(props.step?.bearerToken)}>
+                  <button
+                    type="button"
+                    onClick={() => offloadStepSecret("bearerToken", props.step?.bearerToken)}
+                    disabled={offloadingField() === "bearerToken"}
+                    class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30"
+                  >
+                    {offloadingField() === "bearerToken" ? "Saving..." : "🔒 Move to OpenBao"}
+                  </button>
+                </Show>
+              </div>
+            </Show>
+          </div>
           <input
-            type="password"
+            type={isVaultSecretRef(props.step?.bearerToken) ? "text" : "password"}
             class="w-full rounded border border-[#2a2a3a] bg-[#1a1a26] p-2 text-xs text-white focus:border-blue-500 focus:outline-none font-mono"
-            placeholder="eyJhbGciOi..."
+            placeholder="eyJhbGciOi... or bao:secret/path#token"
             value={props.step?.bearerToken || ""}
             onInput={(e) => props.updateStep(props.index, "bearerToken", e.currentTarget.value)}
           />
@@ -4764,11 +4828,35 @@ function StepAuthSettings(props: {
             />
           </div>
           <div>
-            <label class="mb-1 block text-[10px] text-[#8b8b9e]">Password</label>
+            <div class="mb-1 flex items-center justify-between">
+              <label class="text-[10px] text-[#8b8b9e]">Password</label>
+              <Show when={(props.step?.authPassword || "").trim()}>
+                <div class="flex items-center gap-1">
+                  <span class={`text-[9px] font-bold px-1 py-0.5 rounded border ${
+                    isVaultSecretRef(props.step?.authPassword)
+                      ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
+                      : "bg-amber-500/15 text-amber-300 border-amber-500/30"
+                  }`}>
+                    {isVaultSecretRef(props.step?.authPassword) ? "🔒 OpenBao" : "⚠️ Cleartext"}
+                  </span>
+                  <Show when={!isVaultSecretRef(props.step?.authPassword)}>
+                    <button
+                      type="button"
+                      onClick={() => offloadStepSecret("authPassword", props.step?.authPassword)}
+                      disabled={offloadingField() === "authPassword"}
+                      class="text-[9px] font-bold px-1 py-0.5 rounded bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30"
+                      title="Offload password to OpenBao KV v2"
+                    >
+                      {offloadingField() === "authPassword" ? "..." : "🔒"}
+                    </button>
+                  </Show>
+                </div>
+              </Show>
+            </div>
             <input
-              type="password"
+              type={isVaultSecretRef(props.step?.authPassword) ? "text" : "password"}
               class="w-full rounded border border-[#2a2a3a] bg-[#1a1a26] p-2 text-xs text-white focus:border-blue-500 focus:outline-none"
-              placeholder="Password"
+              placeholder="Password or bao:secret/..."
               value={props.step?.authPassword || ""}
               onInput={(e) => props.updateStep(props.index, "authPassword", e.currentTarget.value)}
             />

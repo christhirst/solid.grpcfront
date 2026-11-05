@@ -5,6 +5,7 @@ import { RecordId } from "surrealdb";
 import { getEffectiveAccessContext, getOwnerFromRequest } from "~/lib/auth";
 import { normalizeConnection } from "~/lib/connections";
 import { canAccessResource, getResourcePermissions, normalizeGroupName } from "~/lib/groupAuth";
+import { offloadSecretsToOpenBao, CONNECTION_SECRET_FIELDS } from "~/lib/openbao";
 
 export async function GET(event: APIEvent) {
   try {
@@ -64,13 +65,23 @@ export async function POST(event: APIEvent) {
       ? body.tags.map((t: unknown) => normalizeGroupName(String(t).split(":")[0] || "")).filter(Boolean)
       : [];
 
+    let payloadBody = { ...body };
+    if (payloadBody.secretStorage === "openbao") {
+      payloadBody = await offloadSecretsToOpenBao(
+        `solidflow/connections/${dbId}`,
+        payloadBody,
+        null,
+        CONNECTION_SECRET_FIELDS
+      );
+    }
+
     const normalized = normalizeConnection({
-      ...body,
+      ...payloadBody,
       id: rawId,
       owner,
       tags,
-      visibility: body.visibility || (tags.length > 0 ? "group" : "private"),
-      created_at: body.created_at || now,
+      visibility: payloadBody.visibility || (tags.length > 0 ? "group" : "private"),
+      created_at: payloadBody.created_at || now,
       updated_at: now,
     });
 

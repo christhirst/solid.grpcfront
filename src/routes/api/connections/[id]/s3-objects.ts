@@ -4,6 +4,7 @@ import { getDb } from "~/lib/db";
 import { normalizeConnection, getCaCertContent } from "~/lib/connections";
 import { listS3Objects } from "~/lib/s3Executor";
 import { readJsonBody } from "~/lib/requestUtils";
+import { resolveObjectSecrets } from "~/lib/openbao";
 
 export async function POST(event: APIEvent) {
   try {
@@ -51,7 +52,7 @@ export async function POST(event: APIEvent) {
       return Response.json({ success: false, error: "S3 connection configuration not found" }, { status: 404 });
     }
 
-    const connection = normalizeConnection(rawConnection) as any;
+    const connection = await resolveObjectSecrets(normalizeConnection(rawConnection) as any);
     if (connection.type !== "s3") {
       return Response.json({ success: false, error: "An S3 connection is required" }, { status: 400 });
     }

@@ -2,6 +2,11 @@ import get from "lodash.get";
 import * as grpc from "@grpc/grpc-js";
 import { Surreal, RecordId } from "surrealdb";
 import { listS3Objects } from "~/lib/s3Executor";
+import {
+  getCredentialSecuritySummary,
+  CONNECTION_SECRET_FIELDS,
+  type CredentialSecurityStatus,
+} from "~/lib/vaultRef";
 
 export type ConnectionType = "http" | "grpc" | "surrealdb" | "oauth" | "s3";
 export type AuthType = "none" | "basic" | "bearer" | "oauth";
@@ -37,6 +42,10 @@ export interface ConnectionBase {
   oauthProvider?: boolean;
   oauthVerifiedAt?: string;
   oauthLastError?: string;
+  secretStorage?: "openbao" | "db";
+  credentialSecurity?: CredentialSecurityStatus;
+  vaultFields?: string[];
+  cleartextFields?: string[];
   created_at?: string;
   updated_at?: string;
 }
@@ -119,10 +128,10 @@ export function normalizeConnection(raw: any): Connection {
   }
 
   if (type === "s3") {
-    return {
+    const s3Norm = {
       ...raw,
       id: rawId,
-      type: "s3",
+      type: "s3" as const,
       endpoint: raw.endpoint || raw.url || "https://s3.amazonaws.com",
       region: raw.region || "us-east-1",
       bucket: (raw.bucket || "").replace(/^s3:\/\//i, "").replace(/\/+$/, ""),
@@ -133,6 +142,14 @@ export function normalizeConnection(raw: any): Connection {
       forcePathStyle: raw.forcePathStyle !== undefined ? Boolean(raw.forcePathStyle) : true,
       caId: raw.caId || undefined,
       acceptInvalidCert: raw.acceptInvalidCert !== undefined ? Boolean(raw.acceptInvalidCert) : undefined,
+    };
+    const sec = getCredentialSecuritySummary(s3Norm, CONNECTION_SECRET_FIELDS);
+    return {
+      ...s3Norm,
+      secretStorage: raw.secretStorage || (sec.status === "openbao" ? "openbao" : "db"),
+      credentialSecurity: sec.status,
+      vaultFields: sec.vaultFields,
+      cleartextFields: sec.cleartextFields,
     };
   }
 
@@ -185,7 +202,7 @@ export function normalizeConnection(raw: any): Connection {
       ? Boolean(raw.oauthProvider)
       : Boolean((authType === "oauth" || type === "oauth") && tokenUrl);
 
-  return {
+  const normalizedObj = {
     ...raw,
     id: rawId,
     type: type === "oauth" ? "http" : type,
@@ -210,6 +227,14 @@ export function normalizeConnection(raw: any): Connection {
     tokenHeaderPrefix: raw.tokenHeaderPrefix !== undefined ? raw.tokenHeaderPrefix : "Bearer ",
     tokenMetadataKey: raw.tokenMetadataKey || "authorization",
     timeoutMs: raw.timeoutMs !== undefined ? Number(raw.timeoutMs) : undefined,
+  };
+  const sec = getCredentialSecuritySummary(normalizedObj, CONNECTION_SECRET_FIELDS);
+  return {
+    ...normalizedObj,
+    secretStorage: raw.secretStorage || (sec.status === "openbao" ? "openbao" : "db"),
+    credentialSecurity: sec.status,
+    vaultFields: sec.vaultFields,
+    cleartextFields: sec.cleartextFields,
   };
 }
 
@@ -255,7 +280,7 @@ function normalizeHttpEndpointUrl(rawUrl: string): string {
 /**
  * Fetch OAuth / Pre-request token (supports both OIDC application/x-www-form-urlencoded and JSON bodies)
  */
-export async function fetchPreRequestToken(config: {
+export async function fetchPreRequestToken(rawConfig: {
   tokenUrl?: string;
   tokenMethod?: string;
   tokenAuthScheme?: string;
@@ -273,6 +298,8 @@ export async function fetchPreRequestToken(config: {
   caId?: string;
   acceptInvalidCert?: boolean;
 }): Promise<{ success: boolean; token?: string; response?: any; latencyMs?: number; error?: string }> {
+  const { resolveObjectSecrets } = await import("~/lib/openbao");
+  const config = await resolveObjectSecrets(rawConfig);
   const {
     tokenUrl,
     tokenMethod = "POST",
@@ -473,7 +500,9 @@ export async function fetchPreRequestToken(config: {
 /**
  * Test HTTP Connection
  */
-export async function testHttpConnection(config: any): Promise<any> {
+export async function testHttpConnection(rawConfig: any): Promise<any> {
+  const { resolveObjectSecrets } = await import("~/lib/openbao");
+  const config = await resolveObjectSecrets(rawConfig);
   let tokenResult: any = null;
   let authToken: string | undefined = undefined;
 
@@ -623,7 +652,9 @@ export async function testHttpConnection(config: any): Promise<any> {
 /**
  * Test gRPC Connection
  */
-export async function testGrpcConnection(config: any): Promise<any> {
+export async function testGrpcConnection(rawConfig: any): Promise<any> {
+  const { resolveObjectSecrets } = await import("~/lib/openbao");
+  const config = await resolveObjectSecrets(rawConfig);
   const { serverAddress, useTls, caId, acceptInvalidCert, metadata, authType } = config;
 
   if (!serverAddress) {
@@ -740,7 +771,9 @@ export async function testGrpcConnection(config: any): Promise<any> {
 /**
  * Test SurrealDB Connection
  */
-export async function testSurrealDbConnection(config: any): Promise<any> {
+export async function testSurrealDbConnection(rawConfig: any): Promise<any> {
+  const { resolveObjectSecrets } = await import("~/lib/openbao");
+  const config = await resolveObjectSecrets(rawConfig);
   const { url, username, password, namespace, database } = config;
   const timeoutMs = Number(config.timeoutMs || config.timeout || 5000);
 
@@ -850,7 +883,9 @@ export async function testSurrealDbConnection(config: any): Promise<any> {
 /**
  * Test S3 Connection
  */
-export async function testS3Connection(config: any): Promise<any> {
+export async function testS3Connection(rawConfig: any): Promise<any> {
+  const { resolveObjectSecrets } = await import("~/lib/openbao");
+  const config = await resolveObjectSecrets(rawConfig);
   const endpoint = config.endpoint || config.url || "https://s3.amazonaws.com";
   const bucket = (config.bucket || "").replace(/^s3:\/\//i, "").replace(/\/+$/, "");
   const region = config.region || "us-east-1";

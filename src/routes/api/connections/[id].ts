@@ -4,6 +4,7 @@ import { RecordId } from "surrealdb";
 import { normalizeConnection } from "~/lib/connections";
 import { getEffectiveAccessContext } from "~/lib/auth";
 import { canAccessResource, getResourcePermissions, normalizeGroupName } from "~/lib/groupAuth";
+import { offloadSecretsToOpenBao, deleteVaultSecrets, CONNECTION_SECRET_FIELDS } from "~/lib/openbao";
 
 export async function GET(event: APIEvent) {
   try {
@@ -73,9 +74,21 @@ export async function PUT(event: APIEvent) {
           ? ctx.sub
           : existing?.owner || "anonymous";
 
-    const normalized = normalizeConnection({
+    let mergedBody: Record<string, any> = {
       ...existing,
       ...body,
+    };
+    if (mergedBody.secretStorage === "openbao") {
+      mergedBody = await offloadSecretsToOpenBao(
+        `solidflow/connections/${dbId}`,
+        mergedBody,
+        existing,
+        CONNECTION_SECRET_FIELDS
+      );
+    }
+
+    const normalized = normalizeConnection({
+      ...mergedBody,
       id: `connection:${dbId}`,
       owner,
       tags,
@@ -123,6 +136,7 @@ export async function DELETE(event: APIEvent) {
     }
 
     await db.delete(recordId);
+    await deleteVaultSecrets(`solidflow/connections/${dbId}`);
 
     return new Response(JSON.stringify({ success: true }), {
       headers: { "Content-Type": "application/json" },

@@ -30,6 +30,7 @@ export const STANDARD_TABLES = [
     "ca_cert",
     "user_profile",
     "group_namespace",
+    "vault_config",
 ] as const;
 
 export const STANDARD_TABLES_SQL = STANDARD_TABLES.map(

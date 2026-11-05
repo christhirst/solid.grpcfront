@@ -11,6 +11,7 @@ import { normalizeConnection, fetchPreRequestToken } from "~/lib/connections";
 import { listS3Objects, buildS3ListResult, toS3ObjectItem } from "~/lib/s3Executor";
 import { resolveSubPath } from "~/lib/dashboard/widgetConditions";
 import { executeTextTransform, registerJsonataTextFunctions, coerceToText } from "~/lib/textProcessor";
+import { resolveObjectSecrets, readVaultSecret, isVaultSecretRef, STEP_SECRET_FIELDS } from "~/lib/openbao";
 import { getStepCategory, type StepCategory, type WorkflowStep, type StepVariable } from "./stepCategories";
 export { getStepCategory, type StepCategory, type WorkflowStep, type StepVariable };
 
@@ -52,11 +53,12 @@ function normalizeStepHttpUrl(url: string): string {
 }
 
 async function getStepAuthHeader(
-  step: any,
+  rawStep: any,
   db: any,
   context?: any,
   tokenCache?: Map<string, { header?: string; token?: string; response?: any; name?: string }>
 ): Promise<string | undefined> {
+  const step = await resolveObjectSecrets(rawStep, STEP_SECRET_FIELDS);
   const authType = step.authType || "none";
   if (authType === "basic" && (step.authUsername || step.authPassword || step.username || step.password)) {
     const rawToken = Buffer.from(`${step.authUsername || step.username || ""}:${step.authPassword || step.password || ""}`).toString("base64");
@@ -103,7 +105,7 @@ async function getStepAuthHeader(
       const rawConnection = Array.isArray(connRecord) ? connRecord[0] : connRecord;
       
       if (rawConnection) {
-        const connection = normalizeConnection(rawConnection);
+        const connection = await resolveObjectSecrets(normalizeConnection(rawConnection));
         const conn = connection as any;
         console.log(`[STEP AUTH] Resolving auth for connection: ${connection.name} (type: ${connection.type})`);
 
@@ -285,6 +287,9 @@ export function interpolateTemplate(template: string, context: Record<string, an
     if (val === undefined && context.variables) {
       val = get(context.variables, path);
     }
+    if (val === undefined && context.__vaultRefs && path in context.__vaultRefs) {
+      val = context.__vaultRefs[path];
+    }
     if (val === undefined) {
       // If the token is an upstream query/calculation expression (not a variable lookup),
       // unwrap it instead of wiping to empty string so queries can execute
@@ -315,6 +320,7 @@ function evaluatePayload(templateObj: any, context: Record<string, any>): any {
       if (val === undefined && context.form) val = get(context.form, path);
       if (val === undefined && context.dashboard_form) val = get(context.dashboard_form, path);
       if (val === undefined && context.variables) val = get(context.variables, path);
+      if (val === undefined && context.__vaultRefs && path in context.__vaultRefs) val = context.__vaultRefs[path];
       if (val !== undefined) return val;
       const isCalculation = /\b(SELECT|FROM|WHERE|count\(|LET|RETURN|IF)\b/i.test(path) || /[><=]/.test(path);
       if (isCalculation) return path;
@@ -534,7 +540,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
         const rawConnection = Array.isArray(connRecord) ? connRecord[0] : connRecord;
         
         if (rawConnection) {
-          const connection = normalizeConnection(rawConnection);
+          const connection = await resolveObjectSecrets(normalizeConnection(rawConnection));
           const conn = connection as any;
           console.log(`[AUTH] Resolving workflow connection auth: ${connection.name}`);
 
@@ -707,7 +713,32 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
         }
       }
     }
-    for (const step of executionSteps) {
+    // Pre-resolve any {{ bao:... }} or {{ vaultSecret(...) }} template tokens across steps
+    const vaultRefMap: Record<string, string> = {};
+    const stepJsonText = JSON.stringify(executionSteps);
+    const templateMatches = stepJsonText.matchAll(/\{\{\s*([^{}]+?)\s*\}\}/g);
+    const uniqueVaultRefs = new Set<string>();
+    for (const match of templateMatches) {
+      const candidate = (match[1] || "").trim();
+      if (isVaultSecretRef(candidate)) {
+        uniqueVaultRefs.add(candidate);
+      }
+    }
+    if (uniqueVaultRefs.size > 0) {
+      await Promise.all(
+        Array.from(uniqueVaultRefs).map(async (ref) => {
+          try {
+            vaultRefMap[ref] = await readVaultSecret(ref);
+          } catch (e: any) {
+            console.warn(`[OPENBAO] Failed to resolve template vault ref "${ref}": ${e.message}`);
+          }
+        })
+      );
+      context.__vaultRefs = vaultRefMap;
+    }
+
+    for (const rawStep of executionSteps) {
+      const step = await resolveObjectSecrets(rawStep, STEP_SECRET_FIELDS);
       // Each step runs inside a Sentry span. The callback returns a signal
       // ("continue" | "abort") so we can control the outer loop without
       // using continue/return across the function boundary.
@@ -1397,7 +1428,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
               const connRecord = await db.select(new RecordId("connection", connDbId));
               const rawConn = Array.isArray(connRecord) ? connRecord[0] : connRecord;
               if (rawConn) {
-                const conn = normalizeConnection(rawConn) as any;
+                const conn = await resolveObjectSecrets(normalizeConnection(rawConn) as any);
                 if (conn.url && !targetDbUrl) targetDbUrl = conn.url;
                 if (conn.username && !targetDbUser) targetDbUser = conn.username;
                 if (conn.password && !targetDbPass) targetDbPass = conn.password;
@@ -1504,7 +1535,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
             const connRecord = await db.select(new RecordId("connection", connDbId));
             const rawConn = Array.isArray(connRecord) ? connRecord[0] : connRecord;
             if (rawConn) {
-              const conn = normalizeConnection(rawConn) as any;
+              const conn = await resolveObjectSecrets(normalizeConnection(rawConn) as any);
               if (conn.endpoint && !s3Endpoint) s3Endpoint = conn.endpoint;
               if (conn.region && !s3Region) s3Region = conn.region;
               if (conn.bucket && !s3Bucket) s3Bucket = conn.bucket;
@@ -1659,7 +1690,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
             const connDbId = String(authConnId).replace(/^connection:/, "").replace(/[⟨⟩]/g, "").trim();
             const connRecord = await db.select(new RecordId("connection", connDbId));
             const rawConn = Array.isArray(connRecord) ? connRecord[0] : connRecord;
-            if (rawConn) targetConn = normalizeConnection(rawConn);
+            if (rawConn) targetConn = await resolveObjectSecrets(normalizeConnection(rawConn));
           } catch (e: any) {
             console.error("[OAUTH STEP] Failed to load connection:", e);
           }

@@ -2,7 +2,19 @@ import { createSignal, createResource, createMemo, onMount, onCleanup, For, Show
 import { isServer } from "solid-js/web";
 import { type ConnectionType, type AuthType } from "~/lib/connections";
 import { isOAuthProvider } from "~/lib/stepCategories";
+import { isVaultSecretRef } from "~/lib/vaultRef";
 import { ResourceTagEditor } from "~/components/ResourceTagEditor";
+
+const fetchVaultStatus = async () => {
+  try {
+    const url = isServer ? `http://127.0.0.1:${process.env.PORT || 3000}/api/vault` : "/api/vault";
+    const res = await fetch(url, isServer ? undefined : { credentials: "include" });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+};
 
 const fetchConnections = async () => {
   const url = isServer ? `http://127.0.0.1:${process.env.PORT || 3000}/api/connections` : "/api/connections";
@@ -57,15 +69,18 @@ export default function Connections() {
   const [connections, { refetch }] = createResource(fetchConnections);
   const [cas, { refetch: refetchCas }] = createResource(fetchCas);
   const [protos, { refetch: refetchProtos }] = createResource(fetchProtos);
+  const [vaultStatus, { refetch: refetchVault }] = createResource(fetchVaultStatus);
 
   onMount(() => {
     refetch();
     refetchCas();
     refetchProtos();
+    refetchVault();
     const reload = () => {
       refetch();
       refetchCas();
       refetchProtos();
+      refetchVault();
     };
     window.addEventListener("user-groups-changed", reload);
     window.addEventListener("focus", reload);
@@ -89,6 +104,21 @@ export default function Connections() {
   const [name, setName] = createSignal("");
   const [description, setDescription] = createSignal("");
   const [tags, setTags] = createSignal<string[]>([]);
+  const [secretStorage, setSecretStorage] = createSignal<"openbao" | "db">("db");
+
+  // OpenBao Vault Modal State
+  const [isVaultModalOpen, setIsVaultModalOpen] = createSignal(false);
+  const [vaultUrl, setVaultUrl] = createSignal("http://127.0.0.1:8200");
+  const [vaultToken, setVaultToken] = createSignal("");
+  const [vaultMount, setVaultMount] = createSignal("secret");
+  const [vaultNamespace, setVaultNamespace] = createSignal("");
+  const [vaultCaId, setVaultCaId] = createSignal("");
+  const [vaultAcceptInvalidCert, setVaultAcceptInvalidCert] = createSignal(false);
+  const [isTestingVault, setIsTestingVault] = createSignal(false);
+  const [isSavingVault, setIsSavingVault] = createSignal(false);
+  const [isMigratingVault, setIsMigratingVault] = createSignal(false);
+  const [migratingConnId, setMigratingConnId] = createSignal<string | null>(null);
+  const [vaultModalFeedback, setVaultModalFeedback] = createSignal<{ ok: boolean; message: string } | null>(null);
 
   // HTTP Fields
   const [url, setUrl] = createSignal("");
@@ -214,6 +244,7 @@ export default function Connections() {
     setName("");
     setDescription("");
     setTags([]);
+    setSecretStorage(vaultStatus()?.connected ? "openbao" : "db");
     setUrl("");
     setMethod("GET");
     setHeaders("{}");
@@ -369,6 +400,15 @@ export default function Connections() {
     setName(conn.name || "");
     setDescription(conn.description || "");
     setTags(Array.isArray(conn.tags) ? conn.tags : []);
+    setSecretStorage(
+      conn.credentialSecurity === "openbao"
+        ? "openbao"
+        : conn.secretStorage === "openbao"
+          ? "openbao"
+          : vaultStatus()?.connected && conn.credentialSecurity === "none"
+            ? "openbao"
+            : "db"
+    );
 
     // HTTP
     setUrl(conn.url || "");
@@ -455,6 +495,7 @@ export default function Connections() {
       type,
       description: description().trim() || undefined,
       tags: tags(),
+      secretStorage: secretStorage(),
     };
 
     const isFormOAuth = authType() === "oauth" && tokenContentType() === "application/x-www-form-urlencoded";
@@ -836,6 +877,146 @@ export default function Connections() {
     }
   };
 
+  const openVaultModal = () => {
+    const st = vaultStatus();
+    setVaultUrl(st?.url || "http://127.0.0.1:8200");
+    setVaultToken(st?.hasToken ? "********" : "");
+    setVaultMount(st?.mount || "secret");
+    setVaultNamespace(st?.namespace || "");
+    setVaultCaId(st?.caId || "");
+    setVaultAcceptInvalidCert(Boolean(st?.acceptInvalidCert));
+    setVaultModalFeedback(null);
+    setIsVaultModalOpen(true);
+  };
+
+  const testVaultSettings = async () => {
+    setIsTestingVault(true);
+    setVaultModalFeedback(null);
+    try {
+      const res = await fetch("/api/vault", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "test",
+          url: vaultUrl(),
+          token: vaultToken(),
+          mount: vaultMount(),
+          namespace: vaultNamespace(),
+          caId: vaultCaId(),
+          acceptInvalidCert: vaultAcceptInvalidCert(),
+        }),
+      });
+      const json = await res.json();
+      if (json.connected) {
+        setVaultModalFeedback({
+          ok: true,
+          message: `Connected to OpenBao (${json.version || "KV v2"}) at ${json.url}, mount "${json.mount}".`,
+        });
+      } else {
+        setVaultModalFeedback({
+          ok: false,
+          message: json.error || "Failed to connect to OpenBao.",
+        });
+      }
+    } catch (e: any) {
+      setVaultModalFeedback({ ok: false, message: e.message || "OpenBao test failed" });
+    } finally {
+      setIsTestingVault(false);
+    }
+  };
+
+  const saveVaultSettings = async () => {
+    setIsSavingVault(true);
+    setVaultModalFeedback(null);
+    try {
+      const res = await fetch("/api/vault", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "save",
+          url: vaultUrl(),
+          token: vaultToken(),
+          mount: vaultMount(),
+          namespace: vaultNamespace(),
+          caId: vaultCaId(),
+          acceptInvalidCert: vaultAcceptInvalidCert(),
+        }),
+      });
+      const json = await res.json();
+      await refetchVault();
+      if (json.connected) {
+        setVaultModalFeedback({
+          ok: true,
+          message: "OpenBao configuration saved and verified.",
+        });
+      } else {
+        setVaultModalFeedback({
+          ok: false,
+          message: json.error || "Saved configuration, but OpenBao is currently unreachable.",
+        });
+      }
+    } catch (e: any) {
+      setVaultModalFeedback({ ok: false, message: e.message || "Failed to save OpenBao settings" });
+    } finally {
+      setIsSavingVault(false);
+    }
+  };
+
+  const migrateAllSecretsToVault = async () => {
+    setIsMigratingVault(true);
+    setVaultModalFeedback(null);
+    try {
+      const res = await fetch("/api/vault", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "migrate_all" }),
+      });
+      const json = await res.json();
+      if (res.ok && json.ok) {
+        setVaultModalFeedback({ ok: true, message: json.message });
+        refetch();
+      } else {
+        setVaultModalFeedback({ ok: false, message: json.error || "Migration failed" });
+      }
+    } catch (e: any) {
+      setVaultModalFeedback({ ok: false, message: e.message || "Migration failed" });
+    } finally {
+      setIsMigratingVault(false);
+    }
+  };
+
+  const migrateSingleConnectionToOpenBao = async (conn: any, e: Event) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!vaultStatus()?.connected) {
+      openVaultModal();
+      return;
+    }
+    const connId = conn.id;
+    const dbId = connId.includes(":") ? connId.split(":")[1] : connId;
+    setMigratingConnId(connId);
+    try {
+      const res = await fetch(`/api/connections/${dbId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...conn,
+          secretStorage: "openbao",
+        }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        refetch();
+      } else {
+        alert("Failed to migrate credentials to OpenBao: " + json.error);
+      }
+    } catch (err: any) {
+      alert("Error migrating connection to OpenBao: " + err.message);
+    } finally {
+      setMigratingConnId(null);
+    }
+  };
+
   return (
     <main class="mx-auto max-w-7xl 2xl:max-w-[90rem] px-4 sm:px-6 py-12">
       {/* Header */}
@@ -847,6 +1028,22 @@ export default function Connections() {
 
         <Show when={!isEditing()}>
           <div class="flex flex-wrap items-center gap-2">
+            <button
+              onClick={openVaultModal}
+              class={`rounded-xl border px-3.5 py-2.5 text-xs font-bold flex items-center gap-2 transition-all ${
+                vaultStatus()?.connected
+                  ? "border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 shadow-lg shadow-emerald-500/5"
+                  : "border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 shadow-lg shadow-amber-500/5"
+              }`}
+              title="Configure OpenBao Vault for encrypted credential storage"
+            >
+              <span>{vaultStatus()?.connected ? "🔒" : "⚠️"}</span>
+              <span>
+                {vaultStatus()?.connected
+                  ? `OpenBao Vault: Connected (${vaultStatus()?.mount || "secret"})`
+                  : "OpenBao Vault: Not Connected (Cleartext DB)"}
+              </span>
+            </button>
             <button
               onClick={() => startNew("http")}
               class="rounded-xl border border-blue-500/30 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 font-semibold px-4 py-2.5 text-sm flex items-center gap-2 transition-all shadow-lg shadow-blue-500/5 hover:-translate-y-0.5"
@@ -1057,7 +1254,25 @@ export default function Connections() {
                           </div>
 
                           {/* Title & Target Details */}
-                          <h3 class="text-base font-bold text-white mb-1 group-hover:text-blue-400 transition-colors">{conn.name}</h3>
+                          <div class="flex items-start justify-between gap-2 mb-1">
+                            <h3 class="text-base font-bold text-white group-hover:text-blue-400 transition-colors">{conn.name}</h3>
+                            <Show when={conn.credentialSecurity === "openbao"}>
+                              <span
+                                class="shrink-0 rounded-md border border-emerald-500/40 bg-emerald-500/15 px-2 py-0.5 text-[10px] font-bold text-emerald-300 flex items-center gap-1"
+                                title="All credentials on this connection are stored encrypted in OpenBao KV v2"
+                              >
+                                🔒 OpenBao Safe
+                              </span>
+                            </Show>
+                            <Show when={conn.credentialSecurity === "cleartext" || conn.credentialSecurity === "mixed"}>
+                              <span
+                                class="shrink-0 rounded-md border border-amber-500/40 bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold text-amber-300 flex items-center gap-1"
+                                title="Warning: Credentials are stored in cleartext in SurrealDB"
+                              >
+                                ⚠️ Unsafe: DB Cleartext
+                              </span>
+                            </Show>
+                          </div>
                           <Show when={Array.isArray(conn.tags) && conn.tags.length > 0}>
                             <div class="mb-2 flex flex-wrap gap-1">
                               <For each={conn.tags}>
@@ -1183,6 +1398,16 @@ export default function Connections() {
                           </Show>
 
                           <div class="flex items-center gap-1.5">
+                            <Show when={(conn.credentialSecurity === "cleartext" || conn.credentialSecurity === "mixed") && vaultStatus()?.connected}>
+                              <button
+                                onClick={(e) => migrateSingleConnectionToOpenBao(conn, e)}
+                                disabled={migratingConnId() === conn.id}
+                                class="px-2 py-1 rounded bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 text-[10px] font-semibold border border-emerald-500/30 transition-colors flex items-center gap-1 disabled:opacity-50"
+                                title="Offload cleartext password/token from SurrealDB into OpenBao Vault"
+                              >
+                                {migratingConnId() === conn.id ? "Securing..." : "🔒 Move to OpenBao"}
+                              </button>
+                            </Show>
                             <Show when={type === "grpc"}>
                               <button
                                 onClick={(e) => inspectConnectionFromCard(conn, e)}
@@ -1284,6 +1509,84 @@ export default function Connections() {
               <div>
                 <label class="mb-1.5 block text-xs font-medium text-[#8b8b9e]">Group Tags (Sharing & RBAC)</label>
                 <ResourceTagEditor tags={tags()} onChange={setTags} />
+              </div>
+
+              {/* ---------------- CREDENTIAL STORAGE MODE (OPENBAO VS DB CLEARTEXT) ---------------- */}
+              <div class={`p-4 rounded-xl border space-y-2.5 ${
+                secretStorage() === "openbao"
+                  ? "bg-emerald-500/5 border-emerald-500/30"
+                  : "bg-amber-500/5 border-amber-500/30"
+              }`}>
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <h4 class="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+                      <span>{secretStorage() === "openbao" ? "🔒" : "⚠️"}</span>
+                      <span>Credential Storage Security</span>
+                    </h4>
+                    <p class="text-[11px] text-[#8b8b9e]">
+                      Choose where passwords, Bearer tokens, and OAuth secrets for this connection are stored
+                    </p>
+                  </div>
+
+                  <div class="flex p-1 bg-[#111118] border border-[#2a2a3a] rounded-lg shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setSecretStorage("openbao")}
+                      class={`px-3 py-1.5 text-xs font-bold rounded transition-all flex items-center gap-1.5 ${
+                        secretStorage() === "openbao"
+                          ? "bg-emerald-600 text-white shadow"
+                          : "text-emerald-400/80 hover:text-white"
+                      }`}
+                    >
+                      <span>🔒</span>
+                      <span>OpenBao Vault (Safe)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSecretStorage("db")}
+                      class={`px-3 py-1.5 text-xs font-bold rounded transition-all flex items-center gap-1.5 ${
+                        secretStorage() === "db"
+                          ? "bg-amber-600 text-white shadow"
+                          : "text-amber-400/80 hover:text-white"
+                      }`}
+                    >
+                      <span>⚠️</span>
+                      <span>DB Cleartext (Unsafe)</span>
+                    </button>
+                  </div>
+                </div>
+
+                <Show when={secretStorage() === "openbao"}>
+                  <div class="text-[11px] text-emerald-300/90 flex items-center justify-between gap-2 bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-3 py-2">
+                    <span>
+                      <strong>🔒 Safe Mode:</strong> Passwords and tokens entered below will be stored encrypted in OpenBao KV v2 (<code class="font-mono text-[10px]">{vaultStatus()?.mount || "secret"}/solidflow/connections/...</code>). SurrealDB only stores a <code class="font-mono text-[10px]">bao:...</code> reference pointer. You can also paste an existing <code class="font-mono text-[10px]">bao:mount/path#key</code> reference directly into any password field.
+                    </span>
+                    <Show when={!vaultStatus()?.connected}>
+                      <button
+                        type="button"
+                        onClick={openVaultModal}
+                        class="shrink-0 px-2.5 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-200 font-bold text-[10px]"
+                      >
+                        Configure OpenBao
+                      </button>
+                    </Show>
+                  </div>
+                </Show>
+
+                <Show when={secretStorage() === "db"}>
+                  <div class="text-[11px] text-amber-300/90 flex items-center justify-between gap-2 bg-amber-500/10 border border-amber-500/25 rounded-lg px-3 py-2">
+                    <span>
+                      <strong>⚠️ Unsafe (Cleartext in DB):</strong> Passwords and tokens entered below will be stored unencrypted in SurrealDB. Recommended only for local testing when OpenBao is not installed.
+                    </span>
+                    <button
+                      type="button"
+                      onClick={openVaultModal}
+                      class="shrink-0 px-2.5 py-1 rounded bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 text-emerald-300 font-bold text-[10px]"
+                    >
+                      {vaultStatus()?.connected ? "Switch to OpenBao" : "Setup OpenBao"}
+                    </button>
+                  </div>
+                </Show>
               </div>
 
               {/* ---------------- HTTP CONFIGURATION ---------------- */}
@@ -1588,13 +1891,24 @@ export default function Connections() {
                       />
                     </div>
                     <div>
-                      <label class="mb-1 block text-xs font-medium text-[#8b8b9e]">Password</label>
+                      <div class="mb-1 flex items-center justify-between">
+                        <label class="text-xs font-medium text-[#8b8b9e]">Password</label>
+                        <Show when={dbPassword().trim()}>
+                          <span class={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                            isVaultSecretRef(dbPassword()) || secretStorage() === "openbao"
+                              ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
+                              : "bg-amber-500/15 text-amber-300 border border-amber-500/30"
+                          }`}>
+                            {isVaultSecretRef(dbPassword()) ? "🔒 OpenBao Ref" : secretStorage() === "openbao" ? "🔒 OpenBao Safe" : "⚠️ DB Cleartext"}
+                          </span>
+                        </Show>
+                      </div>
                       <input
-                        type="password"
+                        type={isVaultSecretRef(dbPassword()) ? "text" : "password"}
                         class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-blue-500 focus:outline-none"
                         value={dbPassword()}
                         onInput={(e) => setDbPassword(e.currentTarget.value)}
-                        placeholder="Password"
+                        placeholder="Password or bao:secret/path#password"
                       />
                     </div>
                   </div>
@@ -1662,13 +1976,24 @@ export default function Connections() {
                       />
                     </div>
                     <div>
-                      <label class="mb-1 block text-xs font-medium text-[#8b8b9e]">Secret Access Key</label>
+                      <div class="mb-1 flex items-center justify-between">
+                        <label class="text-xs font-medium text-[#8b8b9e]">Secret Access Key</label>
+                        <Show when={s3SecretAccessKey().trim()}>
+                          <span class={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                            isVaultSecretRef(s3SecretAccessKey()) || secretStorage() === "openbao"
+                              ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
+                              : "bg-amber-500/15 text-amber-300 border border-amber-500/30"
+                          }`}>
+                            {isVaultSecretRef(s3SecretAccessKey()) ? "🔒 OpenBao Ref" : secretStorage() === "openbao" ? "🔒 OpenBao Safe" : "⚠️ DB Cleartext"}
+                          </span>
+                        </Show>
+                      </div>
                       <input
-                        type="password"
+                        type={isVaultSecretRef(s3SecretAccessKey()) ? "text" : "password"}
                         class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white font-mono focus:border-amber-500 focus:outline-none"
                         value={s3SecretAccessKey()}
                         onInput={(e) => setS3SecretAccessKey(e.currentTarget.value)}
-                        placeholder="Secret Access Key"
+                        placeholder="Secret Access Key or bao:secret/path#secretAccessKey"
                       />
                     </div>
                   </div>
@@ -1812,12 +2137,24 @@ export default function Connections() {
                         />
                       </div>
                       <div>
-                        <label class="mb-1 block text-xs font-medium text-[#8b8b9e]">Password</label>
+                        <div class="mb-1 flex items-center justify-between">
+                          <label class="text-xs font-medium text-[#8b8b9e]">Password</label>
+                          <Show when={password().trim()}>
+                            <span class={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                              isVaultSecretRef(password()) || secretStorage() === "openbao"
+                                ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
+                                : "bg-amber-500/15 text-amber-300 border border-amber-500/30"
+                            }`}>
+                              {isVaultSecretRef(password()) ? "🔒 OpenBao Ref" : secretStorage() === "openbao" ? "🔒 OpenBao Safe" : "⚠️ DB Cleartext"}
+                            </span>
+                          </Show>
+                        </div>
                         <input
-                          type="password"
+                          type={isVaultSecretRef(password()) ? "text" : "password"}
                           class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2 text-xs text-white focus:border-blue-500 focus:outline-none"
                           value={password()}
                           onInput={(e) => setPassword(e.currentTarget.value)}
+                          placeholder="Password or bao:secret/path#password"
                         />
                       </div>
                     </div>
@@ -1826,13 +2163,24 @@ export default function Connections() {
                   {/* Static Bearer Token Form */}
                   <Show when={authType() === "bearer"}>
                     <div class="pt-2 border-t border-[#2a2a3a]/40">
-                      <label class="mb-1 block text-xs font-medium text-[#8b8b9e]">Static Bearer Token</label>
+                      <div class="mb-1 flex items-center justify-between">
+                        <label class="text-xs font-medium text-[#8b8b9e]">Static Bearer Token</label>
+                        <Show when={bearerToken().trim()}>
+                          <span class={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                            isVaultSecretRef(bearerToken()) || secretStorage() === "openbao"
+                              ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
+                              : "bg-amber-500/15 text-amber-300 border border-amber-500/30"
+                          }`}>
+                            {isVaultSecretRef(bearerToken()) ? "🔒 OpenBao Ref" : secretStorage() === "openbao" ? "🔒 OpenBao Safe" : "⚠️ DB Cleartext"}
+                          </span>
+                        </Show>
+                      </div>
                       <input
-                        type="password"
+                        type={isVaultSecretRef(bearerToken()) ? "text" : "password"}
                         class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2 text-xs text-white font-mono focus:border-blue-500 focus:outline-none"
                         value={bearerToken()}
                         onInput={(e) => setBearerToken(e.currentTarget.value)}
-                        placeholder="eyJhbGciOi..."
+                        placeholder="eyJhbGciOi... or bao:secret/path#bearerToken"
                       />
                     </div>
                   </Show>
@@ -2036,17 +2384,28 @@ export default function Connections() {
                                 />
                               </div>
                               <div>
-                                <label class="mb-1 block text-[11px] font-medium text-[#8b8b9e]">password</label>
+                                <div class="mb-1 flex items-center justify-between">
+                                  <label class="text-[11px] font-medium text-[#8b8b9e]">password</label>
+                                  <Show when={tokenPassword().trim()}>
+                                    <span class={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
+                                      isVaultSecretRef(tokenPassword()) || secretStorage() === "openbao"
+                                        ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
+                                        : "bg-amber-500/15 text-amber-300 border border-amber-500/30"
+                                    }`}>
+                                      {isVaultSecretRef(tokenPassword()) ? "🔒 OpenBao Ref" : secretStorage() === "openbao" ? "🔒 OpenBao Safe" : "⚠️ DB Cleartext"}
+                                    </span>
+                                  </Show>
+                                </div>
                                 <input
-                                  type="password"
+                                  type={isVaultSecretRef(tokenPassword()) ? "text" : "password"}
                                   class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2 text-xs text-white font-mono focus:border-amber-500 focus:outline-none"
                                   value={tokenPassword()}
                                   onInput={(e) => {
                                     const p = e.currentTarget.value;
                                     setTokenPassword(p);
-                                    syncFormEncodedBody({ password: p });
+                                    syncFormEncodedBody({ pass: p });
                                   }}
-                                  placeholder="••••••••"
+                                  placeholder="•••••••• or bao:secret/path#tokenPassword"
                                 />
                               </div>
                               <div>
@@ -2364,6 +2723,177 @@ export default function Connections() {
                 >
                   Close
                 </button>
+              </div>
+            </div>
+          </div>
+        </Show>
+
+        {/* ---------------- OPENBAO VAULT CONFIGURATION MODAL ---------------- */}
+        <Show when={isVaultModalOpen()}>
+          <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
+            <div class="relative w-full max-w-xl rounded-2xl border border-emerald-500/30 bg-[#0d0d14] p-6 shadow-2xl space-y-5">
+              <div class="flex items-start justify-between border-b border-[#2a2a3a] pb-4">
+                <div class="flex items-center gap-3">
+                  <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/30 text-lg">
+                    🔒
+                  </div>
+                  <div>
+                    <h3 class="text-base font-bold text-white flex items-center gap-2">
+                      <span>OpenBao / Vault Secret Storage</span>
+                      <span class={`text-[10px] px-2 py-0.5 rounded font-bold border ${
+                        vaultStatus()?.connected
+                          ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
+                          : "bg-amber-500/15 text-amber-300 border-amber-500/30"
+                      }`}>
+                        {vaultStatus()?.connected ? "Connected" : "Not Connected"}
+                      </span>
+                    </h3>
+                    <p class="text-xs text-[#8b8b9e]">
+                      Store connection passwords, Bearer tokens, and OAuth secrets in OpenBao KV v2 instead of SurrealDB cleartext
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setIsVaultModalOpen(false)}
+                  class="text-[#5b5b6e] hover:text-white transition-colors p-1 rounded-lg hover:bg-[#1e1e2e]"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div class="space-y-4">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div class="md:col-span-2">
+                    <label class="mb-1 block text-xs font-medium text-[#8b8b9e]">OpenBao Server URL</label>
+                    <input
+                      type="text"
+                      class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-xs font-mono text-white focus:border-emerald-500 focus:outline-none"
+                      value={vaultUrl()}
+                      onInput={(e) => setVaultUrl(e.currentTarget.value)}
+                      placeholder="http://127.0.0.1:8200"
+                    />
+                  </div>
+                  <div>
+                    <label class="mb-1 block text-xs font-medium text-[#8b8b9e]">KV v2 Mount Path</label>
+                    <input
+                      type="text"
+                      class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-xs font-mono text-white focus:border-emerald-500 focus:outline-none"
+                      value={vaultMount()}
+                      onInput={(e) => setVaultMount(e.currentTarget.value)}
+                      placeholder="secret"
+                    />
+                  </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label class="mb-1 block text-xs font-medium text-[#8b8b9e]">OpenBao / Vault Token</label>
+                    <input
+                      type="password"
+                      class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-xs font-mono text-white focus:border-emerald-500 focus:outline-none"
+                      value={vaultToken()}
+                      onInput={(e) => setVaultToken(e.currentTarget.value)}
+                      placeholder="s.xxxxxx or root token"
+                    />
+                    <p class="mt-1 text-[10px] text-[#6b6b7e]">
+                      Also reads <code class="font-mono">OPENBAO_TOKEN</code> / <code class="font-mono">VAULT_TOKEN</code> or <code class="font-mono">~/.bao-token</code> automatically.
+                    </p>
+                  </div>
+                  <div>
+                    <label class="mb-1 block text-xs font-medium text-[#8b8b9e]">Namespace (Optional)</label>
+                    <input
+                      type="text"
+                      class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-xs font-mono text-white focus:border-emerald-500 focus:outline-none"
+                      value={vaultNamespace()}
+                      onInput={(e) => setVaultNamespace(e.currentTarget.value)}
+                      placeholder="Optional enterprise namespace"
+                    />
+                  </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3 items-center">
+                  <div>
+                    <label class="mb-1 block text-xs font-medium text-[#8b8b9e]">Trusted CA Certificate (Optional)</label>
+                    <select
+                      class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2 text-xs text-white focus:border-emerald-500 focus:outline-none"
+                      value={vaultCaId()}
+                      onChange={(e) => setVaultCaId(e.currentTarget.value)}
+                    >
+                      <option value="">System Default Root CAs</option>
+                      <For each={cas() || []}>
+                        {(c: any) => <option value={c.id}>{c.name}</option>}
+                      </For>
+                    </select>
+                  </div>
+                  <div class="flex items-center gap-2 pt-4">
+                    <input
+                      type="checkbox"
+                      id="vaultAcceptInvalidCert"
+                      checked={vaultAcceptInvalidCert()}
+                      onChange={(e) => setVaultAcceptInvalidCert(e.currentTarget.checked)}
+                      class="h-4 w-4 rounded border-[#2a2a3a] bg-[#1e1e2e] text-emerald-500"
+                    />
+                    <label for="vaultAcceptInvalidCert" class="text-xs text-amber-300 cursor-pointer">
+                      Accept Self-Signed / Dev TLS Certificates
+                    </label>
+                  </div>
+                </div>
+
+                {/* One-Click Migration Box */}
+                <div class="p-3.5 rounded-xl bg-[#111118] border border-[#2a2a3a] flex items-center justify-between gap-3">
+                  <div>
+                    <div class="text-xs font-bold text-white">Migrate Existing Cleartext Passwords to OpenBao</div>
+                    <p class="text-[11px] text-[#8b8b9e]">
+                      Moves all plaintext passwords/tokens from SurrealDB connections into OpenBao KV v2 and replaces them with <code class="font-mono text-emerald-300">bao:...</code> references.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={migrateAllSecretsToVault}
+                    disabled={isMigratingVault() || !vaultStatus()?.connected}
+                    class="shrink-0 px-3 py-2 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 text-xs font-bold transition-all disabled:opacity-40"
+                  >
+                    {isMigratingVault() ? "Migrating..." : "🔒 Migrate All to OpenBao"}
+                  </button>
+                </div>
+
+                <Show when={vaultModalFeedback()}>
+                  <div class={`p-3 rounded-xl border text-xs ${
+                    vaultModalFeedback()?.ok
+                      ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300"
+                      : "bg-red-500/10 border-red-500/30 text-red-300"
+                  }`}>
+                    {vaultModalFeedback()?.message}
+                  </div>
+                </Show>
+              </div>
+
+              <div class="pt-4 border-t border-[#2a2a3a] flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={testVaultSettings}
+                  disabled={isTestingVault()}
+                  class="btn-secondary text-xs"
+                >
+                  {isTestingVault() ? "Testing..." : "Test OpenBao Connection"}
+                </button>
+                <div class="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsVaultModalOpen(false)}
+                    class="btn-secondary text-xs"
+                  >
+                    Close
+                  </button>
+                  <button
+                    type="button"
+                    onClick={saveVaultSettings}
+                    disabled={isSavingVault()}
+                    class="btn-primary bg-emerald-600 hover:bg-emerald-500 text-white text-xs"
+                  >
+                    {isSavingVault() ? "Saving..." : "Save OpenBao Settings"}
+                  </button>
+                </div>
               </div>
             </div>
           </div>

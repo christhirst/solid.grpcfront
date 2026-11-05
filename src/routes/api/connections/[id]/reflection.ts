@@ -4,6 +4,7 @@ import { getDb } from "~/lib/db";
 import { normalizeConnection, getCaCertContent, fetchPreRequestToken } from "~/lib/connections";
 import { reflectGrpcServices } from "~/lib/grpcReflection";
 import { readJsonBody } from "~/lib/requestUtils";
+import { resolveObjectSecrets } from "~/lib/openbao";
 
 export async function POST(event: APIEvent) {
   try {
@@ -39,7 +40,7 @@ export async function POST(event: APIEvent) {
       return Response.json({ success: false, error: "Connection configuration not found" }, { status: 404 });
     }
 
-    const connection = normalizeConnection(rawConnection);
+    const connection = await resolveObjectSecrets(normalizeConnection(rawConnection));
     if (connection.type !== "grpc") {
       return Response.json({ success: false, error: "A gRPC connection is required" }, { status: 400 });
     }
