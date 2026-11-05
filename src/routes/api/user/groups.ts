@@ -1,6 +1,6 @@
 import type { APIEvent } from "@solidjs/start/server";
 import { RecordId } from "surrealdb";
-import { getAuthUser, getEffectiveAccessContext } from "~/lib/auth";
+import { getAuthUser, getEffectiveAccessContext, invalidateAccessContextCache } from "~/lib/auth";
 import { getDb } from "~/lib/db";
 import { ensurePublishingSchema } from "~/lib/dashboard/publishing";
 import {
@@ -226,6 +226,7 @@ export async function POST(event: APIEvent) {
         },
       });
 
+      invalidateAccessContextCache();
       const updatedCtx = await getEffectiveAccessContext(event.request, db);
       return Response.json({
         success: true,
@@ -340,6 +341,7 @@ export async function POST(event: APIEvent) {
         data: memberData,
       });
 
+      invalidateAccessContextCache();
       const updatedCtx = await getEffectiveAccessContext(event.request, db);
       return Response.json({
         success: true,
@@ -385,6 +387,7 @@ export async function POST(event: APIEvent) {
         }
       );
 
+      invalidateAccessContextCache();
       const updatedCtx = await getEffectiveAccessContext(event.request, db);
       return Response.json({
         success: true,
@@ -415,6 +418,7 @@ export async function POST(event: APIEvent) {
       }
 
       const cascadeResult = await deleteGroupCascade(db, groupName);
+      invalidateAccessContextCache();
       const [updatedCtx, remainingGroups] = await Promise.all([
         getEffectiveAccessContext(event.request, db),
         collectAllExistingGroups(db),

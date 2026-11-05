@@ -122,6 +122,8 @@ export function getStepDisplayInfo(type: string, category?: StepCategory) {
       return { category: "target" as StepCategory, label: "Infographic Target", icon: "🦋", color: "rose", border: "border-rose-500", text: "text-rose-400", bg: "bg-rose-500/10" };
     case "transform":
       return { category: "transform" as StepCategory, label: "JSONata Transformer", icon: "🔀", color: "purple", border: "border-purple-500", text: "text-purple-400", bg: "bg-purple-500/10" };
+    case "text_transform":
+      return { category: "transform" as StepCategory, label: "Text / Regex Pipeline", icon: "🧪", color: "purple", border: "border-purple-500", text: "text-purple-400", bg: "bg-purple-500/10" };
     case "rest":
       return {
         category: cat,
@@ -184,6 +186,8 @@ export default function ReteWorkflowEditor(props: ReteWorkflowEditorProps) {
   let arrange: AutoArrangePlugin<Schemes> | null = null;
   let isInternalSync = false;
   let hasDoneInitialLayout = false;
+  let syncTimer: ReturnType<typeof setTimeout> | undefined;
+  let layoutTimer: ReturnType<typeof setTimeout> | undefined;
 
   const [nodeCount, setNodeCount] = createSignal(0);
   const [connectionCount, setConnectionCount] = createSignal(0);
@@ -203,7 +207,42 @@ export default function ReteWorkflowEditor(props: ReteWorkflowEditorProps) {
     return { sources, transforms, targets };
   };
 
+  const saveGraphLayoutOnly = () => {
+    if (!editor || !area || !props.onGraphChange) return;
+    const nodes = editor.getNodes();
+    const connections = editor.getConnections();
+    const nodePositions = nodes.map(node => {
+      const view = area?.nodeViews.get(node.id);
+      return {
+        id: node.id,
+        stepId: node.stepId,
+        position: view?.position || { x: 0, y: 0 },
+      };
+    });
+
+    const serializedConnections = connections.map(c => ({
+      id: c.id,
+      source: c.source,
+      sourceOutput: c.sourceOutput,
+      target: c.target,
+      targetInput: c.targetInput,
+    }));
+
+    props.onGraphChange({
+      nodes: nodePositions,
+      connections: serializedConnections,
+      zoom: area.area.transform.k,
+      position: [area.area.transform.x, area.area.transform.y],
+    });
+  };
+
+  const scheduleSyncConnectionsToSteps = (delayMs = 40) => {
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(syncConnectionsToSteps, delayMs);
+  };
+
   const syncConnectionsToSteps = () => {
+    clearTimeout(syncTimer);
     if (!editor || isInternalSync) return;
     isInternalSync = true;
 
@@ -410,14 +449,17 @@ export default function ReteWorkflowEditor(props: ReteWorkflowEditorProps) {
         context.type === "nodecreated" ||
         context.type === "noderemoved"
       ) {
-        setTimeout(syncConnectionsToSteps, 50);
+        if (!isInternalSync) {
+          scheduleSyncConnectionsToSteps(40);
+        }
       }
       return context;
     });
 
     area.addPipe((context) => {
       if (context.type === "nodetranslated") {
-        setTimeout(syncConnectionsToSteps, 200);
+        clearTimeout(layoutTimer);
+        layoutTimer = setTimeout(saveGraphLayoutOnly, 150);
       }
       if (context.type === "nodepicked") {
         const node = editor?.getNode(context.data.id);
@@ -496,6 +538,10 @@ export default function ReteWorkflowEditor(props: ReteWorkflowEditorProps) {
       infographicTemplate: "list-row-simple-horizontal-arrow",
       transformExpression: "$",
       transformType: "jsonata",
+      textInputPath: "",
+      textPipelineMode: "pipeline",
+      textPipelineCommand: `sed 's/\\\\n/\\n/g; s/["[],]//g' | grep -v '^[[:space:]]*$'`,
+      textOutputFormat: "string",
     };
 
     const node = new StepNode(newStep);
@@ -519,14 +565,19 @@ export default function ReteWorkflowEditor(props: ReteWorkflowEditorProps) {
     if (!editor || !selectedNodeId()) return;
     const node = editor.getNodes().find(n => n.stepId === selectedNodeId());
     if (node) {
-      const connections = editor.getConnections().filter(
-        c => c.source === node.id || c.target === node.id
-      );
-      for (const c of connections) {
-        await editor.removeConnection(c.id);
+      isInternalSync = true;
+      try {
+        const connections = editor.getConnections().filter(
+          c => c.source === node.id || c.target === node.id
+        );
+        for (const c of connections) {
+          await editor.removeConnection(c.id);
+        }
+        await editor.removeNode(node.id);
+        setSelectedNodeId(null);
+      } finally {
+        isInternalSync = false;
       }
-      await editor.removeNode(node.id);
-      setSelectedNodeId(null);
       syncConnectionsToSteps();
     }
   };
@@ -616,6 +667,12 @@ export default function ReteWorkflowEditor(props: ReteWorkflowEditorProps) {
                     class="w-full text-left px-3 py-1.5 hover:bg-[#222234] text-xs text-purple-300 rounded-lg flex items-center gap-2"
                   >
                     <span>🔀</span> <span>JSONata Transformer / Merger</span>
+                  </button>
+                  <button
+                    onClick={() => handleAddNode("text_transform", "transform")}
+                    class="w-full text-left px-3 py-1.5 hover:bg-[#222234] text-xs text-fuchsia-300 rounded-lg flex items-center gap-2"
+                  >
+                    <span>🧪</span> <span>Text / Regex Pipeline (sed / grep / PEM)</span>
                   </button>
                   <button
                     onClick={() => handleAddNode("grpc", "transform")}

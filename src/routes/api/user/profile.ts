@@ -1,6 +1,6 @@
 import type { APIEvent } from "@solidjs/start/server";
 import { RecordId } from "surrealdb";
-import { getAuthUser, getEffectiveAccessContext } from "~/lib/auth";
+import { getAuthUser, getEffectiveAccessContext, invalidateAccessContextCache } from "~/lib/auth";
 import { getDb } from "~/lib/db";
 import {
   ensurePublishingSchema,
@@ -61,6 +61,7 @@ export async function GET(event: APIEvent) {
   }
   try {
     const db = await getDb();
+    invalidateAccessContextCache(user.sub);
     const data = await buildFullProfilePayload(event.request, db, user.sub);
     return Response.json({ success: true, data });
   } catch (error) {
@@ -109,6 +110,7 @@ export async function PUT(event: APIEvent) {
       });
     }
 
+    invalidateAccessContextCache(user.sub);
     const data = await buildFullProfilePayload(event.request, db, user.sub);
     return Response.json({ success: true, data });
   } catch (error) {

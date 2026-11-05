@@ -10,6 +10,7 @@ import { EventEmitter } from "events";
 import { normalizeConnection, fetchPreRequestToken } from "~/lib/connections";
 import { listS3Objects, buildS3ListResult, toS3ObjectItem } from "~/lib/s3Executor";
 import { resolveSubPath } from "~/lib/dashboard/widgetConditions";
+import { executeTextTransform, registerJsonataTextFunctions, coerceToText } from "~/lib/textProcessor";
 import { getStepCategory, type StepCategory, type WorkflowStep, type StepVariable } from "./stepCategories";
 export { getStepCategory, type StepCategory, type WorkflowStep, type StepVariable };
 
@@ -246,7 +247,7 @@ export interface WorkflowDefinition {
 
 export interface WorkflowRunLog {
   stepId: string;
-  stepType?: "grpc" | "table" | "chart" | "database" | "rest" | "grpc_stream" | "rest_stream" | "surreal_live" | "transform" | "infographic" | "s3";
+  stepType?: "grpc" | "table" | "chart" | "database" | "rest" | "grpc_stream" | "rest_stream" | "surreal_live" | "transform" | "text_transform" | "infographic" | "s3";
   status: "success" | "error";
   request: any;
   response?: any;
@@ -1086,6 +1087,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
 
           const exprString = (step.transformExpression || "").trim() || "$";
           const expression = jsonata(exprString);
+          registerJsonataTextFunctions(expression);
           transformedResult = await expression.evaluate(evaluationScope);
 
           if (transformedResult === undefined) {
@@ -1131,6 +1133,115 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
         }
 
         emitWorkflowEvent(runId, workflow.id || "", "step_complete", { stepId: step.id, response: transformedResult });
+        return "continue";
+      }
+
+      if (step.type === "text_transform") {
+        emitWorkflowEvent(runId, workflow.id || "", "step_start", {
+          stepId: step.id,
+          stepType: "text_transform",
+          timestamp: new Date().toISOString(),
+        });
+
+        const startTimeMs = Date.now();
+        let transformedResult: any;
+        let transformError: string | undefined;
+        let requestMeta: any;
+
+        try {
+          const sourceIds = (step.sourceStepIds && step.sourceStepIds.length > 0)
+            ? step.sourceStepIds
+            : [];
+
+          const sourcesData = sourceIds
+            .map((srcId: string) => context.steps[srcId]?.response)
+            .filter((v: any) => v !== undefined);
+
+          let rawInput: any;
+          if (step.textTemplate && step.textTemplate.trim()) {
+            const exactMatch = step.textTemplate.trim().match(/^\{\{\s*([^{}]+?)\s*\}\}$/);
+            if (exactMatch) {
+              rawInput = get(context, exactMatch[1].trim());
+            } else {
+              rawInput = interpolateTemplate(step.textTemplate, context);
+            }
+          } else {
+            rawInput = sourcesData.length === 1 ? sourcesData[0] : (sourcesData.length > 1 ? sourcesData : "");
+          }
+
+          const inputPath = step.textInputPath
+            ? interpolateTemplate(step.textInputPath, context).trim()
+            : "";
+          const pipelineCommand = step.textPipelineCommand
+            ? interpolateTemplate(step.textPipelineCommand, context)
+            : "";
+
+          requestMeta = {
+            sourceStepIds: sourceIds,
+            inputPath: inputPath || undefined,
+            mode: step.textPipelineMode || "pipeline",
+            pipelineCommand: pipelineCommand || undefined,
+            operations: step.textOperations,
+            outputFormat: step.textOutputFormat || "string",
+          };
+
+          transformedResult = executeTextTransform(rawInput, {
+            inputPath,
+            mode: step.textPipelineMode || "pipeline",
+            pipelineCommand,
+            operations: step.textOperations,
+            outputFormat: step.textOutputFormat || "string",
+          });
+        } catch (err: any) {
+          transformError = err.message || String(err);
+          transformedResult = { error: `Text Transform Error: ${transformError}` };
+        }
+
+        const latencyMs = Date.now() - startTimeMs;
+        const success = !transformError;
+        const textString = typeof transformedResult === "string"
+          ? transformedResult
+          : (transformedResult?.text ?? coerceToText(transformedResult));
+
+        context.steps[step.id] = {
+          request: requestMeta,
+          response: transformedResult,
+          text: textString,
+          pem: textString,
+          lines: textString ? textString.split(/\r?\n/) : [],
+          error: transformError,
+        };
+
+        runRecord.logs.push({
+          stepId: step.id,
+          stepType: "text_transform",
+          status: success ? "success" : "error",
+          request: requestMeta,
+          response: transformedResult,
+          error: transformError,
+          latencyMs,
+          meta: requestMeta,
+        });
+
+        const { id: _t_tt, ...data_tt } = runRecord;
+        const sId_tt = new RecordId("workflow_run", dbId);
+        await db.query("UPDATE $id CONTENT $data", { id: sId_tt, data: data_tt });
+
+        if (!success) {
+          emitWorkflowEvent(runId, workflow.id || "", "step_failed", { stepId: step.id, error: transformError });
+          runRecord.status = "failed";
+          runRecord.endTime = new Date().toISOString();
+          const { id: _t_tt2, ...data_tt2 } = runRecord;
+          const sId_tt2 = new RecordId("workflow_run", dbId);
+          await db.query("UPDATE $id CONTENT $data", { id: sId_tt2, data: data_tt2 });
+          return "abort";
+        }
+
+        emitWorkflowEvent(runId, workflow.id || "", "step_complete", {
+          stepId: step.id,
+          response: transformedResult,
+          latencyMs,
+        });
         return "continue";
       }
 

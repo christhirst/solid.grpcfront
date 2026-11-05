@@ -58,6 +58,24 @@ export async function getOwnerFromRequest(request: Request): Promise<string> {
   return user?.sub || "anonymous";
 }
 
+const ACCESS_CTX_TTL_MS = 1500;
+const accessContextCache = new Map<
+  string,
+  { expiresAt: number; promise: Promise<EffectiveAccessContext> }
+>();
+
+export function invalidateAccessContextCache(sub?: string) {
+  if (!sub) {
+    accessContextCache.clear();
+    return;
+  }
+  for (const key of accessContextCache.keys()) {
+    if (key.startsWith(`${sub}:`)) {
+      accessContextCache.delete(key);
+    }
+  }
+}
+
 /**
  * Resolve the user's full EffectiveAccessContext:
  * - Platform role (admin, creator, user, viewer) comes from FerrisKey OIDC claims (or admin override in SurrealDB).
@@ -72,6 +90,30 @@ export async function getEffectiveAccessContext(
     return buildAccessContext({ sub: "anonymous", idpRole: "viewer" });
   }
 
+  const cacheKey = `${user.sub}:${user.sessionId || "default"}:${Boolean(db)}`;
+  const now = Date.now();
+  const cached = accessContextCache.get(cacheKey);
+  if (cached && cached.expiresAt > now) {
+    return cached.promise;
+  }
+
+  const promise = resolveEffectiveAccessContextInternal(user, db).catch((err) => {
+    accessContextCache.delete(cacheKey);
+    throw err;
+  });
+
+  accessContextCache.set(cacheKey, {
+    expiresAt: now + ACCESS_CTX_TTL_MS,
+    promise,
+  });
+
+  return promise;
+}
+
+async function resolveEffectiveAccessContextInternal(
+  user: AuthUser,
+  db?: any
+): Promise<EffectiveAccessContext> {
   let idpRole: PlatformRole = extractPlatformRoleFromClaims(user.idpGroups, "viewer");
   let simulatedRole: PlatformRole | null = null;
   let disabledGroups: string[] = [];
@@ -80,9 +122,37 @@ export async function getEffectiveAccessContext(
   const sessionClaims: string[] = [];
 
   if (db) {
+    const profileId = new RecordId("user_profile", user.sub);
+    const usernameLower = (user.username || user.name || "").trim().toLowerCase();
+    const emailLower = (user.email || "").trim().toLowerCase();
+    const subLower = user.sub.trim().toLowerCase();
+
+    // Run all 3 SurrealDB lookups concurrently instead of sequentially
+    const [profileRes, memberRes, ownedRes] = await Promise.all([
+      db.select(profileId).catch(() => null),
+      db
+        .query(
+          `SELECT * FROM group_member WHERE
+            userSub = $sub
+            OR string::lowercase(username ?? '') = $usernameLower
+            OR ($emailLower != '' AND string::lowercase(username ?? '') = $emailLower)
+            OR string::lowercase(username ?? '') = $subLower;`,
+          {
+            sub: user.sub,
+            usernameLower,
+            emailLower,
+            subLower,
+          }
+        )
+        .catch(() => null),
+      db
+        .query(`SELECT name FROM group_namespace WHERE owner = $owner;`, {
+          owner: user.sub,
+        })
+        .catch(() => null),
+    ]);
+
     try {
-      const profileId = new RecordId("user_profile", user.sub);
-      const profileRes = await db.select(profileId);
       const profile = Array.isArray(profileRes) ? profileRes[0] : profileRes;
       if (profile) {
         if (Array.isArray(profile.disabledGroups)) {
@@ -116,7 +186,7 @@ export async function getEffectiveAccessContext(
         }
       }
 
-      // Keep user_profile synced with basic user identity, FerrisKey role, and latest parsed JWT claims
+      // Keep user_profile synced non-blockingly in the background
       const cleanUsername = (user.username || user.name || user.sub).trim();
       const needsProfileSync =
         !profile ||
@@ -140,36 +210,14 @@ export async function getEffectiveAccessContext(
         if (user.jwtHeader) {
           mergeData.lastJwtHeader = user.jwtHeader;
         }
-        await db
-          .query(`UPSERT $profile MERGE $mergeData;`, {
-            profile: profileId,
-            mergeData,
-          })
-          .catch(() => {});
+        db.query(`UPSERT $profile MERGE $mergeData;`, {
+          profile: profileId,
+          mergeData,
+        }).catch(() => {});
       }
-    } catch {
-      // user_profile table might not exist yet
-    }
+    } catch {}
 
-    // Load space/group memberships assigned to this user in SurrealDB (group_member table)
     try {
-      const usernameLower = (user.username || user.name || "").trim().toLowerCase();
-      const emailLower = (user.email || "").trim().toLowerCase();
-      const subLower = user.sub.trim().toLowerCase();
-
-      const memberRes = await db.query(
-        `SELECT * FROM group_member WHERE
-          userSub = $sub
-          OR string::lowercase(username ?? '') = $usernameLower
-          OR ($emailLower != '' AND string::lowercase(username ?? '') = $emailLower)
-          OR string::lowercase(username ?? '') = $subLower;`,
-        {
-          sub: user.sub,
-          usernameLower,
-          emailLower,
-          subLower,
-        }
-      );
       const memberRows = Array.isArray(memberRes)
         ? Array.isArray(memberRes[0])
           ? memberRes[0]
@@ -187,16 +235,9 @@ export async function getEffectiveAccessContext(
           dbClaims.push(formatGroupClaim(String(m.group), rights as any));
         }
       }
-    } catch {
-      // group_member table might not exist yet
-    }
+    } catch {}
 
-    // Also include spaces owned by this user in group_namespace as :manager
     try {
-      const ownedRes = await db.query(
-        `SELECT name FROM group_namespace WHERE owner = $owner;`,
-        { owner: user.sub }
-      );
       const ownedRows = Array.isArray(ownedRes)
         ? Array.isArray(ownedRes[0])
           ? ownedRes[0]
@@ -207,9 +248,7 @@ export async function getEffectiveAccessContext(
           dbClaims.push(`${normalizeGroupName(String(row.name))}:manager`);
         }
       }
-    } catch {
-      // group_namespace table might not exist yet
-    }
+    } catch {}
   }
 
   return buildAccessContext({

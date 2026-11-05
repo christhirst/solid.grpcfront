@@ -28,6 +28,7 @@ export function getStepCategory(type?: string, explicitCategory?: StepCategory, 
 
   switch (type) {
     case "transform":
+    case "text_transform":
       return "transform";
     default:
       // gRPC, REST, Database can act as intermediate transforms if connected to upstream source(s)
@@ -50,7 +51,7 @@ export interface StepVariable {
 
 export interface WorkflowStep {
   id: string;
-  type?: "grpc" | "table" | "chart" | "database" | "rest" | "grpc_stream" | "rest_stream" | "surreal_live" | "infographic" | "transform" | "s3" | "oauth_token";
+  type?: "grpc" | "table" | "chart" | "database" | "rest" | "grpc_stream" | "rest_stream" | "surreal_live" | "infographic" | "transform" | "text_transform" | "s3" | "oauth_token";
   category?: StepCategory;
   /** Data flow direction: "read" fetches data FROM the source, "write" sends data TO the source. */
   direction?: "read" | "write";
@@ -58,6 +59,13 @@ export interface WorkflowStep {
   variables?: StepVariable[];
   transformExpression?: string;
   transformType?: "jsonata" | "filter" | "map" | "merge";
+  /** Text / Regex / PEM Pipeline step fields */
+  textInputPath?: string;
+  textTemplate?: string;
+  textPipelineMode?: "pipeline" | "operations";
+  textPipelineCommand?: string;
+  textOperations?: import("./textProcessor").TextTransformOperation[];
+  textOutputFormat?: import("./textProcessor").TextOutputFormat;
   sourceStepIds?: string[];
   mergeStrategy?: "concat" | "merge_object" | "keyed";
   infographicSyntax?: string;

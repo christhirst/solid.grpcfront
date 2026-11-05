@@ -5,6 +5,7 @@ import S3FilePicker from "~/components/workflow/S3FilePicker";
 import { createSignal, createEffect, onMount, onCleanup, For, Show, createResource, createMemo, Index, useTransition } from "solid-js";
 import { extractFormVariables, checkWorkflowConfiguredInDashboards, detectStepVariables, type VariableConfigStatus } from "~/lib/workflowVariableChecker";
 import { collectFieldNames, type FieldInfo } from "~/lib/dashboard/chartSeries";
+import { executeTextTransform, type TextTransformOperation, type TextTransformOpType } from "~/lib/textProcessor";
 
 
 import { createStore, reconcile, produce } from "solid-js/store";
@@ -543,7 +544,7 @@ function LogChart(props: { data: any[]; xKey?: string; yKey?: string; chartType?
   );
 }
 
-const DATA_SOURCE_STEP_TYPES = new Set(["grpc", "rest", "database", "s3", "oauth_token"]);
+const DATA_SOURCE_STEP_TYPES = new Set(["grpc", "rest", "database", "s3", "oauth_token", "transform", "text_transform"]);
 
 function isDataSourceStep(step: any) {
   return !!step && (!step.type || DATA_SOURCE_STEP_TYPES.has(step.type));
@@ -801,9 +802,31 @@ export default function WorkflowBuilder() {
   createEffect(() => {
     if (isServer) return;
     const allConns = connections() || [];
+    if (allConns.length === 0) return;
+
+    const usedConnIds = new Set<string>();
+    const wfConn = connectionId();
+    if (wfConn) {
+      usedConnIds.add(wfConn);
+      usedConnIds.add(wfConn.replace(/^connection:/, "").replace(/[⟨⟩]/g, "").trim());
+    }
+    for (const s of steps) {
+      if (s?.connectionId) {
+        usedConnIds.add(s.connectionId);
+        usedConnIds.add(String(s.connectionId).replace(/^connection:/, "").replace(/[⟨⟩]/g, "").trim());
+      }
+      if (s?.authConnectionId) {
+        usedConnIds.add(s.authConnectionId);
+        usedConnIds.add(String(s.authConnectionId).replace(/^connection:/, "").replace(/[⟨⟩]/g, "").trim());
+      }
+    }
+
     for (const c of allConns) {
       if (c && (c.authType === "oauth" || c.tokenUrl)) {
-        prefetchConnectionToken(c.id);
+        const cleanId = String(c.id || "").replace(/^connection:/, "").replace(/[⟨⟩]/g, "").trim();
+        if (usedConnIds.has(c.id) || (cleanId && usedConnIds.has(cleanId))) {
+          prefetchConnectionToken(c.id);
+        }
       }
     }
   });
@@ -1185,6 +1208,11 @@ export default function WorkflowBuilder() {
       dataPath: "", xKey: "", yKey: "",
       transformExpression: "$",
       transformType: "jsonata",
+      textInputPath: "",
+      textPipelineMode: "pipeline",
+      textPipelineCommand: `sed 's/\\\\n/\\n/g; s/["[],]//g' | grep -v '^[[:space:]]*$'`,
+      textOperations: [],
+      textOutputFormat: "string",
       sourceStepIds: cat !== "source" && previousSource ? [previousSource.id] : [],
     };
 
@@ -1258,16 +1286,63 @@ export default function WorkflowBuilder() {
     const target = steps[index];
     if (!target) return;
     const targetId = target.id;
-    const remaining = steps
-      .filter((_, i) => i !== index)
-      .map((s) => ({
-        ...s,
-        sourceStepIds: (s.sourceStepIds || []).filter((id: string) => id !== targetId),
-      }));
-    setSteps(reconcile(remaining));
     if (selectedStepId() === targetId) {
       setSelectedStepId(null);
     }
+    setSteps(
+      produce((draft: any[]) => {
+        draft.splice(index, 1);
+        for (const s of draft) {
+          if (Array.isArray(s.sourceStepIds) && s.sourceStepIds.includes(targetId)) {
+            s.sourceStepIds = s.sourceStepIds.filter((id: string) => id !== targetId);
+          }
+        }
+      })
+    );
+  };
+
+  const syncStepsFromGraph = (newSteps: any[]) => {
+    setSteps(
+      produce((draft: any[]) => {
+        const incomingById = new Map<string, any>();
+        for (const ns of newSteps) {
+          if (ns?.id) incomingById.set(ns.id, ns);
+        }
+
+        // 1. Remove deleted steps in reverse order to preserve proxy identity of remaining steps
+        for (let i = draft.length - 1; i >= 0; i--) {
+          if (!incomingById.has(draft[i].id)) {
+            draft.splice(i, 1);
+          }
+        }
+
+        const existingIds = new Set(draft.map((s) => s.id));
+
+        // 2. Update only changed topology properties on existing steps
+        for (const s of draft) {
+          const incoming = incomingById.get(s.id);
+          if (!incoming) continue;
+          if (s.category !== incoming.category) {
+            s.category = incoming.category;
+          }
+          const prevSources = s.sourceStepIds || [];
+          const nextSources = incoming.sourceStepIds || [];
+          if (
+            prevSources.length !== nextSources.length ||
+            prevSources.some((id: string, idx: number) => id !== nextSources[idx])
+          ) {
+            s.sourceStepIds = [...nextSources];
+          }
+        }
+
+        // 3. Append any newly added steps from the graph canvas
+        for (const ns of newSteps) {
+          if (ns?.id && !existingIds.has(ns.id)) {
+            draft.push(ns);
+          }
+        }
+      })
+    );
   };
 
   const runWorkflow = async () => {
@@ -1739,6 +1814,9 @@ export default function WorkflowBuilder() {
                     <button type="button" onClick={() => addStep("transform", "transform")} class="w-full text-left px-3 py-1.5 text-xs text-purple-300 hover:bg-[#222234] rounded-lg flex items-center gap-2 transition-colors">
                       <span>🔀</span> JSONata Transformer / Merger
                     </button>
+                    <button type="button" onClick={() => addStep("text_transform", "transform")} class="w-full text-left px-3 py-1.5 text-xs text-fuchsia-300 hover:bg-[#222234] rounded-lg flex items-center gap-2 transition-colors">
+                      <span>🧪</span> Text / Regex Pipeline (sed / grep / PEM)
+                    </button>
                     <button type="button" onClick={() => addStep("grpc", "transform")} class="w-full text-left px-3 py-1.5 text-xs text-blue-300 hover:bg-[#222234] rounded-lg flex items-center gap-2 transition-colors">
                       <span>⚡</span> gRPC Service Call (Transform)
                     </button>
@@ -1779,7 +1857,7 @@ export default function WorkflowBuilder() {
               <ReteWorkflowEditor
                 steps={steps}
                 graph={graphData() || workflow()?.graph}
-                onStepsChange={(newSteps) => setSteps(reconcile(newSteps))}
+                onStepsChange={syncStepsFromGraph}
                 onGraphChange={(g) => setGraphData(g)}
                 onSelectStep={(stepId) => setSelectedStepId(stepId)}
                 selectedStepId={selectedStepId() ?? undefined}
@@ -2009,6 +2087,7 @@ export default function WorkflowBuilder() {
                           </optgroup>
                           <optgroup label="🔀 2. Transforms (Processing)">
                             <option value="transform">🔀 JSONata Transformer / Merger</option>
+                            <option value="text_transform">🧪 Text / Regex Pipeline (sed / grep / PEM)</option>
                           </optgroup>
                           <optgroup label="🎯 3. Targets (Terminal Sinks)">
                             <option value="table">📊 View Data Table</option>
@@ -3137,6 +3216,22 @@ export default function WorkflowBuilder() {
                           >
                             Math Aggregate
                           </button>
+                          <button
+                            type="button"
+                            onClick={() => updateStep(index(), "transformExpression", "$toPem(source.data.ca_chain ? source.data.ca_chain : source)")}
+                            class="px-2 py-1 rounded bg-fuchsia-950/60 hover:bg-fuchsia-900/60 border border-fuchsia-500/30 text-[10px] text-fuchsia-200"
+                            title="Clean OpenBao / Vault CA chain or certificate into PEM format"
+                          >
+                            🔐 OpenBao Cert ➔ PEM ($toPem)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateStep(index(), "transformExpression", `$pipeline(source.data.ca_chain ? source.data.ca_chain : source, "sed 's/\\\\\\\\n/\\\\n/g; s/[\\"[],]//g' | grep -v '^[[:space:]]*$'")`)}
+                            class="px-2 py-1 rounded bg-fuchsia-950/60 hover:bg-fuchsia-900/60 border border-fuchsia-500/30 text-[10px] text-fuchsia-200"
+                            title="Run sed + grep pipeline inside JSONata"
+                          >
+                            🧪 sed | grep ($pipeline)
+                          </button>
                         </div>
                       </div>
 
@@ -3144,7 +3239,7 @@ export default function WorkflowBuilder() {
                       <div>
                         <label class="mb-1 flex items-center justify-between text-xs text-[#8b8b9e]">
                           <span>Transformation Expression</span>
-                          <span class="text-[9px] text-[#5b5b6e]">Variables: $, source, sources, steps.&lt;id&gt;.response</span>
+                          <span class="text-[9px] text-[#5b5b6e]">Helpers: $toPem, $sed, $grep, $unescape, $base64Decode, $pipeline</span>
                         </label>
                         <textarea
                           class="w-full rounded-lg border border-[#2a2a3a] bg-[#0a0a0f] p-3 text-xs text-purple-200 font-mono focus:border-purple-500 focus:outline-none resize-y"
@@ -3155,6 +3250,344 @@ export default function WorkflowBuilder() {
                         />
                       </div>
                     </div>
+                  </Show>
+
+                  {/* Text / Regex / PEM Pipeline Step Configuration */}
+                  <Show when={step.type === "text_transform"}>
+                    {(() => {
+                      const SAMPLE_OPENBAO_JSON = {
+                        data: {
+                          ca_chain: [
+                            "-----BEGIN CERTIFICATE-----\\nMIIBszCCAVmgAwIBAgIUOpenBaoRootCAExample111111111111\\n-----END CERTIFICATE-----",
+                            "-----BEGIN CERTIFICATE-----\\nMIIBszCCAVmgAwIBAgIUOpenBaoIntermediateCA22222222222\\n-----END CERTIFICATE-----"
+                          ],
+                          certificate: "-----BEGIN CERTIFICATE-----\\nMIIBszCCAVmgAwIBAgIUOpenBaoLeafCert33333333333333333\\n-----END CERTIFICATE-----"
+                        }
+                      };
+
+                      const upstreamStepId = () => (step.sourceStepIds || [])[0] || "";
+                      const upstreamLog = createMemo(() => {
+                        const sId = upstreamStepId();
+                        if (!sId) return null;
+                        return (runData()?.logs || []).find((l: any) => l.stepId === sId);
+                      });
+                      const upstreamFields = createMemo(() => {
+                        const uLog = upstreamLog();
+                        if (!uLog || uLog.status !== "success" || !uLog.response) return [];
+                        return collectFieldNames(uLog.response);
+                      });
+
+                      const previewOutput = createMemo(() => {
+                        try {
+                          const uResp = upstreamLog()?.response ?? SAMPLE_OPENBAO_JSON;
+                          const res = executeTextTransform(uResp, {
+                            inputPath: step.textInputPath || "",
+                            mode: step.textPipelineMode || "pipeline",
+                            pipelineCommand: step.textPipelineCommand ?? `sed 's/\\\\n/\\n/g; s/["[],]//g' | grep -v '^[[:space:]]*$'`,
+                            operations: step.textOperations || [],
+                            outputFormat: step.textOutputFormat || "string",
+                          });
+                          return typeof res === "string" ? res : JSON.stringify(res, null, 2);
+                        } catch (e: any) {
+                          return `Preview Error: ${e.message || String(e)}`;
+                        }
+                      });
+
+                      const addOperation = (opType: TextTransformOpType) => {
+                        const current: TextTransformOperation[] = Array.isArray(step.textOperations) ? [...step.textOperations] : [];
+                        const defaultOp: TextTransformOperation = {
+                          id: `op_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+                          type: opType,
+                          ...(opType === "sed_replace" ? { pattern: `s/\\\\n/\\n/g; s/["[],]//g` } : {}),
+                          ...(opType === "grep_filter" ? { pattern: "^[[:space:]]*$", invert: true } : {}),
+                          ...(opType === "extract_path" ? { path: "data.ca_chain" } : {}),
+                          ...(opType === "trim_lines" ? { removeEmptyLines: true } : {}),
+                        };
+                        updateStep(index(), "textOperations", [...current, defaultOp]);
+                      };
+
+                      const updateOperation = (opIdx: number, patch: Partial<TextTransformOperation>) => {
+                        const current: TextTransformOperation[] = Array.isArray(step.textOperations) ? [...step.textOperations] : [];
+                        if (!current[opIdx]) return;
+                        current[opIdx] = { ...current[opIdx], ...patch };
+                        updateStep(index(), "textOperations", current);
+                      };
+
+                      const removeOperation = (opIdx: number) => {
+                        const current: TextTransformOperation[] = Array.isArray(step.textOperations) ? [...step.textOperations] : [];
+                        updateStep(index(), "textOperations", current.filter((_, i) => i !== opIdx));
+                      };
+
+                      return (
+                        <div class="rounded-xl border border-fuchsia-500/30 bg-[#140e1e] p-4 space-y-4">
+                          <div class="flex flex-wrap items-center justify-between gap-2">
+                            <p class="text-[11px] font-bold text-fuchsia-300 uppercase tracking-wider flex items-center gap-1.5">
+                              <span>🧪</span> Text / Regex Pipeline Processor (sed / grep / PEM)
+                            </p>
+                            <div class="inline-flex rounded-lg border border-[#2a2a3a] bg-[#0a0a0f] p-0.5">
+                              <button
+                                type="button"
+                                onClick={() => updateStep(index(), "textPipelineMode", "pipeline")}
+                                class={`px-2.5 py-1 rounded-md text-[10px] font-bold transition-all ${
+                                  (step.textPipelineMode || "pipeline") === "pipeline"
+                                    ? "bg-fuchsia-600 text-white shadow"
+                                    : "text-[#8b8b9e] hover:text-white"
+                                }`}
+                              >
+                                💻 Shell Pipeline (sed | grep)
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => updateStep(index(), "textPipelineMode", "operations")}
+                                class={`px-2.5 py-1 rounded-md text-[10px] font-bold transition-all ${
+                                  step.textPipelineMode === "operations"
+                                    ? "bg-fuchsia-600 text-white shadow"
+                                    : "text-[#8b8b9e] hover:text-white"
+                                }`}
+                              >
+                                🧱 Visual Chained Rules
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Quick Presets */}
+                          <div>
+                            <label class="mb-1.5 block text-xs text-[#8b8b9e]">One-Click Presets</label>
+                            <div class="flex flex-wrap gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  updateStep(index(), "textPipelineMode", "pipeline");
+                                  if (!step.textInputPath) updateStep(index(), "textInputPath", "data.ca_chain");
+                                  updateStep(index(), "textPipelineCommand", `sed 's/\\\\n/\\n/g; s/["[],]//g' | grep -v '^[[:space:]]*$'`);
+                                  updateStep(index(), "textOutputFormat", "string");
+                                }}
+                                class="px-2.5 py-1 rounded-lg bg-[#241634] hover:bg-[#321e48] border border-fuchsia-500/30 text-[10px] font-medium text-fuchsia-200"
+                              >
+                                🔐 OpenBao CA Chain ➔ PEM (sed + grep)
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  updateStep(index(), "textPipelineMode", "operations");
+                                  updateStep(index(), "textOperations", [
+                                    { id: "op_pem", type: "pem_normalize" },
+                                  ]);
+                                  updateStep(index(), "textOutputFormat", "string");
+                                }}
+                                class="px-2.5 py-1 rounded-lg bg-[#241634] hover:bg-[#321e48] border border-fuchsia-500/30 text-[10px] font-medium text-fuchsia-200"
+                              >
+                                📜 Auto-Normalize PEM Certificate / Key
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  updateStep(index(), "textPipelineMode", "pipeline");
+                                  updateStep(index(), "textPipelineCommand", `sed 's/\\\\n/\\n/g' | grep -v '^[[:space:]]*$'`);
+                                  updateStep(index(), "textOutputFormat", "string");
+                                }}
+                                class="px-2.5 py-1 rounded-lg bg-[#241634] hover:bg-[#321e48] border border-fuchsia-500/30 text-[10px] text-fuchsia-200"
+                              >
+                                🧹 Unescape \n &amp; Strip Empty Lines
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  updateStep(index(), "textPipelineMode", "operations");
+                                  updateStep(index(), "textOperations", [
+                                    { id: "op_b64", type: "base64_decode" },
+                                    { id: "op_trim", type: "trim_lines", removeEmptyLines: true },
+                                  ]);
+                                  updateStep(index(), "textOutputFormat", "string");
+                                }}
+                                class="px-2.5 py-1 rounded-lg bg-[#241634] hover:bg-[#321e48] border border-fuchsia-500/30 text-[10px] text-fuchsia-200"
+                              >
+                                🔓 Base64 Decode ➔ Clean Text
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Input JSON Path Extraction */}
+                          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                            <div class="sm:col-span-2">
+                              <label class="mb-1 flex items-center justify-between text-xs text-[#8b8b9e]">
+                                <span>Extract JSON Field Path (optional)</span>
+                                <span class="text-[9px] text-[#5b5b6e]">Leave empty to process entire upstream response</span>
+                              </label>
+                              <input
+                                type="text"
+                                class="w-full rounded-lg border border-[#2a2a3a] bg-[#0a0a0f] px-3 py-2 text-xs text-fuchsia-200 font-mono focus:border-fuchsia-500 focus:outline-none"
+                                placeholder="e.g. data.ca_chain or data.certificate"
+                                value={step.textInputPath || ""}
+                                onInput={(e) => updateStep(index(), "textInputPath", e.currentTarget.value)}
+                              />
+                              <Show when={upstreamFields().length > 0}>
+                                <div class="mt-1.5 flex flex-wrap items-center gap-1">
+                                  <span class="text-[9px] text-[#6b6b80]">Upstream fields:</span>
+                                  <For each={upstreamFields().slice(0, 8)}>
+                                    {(f) => (
+                                      <button
+                                        type="button"
+                                        onClick={() => updateStep(index(), "textInputPath", f.path)}
+                                        class="px-1.5 py-0.5 rounded bg-[#1c1628] hover:bg-fuchsia-500/20 border border-[#2a2a3a] text-[9px] font-mono text-fuchsia-300"
+                                      >
+                                        {f.path}
+                                      </button>
+                                    )}
+                                  </For>
+                                </div>
+                              </Show>
+                            </div>
+
+                            <div>
+                              <label class="mb-1 block text-xs text-[#8b8b9e]">Output Format</label>
+                              <select
+                                class="w-full rounded-lg border border-[#2a2a3a] bg-[#0a0a0f] px-3 py-2 text-xs text-white focus:border-fuchsia-500 focus:outline-none"
+                                value={step.textOutputFormat || "string"}
+                                onChange={(e) => updateStep(index(), "textOutputFormat", e.currentTarget.value)}
+                              >
+                                <option value="string">Raw Text / PEM String</option>
+                                <option value="object">Object (&#123; text, pem, lines, lineCount &#125;)</option>
+                                <option value="lines">Array of Lines (string[])</option>
+                                <option value="json">Parse as JSON</option>
+                              </select>
+                            </div>
+                          </div>
+
+                          {/* Mode 1: Shell Pipeline Command */}
+                          <Show when={(step.textPipelineMode || "pipeline") === "pipeline"}>
+                            <div>
+                              <label class="mb-1 flex items-center justify-between text-xs text-[#8b8b9e]">
+                                <span>Pipeline Expression (sed / grep / tr)</span>
+                                <span class="text-[9px] text-[#5b5b6e]">Executed safely in-memory (no external shell needed)</span>
+                              </label>
+                              <textarea
+                                class="w-full rounded-lg border border-[#2a2a3a] bg-[#0a0a0f] p-3 text-xs text-fuchsia-200 font-mono focus:border-fuchsia-500 focus:outline-none resize-y"
+                                rows="3"
+                                placeholder={`sed 's/\\\\n/\\n/g; s/["[],]//g' | grep -v '^[[:space:]]*$'`}
+                                value={step.textPipelineCommand ?? `sed 's/\\\\n/\\n/g; s/["[],]//g' | grep -v '^[[:space:]]*$'`}
+                                onInput={(e) => updateStep(index(), "textPipelineCommand", e.currentTarget.value)}
+                              />
+                              <p class="mt-1 text-[10px] text-[#6b6b80]">
+                                Supports <code class="text-fuchsia-300">sed 's/pattern/replacement/g; ...'</code>, <code class="text-fuchsia-300">grep</code> / <code class="text-fuchsia-300">grep -v</code>, POSIX classes like <code class="text-fuchsia-300">[[:space:]]</code>, and ignores filenames/redirections like <code class="text-fuchsia-300">&gt; fixed_ca.pem</code>.
+                              </p>
+                            </div>
+                          </Show>
+
+                          {/* Mode 2: Visual Chained Operations */}
+                          <Show when={step.textPipelineMode === "operations"}>
+                            <div class="space-y-2.5">
+                              <div class="flex flex-wrap items-center justify-between gap-2">
+                                <span class="text-xs text-[#8b8b9e]">Chained Transformation Rules ({(step.textOperations || []).length})</span>
+                                <div class="flex flex-wrap gap-1">
+                                  <button type="button" onClick={() => addOperation("pem_normalize")} class="px-2 py-1 rounded bg-fuchsia-600/20 hover:bg-fuchsia-600/30 border border-fuchsia-500/40 text-[10px] text-fuchsia-200">+ PEM Normalize</button>
+                                  <button type="button" onClick={() => addOperation("sed_replace")} class="px-2 py-1 rounded bg-[#1e1a2a] hover:bg-[#2a243a] border border-[#2a2a3a] text-[10px] text-purple-200">+ sed Replace</button>
+                                  <button type="button" onClick={() => addOperation("grep_filter")} class="px-2 py-1 rounded bg-[#1e1a2a] hover:bg-[#2a243a] border border-[#2a2a3a] text-[10px] text-purple-200">+ grep Filter</button>
+                                  <button type="button" onClick={() => addOperation("unescape")} class="px-2 py-1 rounded bg-[#1e1a2a] hover:bg-[#2a243a] border border-[#2a2a3a] text-[10px] text-purple-200">+ Unescape \n</button>
+                                  <button type="button" onClick={() => addOperation("base64_decode")} class="px-2 py-1 rounded bg-[#1e1a2a] hover:bg-[#2a243a] border border-[#2a2a3a] text-[10px] text-purple-200">+ Base64 Decode</button>
+                                  <button type="button" onClick={() => addOperation("trim_lines")} class="px-2 py-1 rounded bg-[#1e1a2a] hover:bg-[#2a243a] border border-[#2a2a3a] text-[10px] text-purple-200">+ Trim Lines</button>
+                                </div>
+                              </div>
+
+                              <Show when={(step.textOperations || []).length > 0} fallback={
+                                <div class="p-3 rounded-lg border border-dashed border-[#2a2a3a] text-center text-[11px] text-[#6b6b80]">
+                                  No operations added yet. Click a button above to chain rules.
+                                </div>
+                              }>
+                                <div class="space-y-2">
+                                  <Index each={step.textOperations || []}>
+                                    {(op, opIdx) => (
+                                      <div class="p-2.5 rounded-lg bg-[#0d0a14] border border-[#2a2a3a] flex flex-wrap items-center gap-2">
+                                        <span class="text-[10px] font-bold text-fuchsia-400 font-mono w-5">#{opIdx + 1}</span>
+                                        <select
+                                          class="bg-[#181424] border border-[#2a2a3a] rounded px-2 py-1 text-xs text-white focus:border-fuchsia-500 outline-none"
+                                          value={op().type}
+                                          onChange={(e) => updateOperation(opIdx, { type: e.currentTarget.value as TextTransformOpType })}
+                                        >
+                                          <option value="pem_normalize">📜 PEM Certificate Normalizer</option>
+                                          <option value="sed_replace">✂️ sed Replace (s/.../.../g or Regex)</option>
+                                          <option value="grep_filter">🔍 grep Line Filter</option>
+                                          <option value="unescape">🧹 Unescape (\n, \t, \")</option>
+                                          <option value="extract_path">📂 Extract JSON Path</option>
+                                          <option value="base64_decode">🔓 Base64 Decode</option>
+                                          <option value="base64_encode">🔒 Base64 Encode</option>
+                                          <option value="trim_lines">📐 Trim &amp; Remove Blank Lines</option>
+                                        </select>
+
+                                        <Show when={op().type === "sed_replace"}>
+                                          <input
+                                            type="text"
+                                            class="flex-1 min-w-[180px] rounded border border-[#2a2a3a] bg-[#0a0a0f] px-2.5 py-1 text-xs text-fuchsia-200 font-mono"
+                                            placeholder={`s/\\\\n/\\n/g; s/["[],]//g`}
+                                            value={op().pattern || ""}
+                                            onInput={(e) => updateOperation(opIdx, { pattern: e.currentTarget.value })}
+                                          />
+                                        </Show>
+
+                                        <Show when={op().type === "grep_filter"}>
+                                          <input
+                                            type="text"
+                                            class="flex-1 min-w-[150px] rounded border border-[#2a2a3a] bg-[#0a0a0f] px-2.5 py-1 text-xs text-fuchsia-200 font-mono"
+                                            placeholder="^[[:space:]]*$"
+                                            value={op().pattern || ""}
+                                            onInput={(e) => updateOperation(opIdx, { pattern: e.currentTarget.value })}
+                                          />
+                                          <label class="inline-flex items-center gap-1 text-[10px] text-[#8b8b9e] cursor-pointer">
+                                            <input
+                                              type="checkbox"
+                                              checked={Boolean(op().invert)}
+                                              onChange={(e) => updateOperation(opIdx, { invert: e.currentTarget.checked })}
+                                            />
+                                            <span>Invert (-v)</span>
+                                          </label>
+                                        </Show>
+
+                                        <Show when={op().type === "extract_path"}>
+                                          <input
+                                            type="text"
+                                            class="flex-1 min-w-[150px] rounded border border-[#2a2a3a] bg-[#0a0a0f] px-2.5 py-1 text-xs text-fuchsia-200 font-mono"
+                                            placeholder="data.ca_chain"
+                                            value={op().path || ""}
+                                            onInput={(e) => updateOperation(opIdx, { path: e.currentTarget.value })}
+                                          />
+                                        </Show>
+
+                                        <button
+                                          type="button"
+                                          onClick={() => removeOperation(opIdx)}
+                                          class="ml-auto px-2 py-0.5 rounded bg-red-500/10 hover:bg-red-500/20 text-red-300 text-[10px]"
+                                          title="Remove operation"
+                                        >
+                                          ✕
+                                        </button>
+                                      </div>
+                                    )}
+                                  </Index>
+                                </div>
+                              </Show>
+                            </div>
+                          </Show>
+
+                          {/* Live Output Preview */}
+                          <div class="pt-2 border-t border-[#2a2a3a]/60">
+                            <div class="flex items-center justify-between mb-1">
+                              <span class="text-[10px] font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
+                                <span>⚡ Live Transformation Preview</span>
+                                <span class="text-[9px] text-[#6b6b80] font-normal">
+                                  ({upstreamLog()?.response ? `using ${upstreamStepId()} output` : "using sample OpenBao ca_chain JSON"})
+                                </span>
+                              </span>
+                              <span class="text-[9px] text-[#6b6b80] font-mono">
+                                Downstream var: &#123;&#123; steps.{step.id}.response &#125;&#125;
+                              </span>
+                            </div>
+                            <pre class="text-[11px] font-mono text-emerald-300 bg-[#08080c] p-2.5 rounded-lg border border-emerald-500/20 max-h-[140px] overflow-auto whitespace-pre-wrap break-all custom-scrollbar">
+                              {previewOutput()}
+                            </pre>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </Show>
 
                   <Show when={step.type === "database"}>
@@ -3773,7 +4206,7 @@ export default function WorkflowBuilder() {
                                   </Show>
                                 </div>
                                 
-                                <Show when={!step.type || step.type === "grpc" || step.type === "rest" || step.type === "database" || step.type === "transform" || step.type === "s3"}>
+                                <Show when={!step.type || step.type === "grpc" || step.type === "rest" || step.type === "database" || step.type === "transform" || step.type === "text_transform" || step.type === "s3"}>
                                   <div class="flex p-0.5 bg-[#12121a] border border-[#2a2a3a] rounded-lg shadow-sm">
                                     <button
                                       type="button"
@@ -3804,17 +4237,17 @@ export default function WorkflowBuilder() {
                               </div>
                               
                               <div class="flex-1 flex flex-col justify-start overflow-hidden">
-                                <Show when={!step.type || step.type === "grpc" || step.type === "rest" || step.type === "database" || step.type === "transform" || step.type === "s3"}>
+                                <Show when={!step.type || step.type === "grpc" || step.type === "rest" || step.type === "database" || step.type === "transform" || step.type === "text_transform" || step.type === "s3"}>
                                   <Show when={resultTab() === "payload"}>
                                     <pre class="text-[11px] text-blue-300 font-mono overflow-auto max-h-[140px] bg-[#0a0a0f] p-2.5 rounded-lg border border-[#2a2a3a]/40 custom-scrollbar whitespace-pre-wrap break-all flex-1">
-                                      {JSON.stringify(log()!.request, null, 2)}
+                                      {typeof log()!.request === "string" ? log()!.request : JSON.stringify(log()!.request, null, 2)}
                                     </pre>
                                   </Show>
                                   <Show when={resultTab() === "response"}>
                                     <pre class={`text-[11px] font-mono overflow-auto max-h-[140px] bg-[#0a0a0f] p-2.5 rounded-lg border border-[#2a2a3a]/40 custom-scrollbar whitespace-pre-wrap break-all flex-1 ${
                                       log()!.error ? "text-red-300 border-red-500/20 bg-red-950/5" : "text-emerald-300"
                                     }`}>
-                                      {log()!.error || JSON.stringify(log()!.response, null, 2)}
+                                      {log()!.error || (typeof log()!.response === "string" ? log()!.response : JSON.stringify(log()!.response, null, 2))}
                                     </pre>
                                     <Show when={responseFields().length > 0}>
                                       <div class="mt-2 pt-2 border-t border-[#2a2a3a]/50">

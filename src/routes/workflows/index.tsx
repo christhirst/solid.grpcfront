@@ -1,4 +1,4 @@
-import { createSignal, createResource, onMount, onCleanup, For, Show } from "solid-js";
+import { createSignal, createResource, createMemo, onMount, onCleanup, For, Show } from "solid-js";
 import { isServer } from "solid-js/web";
 import { A } from "@solidjs/router";
 
@@ -59,8 +59,13 @@ export default function Workflows() {
   const [workflows, { refetch, mutate }] = createResource(() => searchQuery(), fetchWorkflows);
 
   onMount(() => {
-    refetch();
-    refetchDashboards();
+    // Only refetch if SSR did not already populate the resource
+    if (!workflows.loading && (!workflows() || workflows()?.length === 0)) {
+      refetch();
+    }
+    if (!dashboards.loading && (!dashboards() || dashboards()?.length === 0)) {
+      refetchDashboards();
+    }
     const onGroupsChanged = () => {
       refetch();
       refetchDashboards();
@@ -144,13 +149,13 @@ export default function Workflows() {
           <p class="text-base text-[#8b8b9e]">Build, chain, and automate gRPC requests</p>
         </div>
         
-        <a href="/workflows/new" target="_self" class="btn-primary hover-lift glow-effect group flex items-center gap-2">
+        <A href="/workflows/new" class="btn-primary hover-lift glow-effect group flex items-center gap-2">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" class="transition-transform group-hover:scale-110" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <line x1="12" y1="5" x2="12" y2="19"></line>
             <line x1="5" y1="12" x2="19" y2="12"></line>
           </svg>
           New Workflow
-        </a>
+        </A>
       </div>
 
       {/* Search */}
@@ -222,7 +227,7 @@ export default function Workflows() {
                   : "You haven't created any automated gRPC workflows yet. Start building your first flow!"}
               </p>
               <Show when={!searchQuery()}>
-                <a href="/workflows/new" target="_self" class="btn-primary">Create Your First Workflow</a>
+                <A href="/workflows/new" class="btn-primary">Create Your First Workflow</A>
               </Show>
             </div>
           </Show>
@@ -231,14 +236,14 @@ export default function Workflows() {
         <div class="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
           <For each={workflows()}>
             {(workflow: any) => {
-              const vStatus = () => checkWorkflowConfiguredInDashboards(workflow, dashboards() || []);
-              const usage = () => getWorkflowDashboardUsage(workflow, dashboards() || []);
+              const vStatus = createMemo(() => checkWorkflowConfiguredInDashboards(workflow, dashboards() || []));
+              const usage = createMemo(() => getWorkflowDashboardUsage(workflow, dashboards() || []));
               const rawWfId = () => {
                 const idStr = typeof workflow?.id === "string" ? workflow.id : String(workflow?.id || "");
                 return idStr.includes(":") ? idStr.split(":")[1] : idStr;
               };
               return (
-                <a href={`/workflows/${rawWfId()}`} target="_self" class="card group relative flex flex-col justify-between p-6 transition-all duration-300 hover:-translate-y-1 hover:border-blue-500/50 hover:shadow-lg hover:shadow-blue-500/10 overflow-hidden">
+                <A href={`/workflows/${rawWfId()}`} class="card group relative flex flex-col justify-between p-6 transition-all duration-300 hover:-translate-y-1 hover:border-blue-500/50 hover:shadow-lg hover:shadow-blue-500/10 overflow-hidden">
                   {/* Translucent top color: light red on top when workflow has variables and unconfigured in dashboard, light green when all configured */}
                   <Show when={vStatus().hasVariables}>
                     <div
@@ -372,7 +377,7 @@ export default function Workflows() {
                     </svg>
                   </span>
                 </div>
-              </a>
+              </A>
             )}}
           </For>
         </div>

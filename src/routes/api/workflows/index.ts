@@ -45,11 +45,27 @@ export async function GET(event: APIEvent) {
 
       workflows = raw
         .filter((w: any) => canAccessObject(ctx, w, "workflow", "view"))
-        .map((w: any) => ({
-          ...w,
-          tags: normalizeTagList(w.tags),
-          permissions: getObjectPermissions(ctx, w, "workflow"),
-        }));
+        .map((w: any) => {
+          const { protoContent: _pc, graph: _g, ...restWf } = w;
+          const lightSteps = Array.isArray(w.steps)
+            ? w.steps.map((s: any) => {
+                if (!s || typeof s !== "object") return s;
+                const {
+                  grpcDescriptorSet: _ds,
+                  grpcParsedProto: _pp,
+                  protoContent: _spc,
+                  ...restStep
+                } = s;
+                return restStep;
+              })
+            : w.steps;
+          return {
+            ...restWf,
+            steps: lightSteps,
+            tags: normalizeTagList(w.tags),
+            permissions: getObjectPermissions(ctx, w, "workflow"),
+          };
+        });
     } catch (e: any) {
       if (!e.message?.includes("does not exist")) throw e;
     }
