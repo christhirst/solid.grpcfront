@@ -27,14 +27,17 @@ describe("parseBracketTokens", () => {
     expect(tokens[0].direction).toBe("up");
   });
 
-  it("detects both up and down tokens in complex expressions", () => {
-    const text = "count((SELECT id FROM {{ DB_Table }} WHERE severity > 3)) > {{ threshold }};";
+  it("detects escaped \\{{ variable }} as literal", () => {
+    const text = "SELECT * FROM \\{{ literal_table }} WHERE col = {{ dynamic_col }};";
     const tokens = parseBracketTokens(text);
     expect(tokens.length).toBe(2);
-    expect(tokens[0].name).toBe("DB_Table");
-    expect(tokens[0].direction).toBe("down");
-    expect(tokens[1].name).toBe("threshold");
-    expect(tokens[1].direction).toBe("down");
+    const lit = tokens.find((t) => t.name === "literal_table");
+    expect(lit).toBeDefined();
+    expect(lit?.isLiteral).toBe(true);
+
+    const dyn = tokens.find((t) => t.name === "dynamic_col");
+    expect(dyn).toBeDefined();
+    expect(dyn?.isLiteral).toBeUndefined();
   });
 });
 
@@ -353,6 +356,110 @@ describe("getWorkflowDashboardUsage", () => {
     expect(usage.count).toBe(0);
     expect(usage.dashboardNames).toEqual([]);
     expect(usage.dashboardIds).toEqual([]);
+  });
+});
+
+describe("Literal Variable Exclusion & Pass-Through", () => {
+  it("preserves isLiteral override in detectStepVariables", () => {
+    const step: WorkflowStep = {
+      id: "s1",
+      requestBodyTemplate: '{"text": "{{ my_template_var }}", "other": "{{ normal_var }}"}',
+      variables: [
+        {
+          id: "v1",
+          name: "my_template_var",
+          direction: "down",
+          isLiteral: true,
+        },
+      ],
+    };
+    const vars = detectStepVariables(step);
+    const lit = vars.find((v) => v.name === "my_template_var");
+    expect(lit).toBeDefined();
+    expect(lit?.isLiteral).toBe(true);
+
+    const normal = vars.find((v) => v.name === "normal_var");
+    expect(normal).toBeDefined();
+    expect(normal?.isLiteral).toBeUndefined();
+  });
+
+  it("excludes isLiteral variables from extractFormVariables", () => {
+    const workflow = {
+      steps: [
+        {
+          id: "s1",
+          requestBodyTemplate: '{"a": "{{ configured_var }}", "b": "\\{{ escaped_var }}", "c": "{{ literal_var }}"}',
+          variables: [
+            {
+              id: "v3",
+              name: "literal_var",
+              direction: "down" as const,
+              isLiteral: true,
+            },
+          ],
+        },
+      ],
+    };
+
+    const formVars = extractFormVariables(workflow);
+    expect(formVars).toContain("configured_var");
+    expect(formVars).not.toContain("escaped_var");
+    expect(formVars).not.toContain("literal_var");
+  });
+
+  it("does not report missing variables when all variables are literal or configured", async () => {
+    const { checkWorkflowConfiguredInDashboards } = await import("./workflowVariableChecker");
+    const workflow = {
+      id: "wf_test",
+      steps: [
+        {
+          id: "s1",
+          requestBodyTemplate: '{"query": "\\{{ backend_var }}"}',
+        },
+      ],
+    };
+    const dashboards: any[] = [];
+    const status = checkWorkflowConfiguredInDashboards(workflow, dashboards);
+    expect(status.hasVariables).toBe(false);
+    expect(status.allConfigured).toBe(true);
+    expect(status.missingVars.length).toBe(0);
+  });
+
+  it("interpolateTemplate unescapes \\{{ var }} to {{ var }} and preserves it", async () => {
+    const { interpolateTemplate } = await import("./workflowEngine");
+    const template = "https://example.com/api?template=\\{{ backend_var }}&active={{ active }}";
+    const context = {
+      active: true,
+      backend_var: "SHOULD_NOT_BE_USED",
+    };
+
+    const result = interpolateTemplate(template, context);
+    expect(result).toBe("https://example.com/api?template={{ backend_var }}&active=true");
+  });
+
+  it("interpolateTemplate preserves variables marked in __stepLiteralVars even if present in context", async () => {
+    const { interpolateTemplate } = await import("./workflowEngine");
+    const template = "Bearer {{ auth_header }} {{ literal_token }}";
+    const context = {
+      auth_header: "Token123",
+      literal_token: "SECRET_VALUE_NOT_USED",
+      __stepLiteralVars: new Set(["literal_token"]),
+    };
+
+    const result = interpolateTemplate(template, context);
+    expect(result).toBe("Bearer Token123 {{ literal_token }}");
+  });
+
+  it("interpolateTemplate preserves unresolved non-configured variables as {{ rawPath }} instead of blanking out", async () => {
+    const { interpolateTemplate } = await import("./workflowEngine");
+    const template = "Hello {{ user.name }}, your code is {{ verification_code }}";
+    const context = {
+      user: { name: "Alice" },
+      // verification_code is not configured
+    };
+
+    const result = interpolateTemplate(template, context);
+    expect(result).toBe("Hello Alice, your code is {{ verification_code }}");
   });
 });
 

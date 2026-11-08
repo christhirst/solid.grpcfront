@@ -4,6 +4,8 @@ import { A } from "@solidjs/router";
 
 import { checkWorkflowConfiguredInDashboards, getWorkflowDashboardUsage } from "~/lib/workflowVariableChecker";
 import { GroupTagPicker } from "~/components/GroupTagPicker";
+import VoteControl from "~/components/VoteControl";
+import { compareByVotes } from "~/lib/votes";
 
 export default function Workflows() {
   const [searchQuery, setSearchQuery] = createSignal("");
@@ -73,6 +75,20 @@ export default function Workflows() {
     window.addEventListener("user-groups-changed", onGroupsChanged);
     onCleanup(() => {
       window.removeEventListener("user-groups-changed", onGroupsChanged);
+    });
+  });
+
+  const [sortBy, setSortBy] = createSignal<"updated" | "top">("updated");
+
+  const sortedWorkflows = createMemo(() => {
+    const list = [...(workflows() || [])];
+    if (sortBy() === "top") {
+      return list.sort(compareByVotes);
+    }
+    return list.sort((a, b) => {
+      const aTime = new Date(a.updated_at || a.created_at || 0).getTime();
+      const bTime = new Date(b.updated_at || b.created_at || 0).getTime();
+      return bTime - aTime;
     });
   });
 
@@ -168,10 +184,21 @@ export default function Workflows() {
             placeholder="Search workflows..."
           />
         </div>
-        <div class="text-base text-[#8b8b9e]">
-          <Show when={!workflows.loading} fallback="Searching...">
-            {workflows()?.length || 0} workflow{(workflows()?.length || 0) !== 1 ? "s" : ""}
-          </Show>
+        <div class="flex items-center gap-3">
+          <label class="text-xs text-[#8b8b9e] shrink-0">Sort by:</label>
+          <select
+            value={sortBy()}
+            onChange={(e) => setSortBy(e.currentTarget.value as any)}
+            class="rounded-xl border border-[#1e1e2e] bg-[#12121a] px-3 py-2 text-xs text-white focus:border-blue-500 focus:outline-none transition-colors"
+          >
+            <option value="updated">Recently Updated</option>
+            <option value="top">Top Voted</option>
+          </select>
+          <div class="text-base text-[#8b8b9e]">
+            <Show when={!workflows.loading} fallback="Searching...">
+              {workflows()?.length || 0} workflow{(workflows()?.length || 0) !== 1 ? "s" : ""}
+            </Show>
+          </div>
         </div>
       </div>
 
@@ -234,7 +261,7 @@ export default function Workflows() {
         }
       >
         <div class="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
-          <For each={workflows()}>
+          <For each={sortedWorkflows()}>
             {(workflow: any) => {
               const vStatus = createMemo(() => checkWorkflowConfiguredInDashboards(workflow, dashboards() || []));
               const usage = createMemo(() => getWorkflowDashboardUsage(workflow, dashboards() || []));
@@ -302,6 +329,20 @@ export default function Workflows() {
                             <span>{usage().count} {usage().count === 1 ? "Dashboard" : "Dashboards"}</span>
                           </span>
                         </Show>
+
+                        <VoteControl
+                          endpoint={`/api/workflows/${rawWfId()}/vote`}
+                          votes={workflow.votes}
+                          onChange={(newVotes) => {
+                            mutate((prev: any[] | undefined) =>
+                              (prev || []).map((w) =>
+                                (w.id === workflow.id || rawWfId() === (w.id?.includes(":") ? w.id.split(":")[1] : w.id))
+                                  ? { ...w, votes: newVotes }
+                                  : w
+                              )
+                            );
+                          }}
+                        />
 
                         <GroupTagPicker
                           tags={workflow.tags || []}

@@ -10,6 +10,7 @@ import {
   normalizeTagList,
 } from "~/lib/groupAuth";
 import { readJsonBody } from "~/lib/requestUtils";
+import { attachVoteSummaries } from "~/lib/votes";
 
 export async function GET(event: APIEvent) {
   try {
@@ -66,6 +67,8 @@ export async function GET(event: APIEvent) {
             permissions: getObjectPermissions(ctx, w, "workflow"),
           };
         });
+
+      workflows = await attachVoteSummaries(db, "workflow", workflows, ctx);
     } catch (e: any) {
       if (!e.message?.includes("does not exist")) throw e;
     }

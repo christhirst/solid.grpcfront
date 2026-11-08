@@ -31,6 +31,7 @@ export const STANDARD_TABLES = [
     "user_profile",
     "group_namespace",
     "vault_config",
+    "vote",
 ] as const;
 
 export const STANDARD_TABLES_SQL = STANDARD_TABLES.map(
@@ -422,6 +423,10 @@ export async function getDb(): Promise<TracedDb> {
                 // Ensure standard tables exist
                 try {
                     await db.query(STANDARD_TABLES_SQL);
+                    await db.query(`
+                        DEFINE INDEX IF NOT EXISTS vote_target ON vote FIELDS target_kind, target_key;
+                        DEFINE INDEX IF NOT EXISTS vote_user ON vote FIELDS target_kind, user_sub;
+                    `);
                 } catch (e: any) {
                     // Ignore if unable to define tables
                 }

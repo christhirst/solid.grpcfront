@@ -13,6 +13,7 @@ import {
 import { canUseWorkflowViaDashboard } from "~/lib/dashboard/dashboardScope";
 import { collectAllExistingGroups } from "~/lib/groups";
 import { readJsonBody } from "~/lib/requestUtils";
+import { getVoteSummaries, deleteVotesForTarget } from "~/lib/votes";
 
 export async function GET(event: APIEvent) {
   try {
@@ -60,6 +61,10 @@ export async function GET(event: APIEvent) {
       record.id = `workflow:${dbId}`;
       record.tags = normalizeTagList(record.tags);
       record.permissions = getObjectPermissions(ctx, record, "workflow");
+      try {
+        const voteMap = await getVoteSummaries(db, "workflow", [dbId], ctx.sub !== "anonymous" ? ctx.sub : null);
+        record.votes = voteMap.get(dbId) || { score: 0, up: 0, down: 0, myVote: 0, canVote: Boolean(ctx.sub !== "anonymous") };
+      } catch {}
     }
     return new Response(JSON.stringify({ success: true, data: record }), {
       headers: { "Content-Type": "application/json" },
@@ -224,6 +229,7 @@ export async function DELETE(event: APIEvent) {
 
     await db.delete(sId);
     unscheduleWorkflow(`workflow:${dbId}`);
+    await deleteVotesForTarget(db, "workflow", dbId);
 
     return new Response(JSON.stringify({ success: true }), {
       headers: { "Content-Type": "application/json" },

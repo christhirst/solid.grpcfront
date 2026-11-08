@@ -8,6 +8,8 @@ import { Input } from "~/components/ui/input";
 import { dashboardId, type DashboardSummary } from "~/lib/dashboard/boardTypes";
 import { publicDashboardPath } from "~/lib/dashboard/publicUrl";
 import { GroupTagPicker } from "~/components/GroupTagPicker";
+import VoteControl from "~/components/VoteControl";
+import { compareByVotes } from "~/lib/votes";
 
 const formatDate = (value?: string) => {
   if (!value) return "No activity yet";
@@ -23,6 +25,7 @@ const formatDate = (value?: string) => {
 export default function Dashboards() {
   const navigate = useNavigate();
   const [query, setQuery] = createSignal("");
+  const [sortBy, setSortBy] = createSignal<"updated" | "top">("updated");
   const [error, setError] = createSignal("");
   let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -67,6 +70,9 @@ export default function Dashboards() {
 
   const visibleDashboards = createMemo(() => {
     const items = dashboards() || [];
+    if (sortBy() === "top") {
+      return [...items].sort(compareByVotes);
+    }
     return [...items].sort((a, b) => {
       const aTime = new Date(a.updated_at || a.created_at || 0).getTime();
       const bTime = new Date(b.updated_at || b.created_at || 0).getTime();
@@ -163,10 +169,21 @@ export default function Dashboards() {
             placeholder="Search dashboards..."
           />
         </div>
-        <div class="text-sm text-zinc-400">
-          <Show when={!dashboards.loading} fallback="Loading dashboards...">
-            Showing {visibleDashboards().length} of {dashboards()?.length || 0}
-          </Show>
+        <div class="flex items-center gap-3">
+          <label class="text-xs text-zinc-400 shrink-0">Sort by:</label>
+          <select
+            value={sortBy()}
+            onChange={(e) => setSortBy(e.currentTarget.value as any)}
+            class="rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-xs text-white focus:border-blue-500 focus:outline-none transition-colors"
+          >
+            <option value="updated">Recently Updated</option>
+            <option value="top">Top Voted</option>
+          </select>
+          <div class="text-sm text-zinc-400">
+            <Show when={!dashboards.loading} fallback="Loading dashboards...">
+              Showing {visibleDashboards().length} of {dashboards()?.length || 0}
+            </Show>
+          </div>
         </div>
       </div>
 
@@ -232,6 +249,22 @@ export default function Dashboards() {
                       </CardDescription>
                     </div>
                     <div class="flex items-center gap-1.5 shrink-0">
+                      <VoteControl
+                        endpoint={`/api/dashboards/${dashboardId(d.id)}/vote`}
+                        votes={(d as any).votes}
+                        onChange={(newVotes) => {
+                          mutate((prev) =>
+                            (prev || []).map((item) =>
+                              item.id === d.id
+                                ? ({
+                                    ...item,
+                                    votes: newVotes,
+                                  } as any)
+                                : item
+                            )
+                          );
+                        }}
+                      />
                       <GroupTagPicker
                         tags={d.tags || []}
                         endpoint={`/api/dashboards/${dashboardId(d.id)}`}

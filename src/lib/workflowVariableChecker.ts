@@ -9,12 +9,15 @@ export function parseBracketTokens(text?: string): StepVariable[] {
   if (!text || typeof text !== "string") return [];
   const results: StepVariable[] = [];
   const seen = new Set<string>();
-  const regex = /\{\{\s*([^{}]+?)\s*\}\}/g;
+  const regex = /(\\+)?\{\{\s*([^{}]+?)\s*\}\}/g;
   let m;
   while ((m = regex.exec(text)) !== null) {
-    const raw = m[1].trim();
+    const slashes = m[1];
+    const raw = m[2].trim();
     if (!raw || seen.has(raw)) continue;
     seen.add(raw);
+
+    const isEscaped = Boolean(slashes && slashes.length % 2 === 1);
 
     const isStepRef =
       raw.startsWith("steps.") ||
@@ -36,6 +39,7 @@ export function parseBracketTokens(text?: string): StepVariable[] {
       id: `var_${results.length}_${raw.replace(/[^a-zA-Z0-9_]/g, "_")}`,
       name: raw,
       direction,
+      isLiteral: isEscaped ? true : undefined,
       type: isCalculation ? "query" : "string",
     });
   }
@@ -160,6 +164,7 @@ export function detectStepVariables(step: any): StepVariable[] {
             ...tok,
             ...existing,
             name: tok.name, // ensure name is preserved
+            isLiteral: existing.isLiteral !== undefined ? existing.isLiteral : tok.isLiteral,
           });
         } else {
           detectedTokens.push(tok);
@@ -187,7 +192,7 @@ export function extractFormVariables(workflow: any): string[] {
   (workflow.steps || []).forEach((step: any) => {
     const stepVars = detectStepVariables(step);
     stepVars.forEach((v) => {
-      if (v.direction === "down") {
+      if (v.direction === "down" && !v.isLiteral) {
         let cleanName = v.name;
         if (cleanName.startsWith("form.")) cleanName = cleanName.slice(5);
         if (cleanName.startsWith("dashboard_form.")) cleanName = cleanName.slice(15);
@@ -204,7 +209,7 @@ export function extractFormVariables(workflow: any): string[] {
       ...parseBracketTokens(workflow.authConfig.url),
     ];
     authTokens.forEach((v) => {
-      if (v.direction === "down") {
+      if (v.direction === "down" && !v.isLiteral) {
         let cleanName = v.name;
         if (cleanName.startsWith("form.")) cleanName = cleanName.slice(5);
         if (cleanName.startsWith("dashboard_form.")) cleanName = cleanName.slice(15);
@@ -368,7 +373,7 @@ export function extractUpstreamVariables(workflow: any): UpstreamVariable[] {
   workflow.steps.forEach((step: any, sIdx: number) => {
     const stepVars = detectStepVariables(step);
     stepVars.forEach((v) => {
-      if (v.direction === "up") {
+      if (v.direction === "up" && !v.isLiteral) {
         const key = `${v.name}::${v.alias || ""}`;
         if (!seen.has(key)) {
           seen.add(key);

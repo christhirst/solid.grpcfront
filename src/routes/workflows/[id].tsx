@@ -1904,8 +1904,9 @@ export default function WorkflowBuilder() {
                 };
 
                 const stepVars = createMemo(() => detectStepVariables(step));
-                const upVars = createMemo(() => stepVars().filter((v) => v.direction === "up"));
-                const downVars = createMemo(() => stepVars().filter((v) => v.direction === "down"));
+                const upVars = createMemo(() => stepVars().filter((v) => v.direction === "up" && !v.isLiteral));
+                const downVars = createMemo(() => stepVars().filter((v) => v.direction === "down" && !v.isLiteral));
+                const literalVars = createMemo(() => stepVars().filter((v) => !!v.isLiteral));
 
                 const updateVar = (varName: string, patch: Partial<StepVariable>) => {
                   const current = stepVars();
@@ -1922,7 +1923,13 @@ export default function WorkflowBuilder() {
                   const v = stepVars().find((x) => x.name === varName);
                   if (!v) return;
                   const nextDir = v.direction === "up" ? "down" : "up";
-                  updateVar(varName, { direction: nextDir });
+                  updateVar(varName, { direction: nextDir, isLiteral: false });
+                };
+
+                const toggleVarLiteral = (varName: string) => {
+                  const v = stepVars().find((x) => x.name === varName);
+                  if (!v) return;
+                  updateVar(varName, { isLiteral: !v.isLiteral });
                 };
 
                 const addManualVar = () => {
@@ -4065,6 +4072,14 @@ export default function WorkflowBuilder() {
                                             >
                                               ↑ UP
                                             </button>
+                                            <button
+                                              type="button"
+                                              onClick={() => toggleVarLiteral(v().name)}
+                                              class="text-[9px] font-medium px-1.5 py-0.5 rounded border border-zinc-700 bg-zinc-800 text-zinc-300 hover:border-purple-500 hover:text-purple-300 transition-colors shrink-0"
+                                              title="Exclude from dashboard and send literally as {{ variable }}"
+                                            >
+                                              🔤 Literal
+                                            </button>
                                             <span class="text-[11px] font-mono text-emerald-200 truncate" title={v().name}>
                                               {`{{ ${v().name} }}`}
                                             </span>
@@ -4128,6 +4143,14 @@ export default function WorkflowBuilder() {
                                               >
                                                 ↓ DOWN
                                               </button>
+                                              <button
+                                                type="button"
+                                                onClick={() => toggleVarLiteral(v().name)}
+                                                class="text-[9px] font-medium px-1.5 py-0.5 rounded border border-zinc-700 bg-zinc-800 text-zinc-300 hover:border-purple-500 hover:text-purple-300 transition-colors shrink-0"
+                                                title="Exclude from dashboard and send literally as {{ variable }}"
+                                              >
+                                                🔤 Literal
+                                              </button>
                                               <span
                                                 class={`text-[11px] font-mono truncate ${
                                                   isSetInDash() ? "text-emerald-200" : "text-red-200"
@@ -4177,6 +4200,60 @@ export default function WorkflowBuilder() {
                                         </div>
                                       );
                                     }}
+                                  </Index>
+                                </div>
+                              </Show>
+
+                              {/* 🔤 LITERAL (Pass-Through / Excluded from Dashboard) */}
+                              <Show when={literalVars().length > 0}>
+                                <div class="space-y-1.5 pt-1">
+                                  <div class="flex items-center gap-1.5 text-[10px] font-bold text-purple-400 uppercase tracking-wider">
+                                    <span class="h-1.5 w-1.5 rounded-full bg-purple-400"></span>
+                                    <span>🔤 Literal (Sent As-Is / Excluded from Dashboard)</span>
+                                  </div>
+                                  <Index each={literalVars()}>
+                                    {(v) => (
+                                      <div class="p-2 rounded-lg border border-purple-500/30 bg-purple-950/20 space-y-1.5">
+                                        <div class="flex items-center justify-between gap-2">
+                                          <div class="flex items-center gap-1.5 overflow-hidden flex-1">
+                                            <button
+                                              type="button"
+                                              onClick={() => toggleVarLiteral(v().name)}
+                                              class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 hover:bg-purple-500/40 transition-colors shrink-0 border border-purple-500/40"
+                                              title="Click to restore to configurable variable"
+                                            >
+                                              🔤 Literal
+                                            </button>
+                                            <span class="text-[11px] font-mono text-purple-200 truncate" title={v().name}>
+                                              {`{{ ${v().name} }}`}
+                                            </span>
+                                          </div>
+                                          <div class="flex items-center gap-1.5 shrink-0">
+                                            <span class="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-300 border border-purple-500/30">
+                                              Pass-through
+                                            </span>
+                                            <button
+                                              type="button"
+                                              onClick={() => removeVar(v().name)}
+                                              class="text-[#5b5b6e] hover:text-red-400 text-xs shrink-0 px-1"
+                                              title="Remove"
+                                            >
+                                              ✕
+                                            </button>
+                                          </div>
+                                        </div>
+                                        <div class="flex items-center gap-2">
+                                          <label class="text-[10px] text-purple-400/80 font-semibold shrink-0">Alias:</label>
+                                          <input
+                                            type="text"
+                                            class="flex-1 bg-[#0a0a0f] border border-purple-500/30 rounded px-2 py-0.5 text-xs text-white placeholder-[#5b5b6e] focus:border-purple-400 outline-none"
+                                            placeholder="Optional alias"
+                                            value={v().alias || ""}
+                                            onInput={(e) => updateVar(v().name, { alias: e.currentTarget.value })}
+                                          />
+                                        </div>
+                                      </div>
+                                    )}
                                   </Index>
                                 </div>
                               </Show>

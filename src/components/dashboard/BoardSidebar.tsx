@@ -1,6 +1,7 @@
 import { For, Show, createEffect, createSignal, onCleanup, onMount } from "solid-js";
 import { Badge } from "~/components/ui/badge";
-import { formatDate, type DashboardSummary } from "~/lib/dashboard/boardTypes";
+import VoteControl from "~/components/VoteControl";
+import { dashboardId, formatDate, type DashboardSummary } from "~/lib/dashboard/boardTypes";
 
 export interface BoardSidebarProps {
   boards: DashboardSummary[];
@@ -129,9 +130,18 @@ export default function BoardSidebar(props: BoardSidebarProps) {
                   <span class={`truncate text-sm font-bold ${active() ? "text-white" : "text-zinc-100"}`}>
                     {d.name || "Untitled Dashboard"}
                   </span>
-                  <span class="shrink-0 text-[10px] font-mono text-zinc-500">
-                    {formatDate(d.updated_at || d.created_at)}
-                  </span>
+                  <div class="flex items-center gap-1.5 shrink-0">
+                    <VoteControl
+                      endpoint={`/api/dashboards/${dashboardId(d.id)}/vote`}
+                      votes={(d as any).votes}
+                      onChange={(newVotes) => {
+                        (d as any).votes = newVotes;
+                      }}
+                    />
+                    <span class="text-[10px] font-mono text-zinc-500">
+                      {formatDate(d.updated_at || d.created_at)}
+                    </span>
+                  </div>
                 </div>
                 <Show
                   when={d.description}

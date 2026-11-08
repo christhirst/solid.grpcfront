@@ -13,11 +13,13 @@ import { useBoardBrowsing } from "~/lib/dashboard/useBoardBrowsing";
 import { useSlideshow } from "~/lib/dashboard/useSlideshow";
 import { useSwipe } from "~/lib/dashboard/useSwipe";
 import { useMediaQuery } from "~/lib/useMediaQuery";
+import VoteControl from "~/components/VoteControl";
+import { compareByVotes } from "~/lib/votes";
 
 export default function DashboardLibrary() {
   const [search, setSearch] = createSignal("");
   const [widgetFilter, setWidgetFilter] = createSignal("all");
-  const [sortBy, setSortBy] = createSignal<"updated" | "widgets" | "name">("updated");
+  const [sortBy, setSortBy] = createSignal<"updated" | "widgets" | "name" | "top">("updated");
   const [error, setError] = createSignal("");
   const [selectedGroupTags, setSelectedGroupTags] = createSignal<string[]>([]);
   const [selectedContentTags, setSelectedContentTags] = createSignal<string[]>([]);
@@ -99,7 +101,9 @@ export default function DashboardLibrary() {
       );
     }
 
-    if (sortBy() === "updated") {
+    if (sortBy() === "top") {
+      list.sort(compareByVotes);
+    } else if (sortBy() === "updated") {
       list.sort((a, b) => new Date(b.updated_at || b.created_at || 0).getTime() - new Date(a.updated_at || a.created_at || 0).getTime());
     } else if (sortBy() === "widgets") {
       list.sort((a, b) => (b.buttons?.length || 0) - (a.buttons?.length || 0));
@@ -221,7 +225,16 @@ export default function DashboardLibrary() {
                 Updated {formatDate(p.d.updated_at || p.d.created_at)} • {p.d.buttons?.length || 0} widgets
               </CardDescription>
             </div>
-            <Badge variant="success" class="shrink-0">Published</Badge>
+            <div class="flex items-center gap-1.5 shrink-0">
+              <VoteControl
+                endpoint={`/api/dashboards/${dashboardId(p.d.id)}/vote`}
+                votes={(p.d as any).votes}
+                onChange={(newVotes) => {
+                  (p.d as any).votes = newVotes;
+                }}
+              />
+              <Badge variant="success" class="shrink-0">Published</Badge>
+            </div>
           </div>
         </CardHeader>
 
@@ -491,6 +504,7 @@ export default function DashboardLibrary() {
               onChange={(e) => setSortBy(e.currentTarget.value as any)}
               class="rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-white focus:border-purple-500 focus:outline-none transition-colors"
             >
+              <option value="top">Top Voted</option>
               <option value="updated">Recently Updated</option>
               <option value="widgets">Most Widgets</option>
               <option value="name">Name (A-Z)</option>

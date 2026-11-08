@@ -269,14 +269,37 @@ export interface WorkflowRun {
   logs: WorkflowRunLog[];
 }
 
+export function safeJsonParseWithEscapes(raw: string): any {
+  // If the raw text contains unescaped \{{ inside JSON (which is an invalid JSON escape sequence),
+  // fix it to \\{{ so JSON.parse succeeds without error.
+  const normalized = (raw || "{}").replace(/(^|[^\\])\\\{\{/g, "$1\\\\{{");
+  return JSON.parse(normalized);
+}
+
 /**
  * Replace {{ path.to.variable }} in a string using the context object.
  * Supports direct paths (e.g. steps.step_1.response, auth.token) and falls back
  * to bare downstream form variables (e.g. {{ DB_Table }} -> context.form.DB_Table).
+ * Preserves escaped tokens \{{ ... }} literally as {{ ... }}.
+ * Preserves step-level literal variables and unconfigured variables literally.
  */
 export function interpolateTemplate(template: string, context: Record<string, any>): string {
-  return template.replace(/\{\{\s*([^{}]+?)\s*\}\}/g, (_, rawPath) => {
+  if (!template || typeof template !== "string") return template;
+  return template.replace(/(\\+)?\{\{\s*([^{}]+?)\s*\}\}/g, (fullMatch, slashes, rawPath) => {
+    // 1. Escaped syntax: \{{ ... }} -> {{ ... }}
+    if (slashes && slashes.length % 2 === 1) {
+      const remainingSlashes = slashes.slice(1);
+      return `${remainingSlashes}{{ ${rawPath.trim()} }}`;
+    }
+
     const path = String(rawPath).trim();
+
+    // 2. Step-level literal variable exclusion
+    const literalVars = context.__stepLiteralVars;
+    if (literalVars && (literalVars.has(path) || literalVars.has(rawPath))) {
+      return `{{ ${rawPath} }}`;
+    }
+
     let val = get(context, path);
     if (val === undefined && context.form) {
       val = get(context.form, path);
@@ -297,7 +320,8 @@ export function interpolateTemplate(template: string, context: Record<string, an
       if (isCalculation) {
         return path;
       }
-      return ``; // Or throw? For now empty string
+      // Unresolved non-configured variable: send literally instead of blanked!
+      return `{{ ${rawPath} }}`;
     }
     if (typeof val === "object") {
       return JSON.stringify(val);
@@ -312,10 +336,22 @@ export function interpolateTemplate(template: string, context: Record<string, an
  */
 function evaluatePayload(templateObj: any, context: Record<string, any>): any {
   if (typeof templateObj === "string") {
+    // Check if the entire string is an escaped template e.g. "\{{ steps.foo.response }}"
+    const escapedMatch = templateObj.match(/^\\\{\{\s*([^{}]+?)\s*\}\}$/);
+    if (escapedMatch) {
+      return `{{ ${escapedMatch[1].trim()} }}`;
+    }
+
     // Check if the entire string is exactly a template e.g. "{{ steps.foo.response }}"
     const exactMatch = templateObj.match(/^\{\{\s*([^{}]+?)\s*\}\}$/);
     if (exactMatch) {
       const path = exactMatch[1].trim();
+
+      const literalVars = context.__stepLiteralVars;
+      if (literalVars && (literalVars.has(path) || literalVars.has(exactMatch[1]))) {
+        return templateObj;
+      }
+
       let val = get(context, path);
       if (val === undefined && context.form) val = get(context.form, path);
       if (val === undefined && context.dashboard_form) val = get(context.dashboard_form, path);
@@ -324,6 +360,9 @@ function evaluatePayload(templateObj: any, context: Record<string, any>): any {
       if (val !== undefined) return val;
       const isCalculation = /\b(SELECT|FROM|WHERE|count\(|LET|RETURN|IF)\b/i.test(path) || /[><=]/.test(path);
       if (isCalculation) return path;
+
+      // Unresolved non-configured variable: return templateObj literally
+      return templateObj;
     }
     // Otherwise it's a mixed string "bearer {{ token }}"
     return interpolateTemplate(templateObj, context);
@@ -739,6 +778,17 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
 
     for (const rawStep of executionSteps) {
       const step = await resolveObjectSecrets(rawStep, STEP_SECRET_FIELDS);
+      const stepLiteralVars = new Set<string>();
+      if (Array.isArray(step.variables)) {
+        for (const v of step.variables) {
+          if (v && v.isLiteral && v.name) {
+            stepLiteralVars.add(v.name.trim());
+            if (v.name.startsWith("form.")) stepLiteralVars.add(v.name.slice(5).trim());
+            if (v.name.startsWith("dashboard_form.")) stepLiteralVars.add(v.name.slice(15).trim());
+          }
+        }
+      }
+      context.__stepLiteralVars = stepLiteralVars;
       // Each step runs inside a Sentry span. The callback returns a signal
       // ("continue" | "abort") so we can control the outer loop without
       // using continue/return across the function boundary.
@@ -772,7 +822,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
           requestPayload = get(context, exactMatch[1].trim());
         } else {
           try {
-            const parsedTemplate = JSON.parse(step.requestBodyTemplate || "{}");
+            const parsedTemplate = safeJsonParseWithEscapes(step.requestBodyTemplate || "{}");
             requestPayload = evaluatePayload(parsedTemplate, context);
           } catch (e) {
             requestPayload = {};
@@ -1853,7 +1903,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
              requestPayload = get(context, exactMatch[1].trim());
           } else {
              try {
-                const parsedTemplate = JSON.parse(rawBodyTemplate || "{}");
+                const parsedTemplate = safeJsonParseWithEscapes(rawBodyTemplate || "{}");
                 requestPayload = evaluatePayload(parsedTemplate, context);
              } catch(e) {
                 requestPayload = interpolateTemplate(rawBodyTemplate || "", context);
@@ -2045,7 +2095,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
       } else {
         let parsedTemplate;
         try {
-          parsedTemplate = JSON.parse(step.requestBodyTemplate || "{}");
+          parsedTemplate = safeJsonParseWithEscapes(step.requestBodyTemplate || "{}");
         } catch (e: any) {
           throw new Error(`Invalid request payload in step ${step.id}: Must be a JSON object or a single exact template {{ variable }}. Error: ${e.message}`);
         }

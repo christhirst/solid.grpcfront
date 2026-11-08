@@ -1,6 +1,7 @@
 import { createSignal, Show, onMount, createEffect, onCleanup } from "solid-js";
 import PublicDashboardView, { loadWorkflowMap } from "~/components/dashboard/PublicDashboardView";
 import { dashboardId } from "~/lib/dashboard/boardTypes";
+import VoteControl from "~/components/VoteControl";
 
 // ─── Main public dashboard page ───────────────────────────────────────────────
 
@@ -71,7 +72,17 @@ export default function PublicDashboardPage(props: { endpoint: string }) {
               </Show>
             </div>
             <h1 class="text-5xl font-extrabold tracking-tight text-white mb-2">{dashboard().name}</h1>
-            <p class="text-sm font-bold tracking-widest text-[#5b5b6e] uppercase">Public View • Fixed Layout</p>
+            <p class="text-sm font-bold tracking-widest text-[#5b5b6e] uppercase mb-4">Public View • Fixed Layout</p>
+            <div class="flex items-center justify-center">
+              <VoteControl
+                size="md"
+                endpoint={`/api/dashboards/${dashboardId(dashboard()?.id || "")}/vote`}
+                votes={dashboard()?.votes}
+                onChange={(newVotes) => {
+                  setDashboard((prev: any) => (prev ? { ...prev, votes: newVotes } : prev));
+                }}
+              />
+            </div>
           </div>
 
           {/* Widgets grid (GridStack fixed layout) */}

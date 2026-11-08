@@ -13,6 +13,7 @@ describe("schemaBootstrap - standard tables", () => {
     expect(STANDARD_TABLES).toContain("ca_cert");
     expect(STANDARD_TABLES).toContain("user_profile");
     expect(STANDARD_TABLES).toContain("group_namespace");
+    expect(STANDARD_TABLES).toContain("vote");
   });
 
   test("STANDARD_TABLES_SQL generates DEFINE TABLE statements for database_meta", () => {
