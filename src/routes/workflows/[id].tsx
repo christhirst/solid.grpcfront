@@ -1,7 +1,9 @@
 import { getStepCategory, type StepCategory, type StepVariable, isOAuthProvider } from "~/lib/stepCategories";
-import ReteWorkflowEditor from "~/components/workflow/ReteWorkflowEditor";
+import { clientOnly } from "@solidjs/start";
 import GrpcMethodPicker, { type ReflectionResult } from "~/components/workflow/GrpcMethodPicker";
 import S3FilePicker from "~/components/workflow/S3FilePicker";
+
+const ReteWorkflowEditor = clientOnly(() => import("~/components/workflow/ReteWorkflowEditor"));
 import { createSignal, createEffect, onMount, onCleanup, For, Show, createResource, createMemo, Index, useTransition } from "solid-js";
 import { extractFormVariables, checkWorkflowConfiguredInDashboards, detectStepVariables, type VariableConfigStatus } from "~/lib/workflowVariableChecker";
 import { collectFieldNames, type FieldInfo } from "~/lib/dashboard/chartSeries";

@@ -369,10 +369,54 @@ if (fs.existsSync(serverDir)) {
     const indexMjsPath = path.join(serverDir, "index.mjs");
     if (fs.existsSync(indexMjsPath)) {
         let indexCode = fs.readFileSync(indexMjsPath, "utf8");
+        let indexChanged = false;
         if (!indexCode.includes('import "./instrument.server.mjs"') && !indexCode.includes("import './instrument.server.mjs'")) {
             indexCode = `import "./instrument.server.mjs";\n` + indexCode;
-            fs.writeFileSync(indexMjsPath, indexCode);
+            indexChanged = true;
             console.log("Injected instrument.server.mjs into .output/server/index.mjs");
+        }
+
+        // Patch Bun.serve to directly stream static assets from .output/public via Bun.file()
+        // bypassing Nitro's in-memory toNodeListener mock buffer
+        const bunServeTarget = `  async fetch(req, server2) {
+    const url = new URL(req.url && typeof req.url === 'string' && req.url.startsWith('/') ? 'http://localhost' + req.url : req.url);
+    let body;
+    if (req.body) {
+      body = await req.arrayBuffer();
+    }
+    return nitroApp.localFetch(url.pathname + url.search, {`;
+
+        const bunServeReplacement = `  async fetch(req, server2) {
+    const url = new URL(req.url && typeof req.url === 'string' && req.url.startsWith('/') ? 'http://localhost' + req.url : req.url);
+    if ((req.method === 'GET' || req.method === 'HEAD') && url.pathname.startsWith('/_build/assets/')) {
+      const assetMeta = assets[url.pathname];
+      if (assetMeta && assetMeta.path && typeof Bun !== 'undefined' && typeof Bun.file === 'function') {
+        const fileUrl = new URL(assetMeta.path, import.meta.url);
+        const bunFile = Bun.file(fileUrl);
+        if (await bunFile.exists()) {
+          const headers = new Headers({
+            'Content-Type': assetMeta.type || 'application/javascript; charset=utf-8',
+            'Cache-Control': 'public, immutable, max-age=31536000',
+          });
+          if (assetMeta.etag) headers.set('ETag', assetMeta.etag);
+          return new Response(req.method === 'HEAD' ? null : bunFile, { status: 200, headers });
+        }
+      }
+    }
+    let body;
+    if (req.body) {
+      body = await req.arrayBuffer();
+    }
+    return nitroApp.localFetch(url.pathname + url.search, {`;
+
+        if (indexCode.includes(bunServeTarget)) {
+            indexCode = indexCode.replace(bunServeTarget, bunServeReplacement);
+            indexChanged = true;
+            console.log("Patched Bun.serve static asset streaming in .output/server/index.mjs");
+        }
+
+        if (indexChanged) {
+            fs.writeFileSync(indexMjsPath, indexCode);
         }
     }
 }

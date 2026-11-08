@@ -4,7 +4,6 @@ import { NodeEditor, GetSchemes, ClassicPreset } from "rete";
 import { AreaPlugin, AreaExtensions } from "rete-area-plugin";
 import { ConnectionPlugin, Presets as ConnectionPresets } from "rete-connection-plugin";
 import { SolidPlugin, Presets as SolidPresets, SolidArea2D } from "solid-rete-plugin";
-import { AutoArrangePlugin, Presets as ArrangePresets } from "rete-auto-arrange-plugin";
 import { WorkflowStep, getStepCategory, StepCategory } from "~/lib/stepCategories";
 
 const dataSocket = new ClassicPreset.Socket("data");
@@ -183,7 +182,6 @@ export default function ReteWorkflowEditor(props: ReteWorkflowEditorProps) {
   let containerRef!: HTMLDivElement;
   let editor: NodeEditor<Schemes> | null = null;
   let area: AreaPlugin<Schemes, AreaExtra> | null = null;
-  let arrange: AutoArrangePlugin<Schemes> | null = null;
   let isInternalSync = false;
   let hasDoneInitialLayout = false;
   let syncTimer: ReturnType<typeof setTimeout> | undefined;
@@ -429,17 +427,14 @@ export default function ReteWorkflowEditor(props: ReteWorkflowEditorProps) {
     area = new AreaPlugin<Schemes, AreaExtra>(containerRef);
     const connection = new ConnectionPlugin<any, AreaExtra>();
     const render = new SolidPlugin<Schemes, AreaExtra>();
-    arrange = new AutoArrangePlugin<Schemes>();
 
     // Configure presets
     render.addPreset(SolidPresets.classic.setup() as any);
     connection.addPreset(ConnectionPresets.classic.setup() as any);
-    arrange.addPreset(ArrangePresets.classic.setup() as any);
 
     editor.use(area);
     area.use(connection);
     area.use(render as any);
-    area.use(arrange);
 
     // Event listeners
     editor.addPipe((context) => {
@@ -583,16 +578,98 @@ export default function ReteWorkflowEditor(props: ReteWorkflowEditorProps) {
   };
 
   const handleAutoArrange = async () => {
-    if (!arrange || !area || !editor) return;
+    if (!area || !editor) return;
     try {
-      await arrange.layout({
-        options: {
-          "elk.algorithm": "layered",
-          "elk.direction": "RIGHT",
-          "elk.layered.spacing.nodeNodeBetweenLayers": "160",
-          "elk.spacing.nodeNode": "80",
-        },
-      });
+      const nodes = editor.getNodes();
+      if (nodes.length === 0) return;
+
+      const connections = editor.getConnections();
+      const nodeById = new Map<string, StepNode>(nodes.map(n => [n.id, n]));
+      const incoming = new Map<string, string[]>();
+      for (const n of nodes) incoming.set(n.id, []);
+      for (const conn of connections) {
+        if (nodeById.has(conn.source) && nodeById.has(conn.target)) {
+          incoming.get(conn.target)!.push(conn.source);
+        }
+      }
+
+      // Compute topological layer rank per node (respecting Source -> Transform -> Target categories)
+      const rankMemo = new Map<string, number>();
+      const visiting = new Set<string>();
+      const computeRank = (nodeId: string): number => {
+        if (rankMemo.has(nodeId)) return rankMemo.get(nodeId)!;
+        const node = nodeById.get(nodeId);
+        if (!node) return 0;
+        const baseRank = node.category === "source" ? 0 : node.category === "transform" ? 1 : 2;
+        if (visiting.has(nodeId)) return baseRank;
+        visiting.add(nodeId);
+        const parents = incoming.get(nodeId) || [];
+        let maxParentRank = -1;
+        for (const pId of parents) {
+          maxParentRank = Math.max(maxParentRank, computeRank(pId));
+        }
+        visiting.delete(nodeId);
+        const rank = Math.max(baseRank, maxParentRank + 1);
+        rankMemo.set(nodeId, rank);
+        return rank;
+      };
+
+      for (const n of nodes) computeRank(n.id);
+
+      // Ensure all terminal targets sit on the rightmost layer when upstream ranks are deeper
+      let maxNonTargetRank = 0;
+      for (const n of nodes) {
+        if (n.category !== "target") {
+          maxNonTargetRank = Math.max(maxNonTargetRank, rankMemo.get(n.id) || 0);
+        }
+      }
+      for (const n of nodes) {
+        if (n.category === "target") {
+          const currentRank = rankMemo.get(n.id) || 2;
+          rankMemo.set(n.id, Math.max(currentRank, maxNonTargetRank + 1));
+        }
+      }
+
+      // Group nodes into ordered columns
+      const distinctRanks = Array.from(new Set(rankMemo.values())).sort((a, b) => a - b);
+      const rankToCol = new Map<number, number>(distinctRanks.map((r, idx) => [r, idx]));
+      const columns: StepNode[][] = distinctRanks.map(() => []);
+      for (const n of nodes) {
+        const colIdx = rankToCol.get(rankMemo.get(n.id) || 0) || 0;
+        columns[colIdx].push(n);
+      }
+
+      // Barycenter vertical ordering to minimize edge crossings
+      const rowPos = new Map<string, number>();
+      const LAYER_X_SPACING = 290 + 160; // node width (290) + gap (160)
+      const NODE_Y_SPACING = 200 + 80;   // node height (200) + gap (80)
+      const START_X = 80;
+      const START_Y = 80;
+
+      for (let colIdx = 0; colIdx < columns.length; colIdx++) {
+        const col = columns[colIdx];
+        if (colIdx > 0) {
+          col.sort((a, b) => {
+            const aParents = (incoming.get(a.id) || []).filter(p => rowPos.has(p));
+            const bParents = (incoming.get(b.id) || []).filter(p => rowPos.has(p));
+            const aAvg = aParents.length > 0
+              ? aParents.reduce((sum, p) => sum + (rowPos.get(p) || 0), 0) / aParents.length
+              : Number.MAX_SAFE_INTEGER;
+            const bAvg = bParents.length > 0
+              ? bParents.reduce((sum, p) => sum + (rowPos.get(p) || 0), 0) / bParents.length
+              : Number.MAX_SAFE_INTEGER;
+            return aAvg - bAvg;
+          });
+        }
+        for (let rowIdx = 0; rowIdx < col.length; rowIdx++) {
+          const node = col[rowIdx];
+          rowPos.set(node.id, rowIdx);
+          const x = START_X + colIdx * LAYER_X_SPACING;
+          const y = START_Y + rowIdx * NODE_Y_SPACING;
+          await area.translate(node.id, { x, y });
+        }
+      }
+
       await AreaExtensions.zoomAt(area, editor.getNodes());
       syncConnectionsToSteps();
     } catch (e) {

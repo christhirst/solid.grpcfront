@@ -34,7 +34,6 @@ export default defineConfig(({ mode, isSsrBuild }) => {
         "rete",
         "rete-area-plugin",
         "rete-connection-plugin",
-        "rete-auto-arrange-plugin",
         "solid-rete-plugin",
       ],
     },
@@ -46,7 +45,9 @@ export default defineConfig(({ mode, isSsrBuild }) => {
           : {
               manualChunks(id) {
                 if (id.includes("node_modules")) {
-                  if (id.includes("rete") || id.includes("elkjs")) return "vendor-rete";
+                  if (id.includes("/solid-js/") || id.includes("/@solidjs/")) return "vendor-solid";
+                  if (id.includes("rete")) return "vendor-rete";
+                  if (id.includes("chartjs-chart-geo") || id.includes("topojson")) return "vendor-chart-geo";
                   if (id.includes("chart.js") || id.includes("chartjs") || id.includes("solid-chartjs")) return "vendor-charts";
                   if (id.includes("@antv")) return "vendor-antv";
                   if (id.includes("protobufjs")) return "vendor-proto";
