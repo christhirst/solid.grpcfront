@@ -30,6 +30,7 @@ export const STANDARD_TABLES = [
     "ca_cert",
     "user_profile",
     "group_namespace",
+    "group_member",
     "vault_config",
     "vote",
 ] as const;
@@ -49,6 +50,23 @@ function resourceName(thing: any): string {
     return String(thing);
 }
 
+const isDebugSurreal = () => process.env.DEBUG_SURREAL === "true" || process.env.DEBUG_SURREAL === "1";
+
+function isConnectionError(err: any): boolean {
+    if (!err) return false;
+    const msg = String(err.message || err).toLowerCase();
+    return (
+        msg.includes("connectionunavailable") ||
+        msg.includes("connection closed") ||
+        msg.includes("websocket is not open") ||
+        msg.includes("socket hang up") ||
+        msg.includes("econnrefused") ||
+        msg.includes("econnreset") ||
+        msg.includes("broken pipe") ||
+        msg.includes("not connected")
+    );
+}
+
 /**
  * TracedDb wraps a Surreal instance and instruments every operation with
  * Sentry spans. All methods use `any` to avoid SurrealDB's complex generic
@@ -63,9 +81,21 @@ class TracedDb {
         this.dbLabel = label;
     }
 
+    private handleError(op: string, err: any): void {
+        console.error(`[DB] ${op} failed: ${err?.message || err}`);
+        if (isConnectionError(err)) {
+            console.warn(`[DB] Connection failure detected during ${op} (${err?.message}). Resetting connection cache.`);
+            resetDbConnection();
+            dynamicDbs.delete(this.dbLabel);
+        }
+        Sentry.captureException(err);
+    }
+
     /** Forward .query() with a Sentry span */
     async query(surql: string, vars?: Record<string, unknown>): Promise<any> {
-        console.log(`[DB] Executing query: ${truncate(surql, 100)}`);
+        if (isDebugSurreal()) {
+            console.log(`[DB] Executing query: ${truncate(surql, 100)}`);
+        }
         return Sentry.startSpan(
             {
                 name: truncate(surql, 80),
@@ -83,16 +113,17 @@ class TracedDb {
                     if (Array.isArray(result)) {
                         const first = (result as any[])[0];
                         if (Array.isArray(first)) {
-                            console.log(
-                                `[DB] Query returned ${first.length} rows`,
-                            );
+                            if (isDebugSurreal()) {
+                                console.log(
+                                    `[DB] Query returned ${first.length} rows`,
+                                );
+                            }
                             span.setAttribute("db.row_count", first.length);
                         }
                     }
                     return result;
                 } catch (err: any) {
-                    console.error(`[DB] Query failed: ${err.message}`);
-                    Sentry.captureException(err);
+                    this.handleError("Query", err);
                     throw err;
                 }
             },
@@ -102,7 +133,9 @@ class TracedDb {
     /** Forward .select() with a Sentry span */
     async select(thing: any): Promise<any> {
         const resource = resourceName(thing);
-        console.log(`[DB] SELECT ${resource}`);
+        if (isDebugSurreal()) {
+            console.log(`[DB] SELECT ${resource}`);
+        }
         return Sentry.startSpan(
             {
                 name: `SELECT ${resource}`,
@@ -117,13 +150,14 @@ class TracedDb {
                 try {
                     const result = await (this.inner as any).select(thing);
                     if (Array.isArray(result)) {
-                        console.log(`[DB] SELECT ${resource} returned ${result.length} rows`);
+                        if (isDebugSurreal()) {
+                            console.log(`[DB] SELECT ${resource} returned ${result.length} rows`);
+                        }
                         span.setAttribute("db.row_count", result.length);
                     }
                     return result;
                 } catch (err: any) {
-                    console.error(`[DB] SELECT ${resource} failed: ${err.message}`);
-                    Sentry.captureException(err);
+                    this.handleError(`SELECT ${resource}`, err);
                     throw err;
                 }
             },
@@ -133,7 +167,9 @@ class TracedDb {
     /** Forward .create() with a Sentry span */
     async create(thing: any, data?: any): Promise<any> {
         const resource = resourceName(thing);
-        console.log(`[DB] CREATE ${resource}`);
+        if (isDebugSurreal()) {
+            console.log(`[DB] CREATE ${resource}`);
+        }
         return Sentry.startSpan(
             {
                 name: `CREATE ${resource}`,
@@ -147,11 +183,12 @@ class TracedDb {
             async () => {
                 try {
                     const res = await (this.inner as any).create(thing, data);
-                    console.log(`[DB] CREATE ${resource} successful`);
+                    if (isDebugSurreal()) {
+                        console.log(`[DB] CREATE ${resource} successful`);
+                    }
                     return res;
                 } catch (err: any) {
-                    console.error(`[DB] CREATE ${resource} failed: ${err.message}`);
-                    Sentry.captureException(err);
+                    this.handleError(`CREATE ${resource}`, err);
                     throw err;
                 }
             },
@@ -161,7 +198,9 @@ class TracedDb {
     /** Forward .update() with a Sentry span */
     async update(thing: any, data?: any): Promise<any> {
         const resource = resourceName(thing);
-        console.log(`[DB] UPDATE ${resource}`);
+        if (isDebugSurreal()) {
+            console.log(`[DB] UPDATE ${resource}`);
+        }
         return Sentry.startSpan(
             {
                 name: `UPDATE ${resource}`,
@@ -175,11 +214,12 @@ class TracedDb {
             async () => {
                 try {
                     const res = await (this.inner as any).update(thing, data);
-                    console.log(`[DB] UPDATE ${resource} successful`);
+                    if (isDebugSurreal()) {
+                        console.log(`[DB] UPDATE ${resource} successful`);
+                    }
                     return res;
                 } catch (err: any) {
-                    console.error(`[DB] UPDATE ${resource} failed: ${err.message}`);
-                    Sentry.captureException(err);
+                    this.handleError(`UPDATE ${resource}`, err);
                     throw err;
                 }
             },
@@ -189,7 +229,9 @@ class TracedDb {
     /** Forward .delete() with a Sentry span */
     async delete(thing: any): Promise<any> {
         const resource = resourceName(thing);
-        console.log(`[DB] DELETE ${resource}`);
+        if (isDebugSurreal()) {
+            console.log(`[DB] DELETE ${resource}`);
+        }
         return Sentry.startSpan(
             {
                 name: `DELETE ${resource}`,
@@ -203,11 +245,12 @@ class TracedDb {
             async () => {
                 try {
                     const res = await (this.inner as any).delete(thing);
-                    console.log(`[DB] DELETE ${resource} successful`);
+                    if (isDebugSurreal()) {
+                        console.log(`[DB] DELETE ${resource} successful`);
+                    }
                     return res;
                 } catch (err: any) {
-                    console.error(`[DB] DELETE ${resource} failed: ${err.message}`);
-                    Sentry.captureException(err);
+                    this.handleError(`DELETE ${resource}`, err);
                     throw err;
                 }
             },
@@ -216,7 +259,9 @@ class TracedDb {
 
     /** Forward .use() with a Sentry span */
     async use(opts: { namespace?: string; database?: string }): Promise<any> {
-        console.log(`[DB] USE NS:${opts.namespace} DB:${opts.database}`);
+        if (isDebugSurreal()) {
+            console.log(`[DB] USE NS:${opts.namespace} DB:${opts.database}`);
+        }
         return Sentry.startSpan(
             {
                 name: `USE ${opts.namespace || ""}/${opts.database || ""}`,
@@ -231,8 +276,7 @@ class TracedDb {
                 try {
                     return await this.inner.use(opts);
                 } catch (err: any) {
-                    console.error(`[DB] USE failed: ${err.message}`);
-                    Sentry.captureException(err);
+                    this.handleError("USE", err);
                     throw err;
                 }
             },
@@ -241,7 +285,9 @@ class TracedDb {
 
     /** Forward .live() with a Sentry span */
     async live(table: string, callback?: (action: string, result: any) => void): Promise<string> {
-        console.log(`[DB] LIVE ${table}`);
+        if (isDebugSurreal()) {
+            console.log(`[DB] LIVE ${table}`);
+        }
         return Sentry.startSpan(
             {
                 name: `LIVE ${table}`,
@@ -255,11 +301,12 @@ class TracedDb {
             async () => {
                 try {
                     const queryUuid = await (this.inner as any).live(table, callback);
-                    console.log(`[DB] LIVE ${table} started with UUID ${queryUuid}`);
+                    if (isDebugSurreal()) {
+                        console.log(`[DB] LIVE ${table} started with UUID ${queryUuid}`);
+                    }
                     return queryUuid;
                 } catch (err: any) {
-                    console.error(`[DB] LIVE ${table} failed: ${err.message}`);
-                    Sentry.captureException(err);
+                    this.handleError(`LIVE ${table}`, err);
                     throw err;
                 }
             },
@@ -277,11 +324,13 @@ class TracedDb {
 
     /** Forward .kill() to terminate a live query */
     async kill(queryUuid: string): Promise<void> {
-        console.log(`[DB] KILL LIVE ${queryUuid}`);
+        if (isDebugSurreal()) {
+            console.log(`[DB] KILL LIVE ${queryUuid}`);
+        }
         try {
             await (this.inner as any).kill(queryUuid);
         } catch (err: any) {
-            console.error(`[DB] KILL LIVE ${queryUuid} failed: ${err.message}`);
+            this.handleError(`KILL LIVE ${queryUuid}`, err);
         }
     }
 }
@@ -426,6 +475,12 @@ export async function getDb(): Promise<TracedDb> {
                     await db.query(`
                         DEFINE INDEX IF NOT EXISTS vote_target ON vote FIELDS target_kind, target_key;
                         DEFINE INDEX IF NOT EXISTS vote_user ON vote FIELDS target_kind, user_sub;
+                        DEFINE INDEX IF NOT EXISTS idx_dashboard_updated ON dashboard FIELDS updated_at;
+                        DEFINE INDEX IF NOT EXISTS idx_workflow_updated ON workflow FIELDS updated_at;
+                        DEFINE INDEX IF NOT EXISTS idx_workflow_run_lookup ON workflow_run FIELDS workflowId, startTime;
+                        DEFINE INDEX IF NOT EXISTS idx_group_member_sub ON group_member FIELDS userSub;
+                        DEFINE INDEX IF NOT EXISTS idx_group_member_username ON group_member FIELDS username;
+                        DEFINE INDEX IF NOT EXISTS idx_group_namespace_owner ON group_namespace FIELDS owner;
                     `);
                 } catch (e: any) {
                     // Ignore if unable to define tables
@@ -461,6 +516,10 @@ export async function getDb(): Promise<TracedDb> {
     );
 
     return dbPromise;
+}
+
+export function resetDbConnection() {
+    dbPromise = null;
 }
 
 export async function getDynamicDb(dbName: string): Promise<TracedDb> {

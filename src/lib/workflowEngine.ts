@@ -494,6 +494,31 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
   const runRecordId = new RecordId("workflow_run", dbId);
   await db.query("CREATE $id CONTENT $data", { id: runRecordId, data: dataWithoutId });
 
+  const saveRunState = async (terminal = false) => {
+    if (terminal) {
+      runRecord.context = context;
+      const { id: _ignore, ...data } = runRecord;
+      try {
+        await db.query("UPDATE $id CONTENT $data", { id: runRecordId, data });
+      } catch (e: any) {
+        console.error(`[ENGINE] Failed to save terminal run record: ${e.message}`);
+      }
+    } else {
+      // Lightweight intermediate update: persist latest logs and status without serializing the massive context
+      try {
+        await db.query("UPDATE $id MERGE $data", {
+          id: runRecordId,
+          data: {
+            status: runRecord.status,
+            logs: runRecord.logs,
+          },
+        });
+      } catch (e: any) {
+        console.warn(`[ENGINE] Intermediate run update failed: ${e.message}`);
+      }
+    }
+  };
+
   emitWorkflowEvent(runId, cleanWfId || "", "workflow_start", {
     runId,
     workflowId: cleanWfId,
@@ -916,21 +941,15 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
           error: streamError,
         });
 
-        runRecord.context = context;
-        const { id: _t1, ...data1 } = runRecord;
-        const sId1 = new RecordId("workflow_run", dbId);
-        await db.query("UPDATE $id CONTENT $data", { id: sId1, data: data1 });
-
         if (!success) {
           emitWorkflowEvent(runId, workflow.id || "", "step_failed", { stepId: step.id, error: streamError });
           runRecord.status = "failed";
           runRecord.endTime = new Date().toISOString();
-          const { id: _t2, ...data2 } = runRecord;
-          const sId2 = new RecordId("workflow_run", dbId);
-          await db.query("UPDATE $id CONTENT $data", { id: sId2, data: data2 });
+          await saveRunState(true);
           return "abort";
         }
 
+        await saveRunState(false);
         emitWorkflowEvent(runId, workflow.id || "", "step_complete", { stepId: step.id, response: chunks });
         return "continue";
       }
@@ -1031,21 +1050,15 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
           error: streamError,
         });
 
-        runRecord.context = context;
-        const { id: _t1, ...data1 } = runRecord;
-        const sId1 = new RecordId("workflow_run", dbId);
-        await db.query("UPDATE $id CONTENT $data", { id: sId1, data: data1 });
-
         if (!success) {
           emitWorkflowEvent(runId, workflow.id || "", "step_failed", { stepId: step.id, error: streamError });
           runRecord.status = "failed";
           runRecord.endTime = new Date().toISOString();
-          const { id: _t2, ...data2 } = runRecord;
-          const sId2 = new RecordId("workflow_run", dbId);
-          await db.query("UPDATE $id CONTENT $data", { id: sId2, data: data2 });
+          await saveRunState(true);
           return "abort";
         }
 
+        await saveRunState(false);
         emitWorkflowEvent(runId, workflow.id || "", "step_complete", { stepId: step.id, response: chunks });
         return "continue";
       }
@@ -1123,21 +1136,15 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
           error: streamError,
         });
 
-        runRecord.context = context;
-        const { id: _t1, ...data1 } = runRecord;
-        const sId1 = new RecordId("workflow_run", dbId);
-        await db.query("UPDATE $id CONTENT $data", { id: sId1, data: data1 });
-
         if (!success) {
           emitWorkflowEvent(runId, workflow.id || "", "step_failed", { stepId: step.id, error: streamError });
           runRecord.status = "failed";
           runRecord.endTime = new Date().toISOString();
-          const { id: _t2, ...data2 } = runRecord;
-          const sId2 = new RecordId("workflow_run", dbId);
-          await db.query("UPDATE $id CONTENT $data", { id: sId2, data: data2 });
+          await saveRunState(true);
           return "abort";
         }
 
+        await saveRunState(false);
         emitWorkflowEvent(runId, workflow.id || "", "step_complete", { stepId: step.id, response: chunks });
         return "continue";
       }
@@ -1199,20 +1206,15 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
           },
         });
 
-        const { id: _t_tr, ...data_tr } = runRecord;
-        const sId_tr = new RecordId("workflow_run", dbId);
-        await db.query("UPDATE $id CONTENT $data", { id: sId_tr, data: data_tr });
-
         if (!success) {
           emitWorkflowEvent(runId, workflow.id || "", "step_failed", { stepId: step.id, error: transformError });
           runRecord.status = "failed";
           runRecord.endTime = new Date().toISOString();
-          const { id: _t_tr2, ...data_tr2 } = runRecord;
-          const sId_tr2 = new RecordId("workflow_run", dbId);
-          await db.query("UPDATE $id CONTENT $data", { id: sId_tr2, data: data_tr2 });
+          await saveRunState(true);
           return "abort";
         }
 
+        await saveRunState(false);
         emitWorkflowEvent(runId, workflow.id || "", "step_complete", { stepId: step.id, response: transformedResult });
         return "continue";
       }
@@ -1304,20 +1306,15 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
           meta: requestMeta,
         });
 
-        const { id: _t_tt, ...data_tt } = runRecord;
-        const sId_tt = new RecordId("workflow_run", dbId);
-        await db.query("UPDATE $id CONTENT $data", { id: sId_tt, data: data_tt });
-
         if (!success) {
           emitWorkflowEvent(runId, workflow.id || "", "step_failed", { stepId: step.id, error: transformError });
           runRecord.status = "failed";
           runRecord.endTime = new Date().toISOString();
-          const { id: _t_tt2, ...data_tt2 } = runRecord;
-          const sId_tt2 = new RecordId("workflow_run", dbId);
-          await db.query("UPDATE $id CONTENT $data", { id: sId_tt2, data: data_tt2 });
+          await saveRunState(true);
           return "abort";
         }
 
+        await saveRunState(false);
         emitWorkflowEvent(runId, workflow.id || "", "step_complete", {
           stepId: step.id,
           response: transformedResult,
@@ -1415,9 +1412,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
           }
         });
 
-        const { id: _t_v, ...data_v } = runRecord;
-        const sId_v = new RecordId("workflow_run", dbId);
-        await db.query("UPDATE $id CONTENT $data", { id: sId_v, data: data_v });
+        await saveRunState(false);
 
         emitWorkflowEvent(runId, workflow.id || "", "step_complete", {
           stepId: step.id,
@@ -1532,11 +1527,6 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
         };
         runRecord.logs.push(logRecord);
 
-        runRecord.context = context;
-        const { id: _t1, ...data1 } = runRecord;
-        const sId1 = new RecordId("workflow_run", dbId);
-        await db.query("UPDATE $id CONTENT $data", { id: sId1, data: data1 });
-
         if (!execResult.success) {
           emitWorkflowEvent(runId, workflow.id || "", "step_failed", {
             stepId: step.id,
@@ -1545,12 +1535,11 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
           });
           runRecord.status = "failed";
           runRecord.endTime = new Date().toISOString();
-          const { id: _t2, ...data2 } = runRecord;
-          const sId2 = new RecordId("workflow_run", dbId);
-          await db.query("UPDATE $id CONTENT $data", { id: sId2, data: data2 });
+          await saveRunState(true);
           return "abort";
         }
 
+        await saveRunState(false);
         emitWorkflowEvent(runId, workflow.id || "", "step_complete", {
           stepId: step.id,
           response: responseData,
@@ -1697,11 +1686,6 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
         };
         runRecord.logs.push(logRecord);
 
-        runRecord.context = context;
-        const { id: _t_s3, ...data_s3 } = runRecord;
-        const sId_s3 = new RecordId("workflow_run", dbId);
-        await db.query("UPDATE $id CONTENT $data", { id: sId_s3, data: data_s3 });
-
         if (!finalResult.success) {
           emitWorkflowEvent(runId, workflow.id || "", "step_failed", {
             stepId: step.id,
@@ -1710,12 +1694,11 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
           });
           runRecord.status = "failed";
           runRecord.endTime = new Date().toISOString();
-          const { id: _t_s3_err, ...data_s3_err } = runRecord;
-          const sId_s3_err = new RecordId("workflow_run", dbId);
-          await db.query("UPDATE $id CONTENT $data", { id: sId_s3_err, data: data_s3_err });
+          await saveRunState(true);
           return "abort";
         }
 
+        await saveRunState(false);
         emitWorkflowEvent(runId, workflow.id || "", "step_complete", {
           stepId: step.id,
           response: responsePayload,
@@ -1842,11 +1825,6 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
           latencyMs: finalResult.latencyMs,
         });
 
-        runRecord.context = context;
-        const { id: _t_oauth, ...data_oauth } = runRecord;
-        const sId_oauth = new RecordId("workflow_run", dbId);
-        await db.query("UPDATE $id CONTENT $data", { id: sId_oauth, data: data_oauth });
-
         if (!finalResult.success) {
           emitWorkflowEvent(runId, workflow.id || "", "step_failed", {
             stepId: step.id,
@@ -1855,12 +1833,11 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
           });
           runRecord.status = "failed";
           runRecord.endTime = new Date().toISOString();
-          const { id: _t_oauth_err, ...data_oauth_err } = runRecord;
-          const sId_oauth_err = new RecordId("workflow_run", dbId);
-          await db.query("UPDATE $id CONTENT $data", { id: sId_oauth_err, data: data_oauth_err });
+          await saveRunState(true);
           return "abort";
         }
 
+        await saveRunState(false);
         emitWorkflowEvent(runId, workflow.id || "", "step_complete", {
           stepId: step.id,
           response: responsePayload,
@@ -2052,11 +2029,6 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
         };
         runRecord.logs.push(logRecord);
 
-        runRecord.context = context;
-        const { id: _t1, ...data1 } = runRecord;
-        const sId1 = new RecordId("workflow_run", dbId);
-        await db.query("UPDATE $id CONTENT $data", { id: sId1, data: data1 });
-
         if (!execResult.success) {
            emitWorkflowEvent(runId, workflow.id || "", "step_failed", {
              stepId: step.id,
@@ -2065,11 +2037,11 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
            });
            runRecord.status = "failed";
            runRecord.endTime = new Date().toISOString();
-           const { id: _t2, ...data2 } = runRecord;
-           const sId2 = new RecordId("workflow_run", dbId);
-           await db.query("UPDATE $id CONTENT $data", { id: sId2, data: data2 });
+           await saveRunState(true);
            return "abort";
         }
+
+        await saveRunState(false);
 
         emitWorkflowEvent(runId, workflow.id || "", "step_complete", {
           stepId: step.id,
@@ -2210,12 +2182,6 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
       };
       runRecord.logs.push(logRecord);
 
-      // Save progress to DB
-      runRecord.context = context;
-      const { id: _t1, ...data1 } = runRecord;
-      const sId1 = new RecordId("workflow_run", dbId);
-      await db.query("UPDATE $id CONTENT $data", { id: sId1, data: data1 });
-
       // Stop workflow on failure
       if (!execResult.success) {
         emitWorkflowEvent(runId, workflow.id || "", "step_failed", {
@@ -2225,11 +2191,11 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
         });
         runRecord.status = "failed";
         runRecord.endTime = new Date().toISOString();
-        const { id: _t2, ...data2 } = runRecord;
-        const sId2 = new RecordId("workflow_run", dbId);
-        await db.query("UPDATE $id CONTENT $data", { id: sId2, data: data2 });
+        await saveRunState(true);
         return "abort";
       }
+
+      await saveRunState(false);
 
       emitWorkflowEvent(runId, workflow.id || "", "step_complete", {
         stepId: step.id,
@@ -2275,9 +2241,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
     // All steps successful
     runRecord.status = "completed";
     runRecord.endTime = new Date().toISOString();
-    const { id: _t3, ...data3 } = runRecord;
-    const sId3 = new RecordId("workflow_run", dbId);
-    await db.query("UPDATE $id CONTENT $data", { id: sId3, data: data3 });
+    await saveRunState(true);
 
     emitWorkflowEvent(runId, workflow.id || "", "workflow_complete", {
       runId,
@@ -2295,9 +2259,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
       request: null,
       error: error.message,
     });
-    const { id: _t4, ...data4 } = runRecord;
-    const sId4 = new RecordId("workflow_run", dbId);
-    await db.query("UPDATE $id CONTENT $data", { id: sId4, data: data4 });
+    await saveRunState(true);
 
     emitWorkflowEvent(runId, workflow.id || "", "workflow_failed", {
       runId,
