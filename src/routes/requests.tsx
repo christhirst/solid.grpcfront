@@ -277,16 +277,19 @@ export default function RequestsClient() {
   });
 
   // Fetch saved protos
-  const [savedProtos] = createResource(async () => {
-    const url = isServer ? `http://127.0.0.1:${process.env.PORT || 3000}/api/protos` : "/api/protos";
-    try {
-      const res = await fetch(url);
-      const json = await res.json();
-      return json.success ? json.data : [];
-    } catch {
-      return [];
+  const [savedProtos] = createResource(
+    () => (isServer ? false : true),
+    async (shouldFetch) => {
+      if (!shouldFetch) return [];
+      try {
+        const res = await fetch("/api/protos");
+        const json = await res.json();
+        return json.success ? json.data : [];
+      } catch {
+        return [];
+      }
     }
-  });
+  );
 
   // Get current method info
   const currentMethod = (): ProtoMethod | null => {

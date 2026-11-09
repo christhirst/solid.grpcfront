@@ -354,7 +354,16 @@ globalThis.__varlockThrowOnMissingKeys = false;
 
 if (typeof process !== 'undefined' && process.on) {
   process.on('unhandledRejection', (err) => {
-    if (err && (err.code === 'ERR_INVALID_STATE' || (err.message && err.message.includes('WritableStream')))) {
+    if (err && (
+      err.code === 'ERR_INVALID_STATE' ||
+      err.name === 'AbortError' ||
+      err.code === 20 ||
+      (err.message && (
+        err.message.includes('WritableStream') ||
+        err.message.includes('The connection was closed') ||
+        err.message.includes('The operation was aborted')
+      ))
+    )) {
       return;
     }
     console.error('Unhandled Rejection:', err);
@@ -413,6 +422,14 @@ if (fs.existsSync(serverDir)) {
             indexCode = indexCode.replace(bunServeTarget, bunServeReplacement);
             indexChanged = true;
             console.log("Patched Bun.serve static asset streaming in .output/server/index.mjs");
+        }
+
+        const idleTarget = `idleTimeout: Number.parseInt(process.env.NITRO_BUN_IDLE_TIMEOUT) || void 0,`;
+        const idleReplacement = `idleTimeout: Number.parseInt(process.env.NITRO_BUN_IDLE_TIMEOUT) || 120,`;
+        if (indexCode.includes(idleTarget)) {
+            indexCode = indexCode.replace(idleTarget, idleReplacement);
+            indexChanged = true;
+            console.log("Patched Bun.serve idleTimeout to 120s default in .output/server/index.mjs");
         }
 
         if (indexChanged) {

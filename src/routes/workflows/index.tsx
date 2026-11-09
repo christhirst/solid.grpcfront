@@ -15,29 +15,27 @@ export default function Workflows() {
   const [noAccess, setNoAccess] = createSignal<string | null>(null);
   let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 
-  const [dashboards, { refetch: refetchDashboards }] = createResource(async () => {
-    try {
-      const url = isServer
-        ? `http://127.0.0.1:${process.env.PORT || 3000}/api/dashboards`
-        : "/api/dashboards";
-      const res = await fetch(url);
-      const json = await res.json();
-      return json.success ? json.data : [];
-    } catch {
-      return [];
+  const [dashboards, { refetch: refetchDashboards }] = createResource(
+    () => (isServer ? false : true),
+    async (shouldFetch) => {
+      if (!shouldFetch) return [];
+      try {
+        const res = await fetch("/api/dashboards");
+        const json = await res.json();
+        return json.success ? json.data : [];
+      } catch {
+        return [];
+      }
     }
-  });
+  );
 
-
-  const fetchWorkflows = async (q: string) => {
+  const fetchWorkflows = async (q: string | false) => {
+    if (q === false) return [];
     setError(null);
     setNoAccess(null);
     try {
       const params = q ? `?q=${encodeURIComponent(q)}` : "";
-      const url = isServer
-        ? `http://127.0.0.1:${process.env.PORT || 3000}/api/workflows${params}`
-        : `/api/workflows${params}`;
-      const res = await fetch(url);
+      const res = await fetch(`/api/workflows${params}`);
       const json = await res.json().catch(() => ({}));
       if (res.status === 403) {
         if (!isServer) {
@@ -58,7 +56,10 @@ export default function Workflows() {
     }
   };
 
-  const [workflows, { refetch, mutate }] = createResource(() => searchQuery(), fetchWorkflows);
+  const [workflows, { refetch, mutate }] = createResource(
+    () => (isServer ? false : searchQuery()),
+    fetchWorkflows
+  );
 
   onMount(() => {
     // Only refetch if SSR did not already populate the resource

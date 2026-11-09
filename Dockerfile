@@ -23,6 +23,7 @@ RUN chmod +x ./start.sh
 
 # Port konfigurieren (Standard 3000)
 ENV PORT=3000
+ENV NITRO_BUN_IDLE_TIMEOUT=120
 ARG HOST=0.0.0.0
 ENV GRPC_BACKEND_URL="http://grpc-backend:50051"
 ENV NODE_ENV=production

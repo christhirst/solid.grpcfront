@@ -333,6 +333,13 @@ class TracedDb {
             this.handleError(`KILL LIVE ${queryUuid}`, err);
         }
     }
+
+    /** Close the underlying Surreal connection */
+    async close(): Promise<void> {
+        try {
+            await (this.inner as any).close();
+        } catch {}
+    }
 }
 
 
@@ -472,19 +479,21 @@ export async function getDb(): Promise<TracedDb> {
                 // Ensure standard tables exist
                 try {
                     await db.query(STANDARD_TABLES_SQL);
-                    await db.query(`
-                        DEFINE INDEX IF NOT EXISTS vote_target ON vote FIELDS target_kind, target_key;
-                        DEFINE INDEX IF NOT EXISTS vote_user ON vote FIELDS target_kind, user_sub;
-                        DEFINE INDEX IF NOT EXISTS idx_dashboard_updated ON dashboard FIELDS updated_at;
-                        DEFINE INDEX IF NOT EXISTS idx_workflow_updated ON workflow FIELDS updated_at;
-                        DEFINE INDEX IF NOT EXISTS idx_workflow_run_lookup ON workflow_run FIELDS workflowId, startTime;
-                        DEFINE INDEX IF NOT EXISTS idx_group_member_sub ON group_member FIELDS userSub;
-                        DEFINE INDEX IF NOT EXISTS idx_group_member_username ON group_member FIELDS username;
-                        DEFINE INDEX IF NOT EXISTS idx_group_namespace_owner ON group_namespace FIELDS owner;
-                    `);
                 } catch (e: any) {
                     // Ignore if unable to define tables
                 }
+
+                // Define indexes asynchronously in the background so we do NOT block getDb() on startup
+                db.query(`
+                    DEFINE INDEX IF NOT EXISTS vote_target ON vote FIELDS target_kind, target_key;
+                    DEFINE INDEX IF NOT EXISTS vote_user ON vote FIELDS target_kind, user_sub;
+                    DEFINE INDEX IF NOT EXISTS idx_dashboard_updated ON dashboard FIELDS updated_at;
+                    DEFINE INDEX IF NOT EXISTS idx_workflow_updated ON workflow FIELDS updated_at;
+                    DEFINE INDEX IF NOT EXISTS idx_workflow_run_lookup ON workflow_run FIELDS workflowId, startTime;
+                    DEFINE INDEX IF NOT EXISTS idx_group_member_sub ON group_member FIELDS userSub;
+                    DEFINE INDEX IF NOT EXISTS idx_group_member_username ON group_member FIELDS username;
+                    DEFINE INDEX IF NOT EXISTS idx_group_namespace_owner ON group_namespace FIELDS owner;
+                `).catch((e: any) => console.warn("[DB] [INIT] Background index definition warning:", e?.message));
 
                 console.log(
                     `[DB] [INIT] Successfully connected to ${namespace}/${database}`,
@@ -493,7 +502,8 @@ export async function getDb(): Promise<TracedDb> {
                 const traced = new TracedDb(db, database);
 
                 // Initialize workflow scheduler and bootstrap default data ONCE on the server
-                if (typeof window === "undefined") {
+                if (typeof window === "undefined" && !isBootstrapped) {
+                    isBootstrapped = true;
                     bootstrapDefaultData(traced).catch((err) =>
                         console.error("[DB] [INIT] Failed to bootstrap default data:", err)
                     );
@@ -518,8 +528,13 @@ export async function getDb(): Promise<TracedDb> {
     return dbPromise;
 }
 
+let isBootstrapped = false;
+
 export function resetDbConnection() {
-    dbPromise = null;
+    if (dbPromise) {
+        dbPromise.then((traced) => traced.close()).catch(() => {});
+        dbPromise = null;
+    }
 }
 
 export async function getDynamicDb(dbName: string): Promise<TracedDb> {

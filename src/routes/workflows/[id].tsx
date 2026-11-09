@@ -685,40 +685,52 @@ export default function WorkflowBuilder() {
   };
   
   // Fetch dashboards for checking variable configuration status
-  const [dashboards, { refetch: refetchDashboards }] = createResource(async () => {
-    const url = isServer ? `http://127.0.0.1:${process.env.PORT || 3000}/api/dashboards` : "/api/dashboards";
-    try {
-      const res = await fetch(url, isServer ? undefined : { credentials: "include" });
-      const json = await res.json();
-      return json.success ? json.data : [];
-    } catch {
-      return [];
-    }
-  }, { initialValue: [] });
+  const [dashboards, { refetch: refetchDashboards }] = createResource(
+    () => (isServer ? false : true),
+    async (shouldFetch) => {
+      if (!shouldFetch) return [];
+      try {
+        const res = await fetch("/api/dashboards", { credentials: "include" });
+        const json = await res.json();
+        return json.success ? json.data : [];
+      } catch {
+        return [];
+      }
+    },
+    { initialValue: [] }
+  );
 
   // Fetch saved CAs from Registry
-  const [savedCas, { refetch: refetchCas }] = createResource(async () => {
-    const url = isServer ? `http://127.0.0.1:${process.env.PORT || 3000}/api/cas` : "/api/cas";
-    try {
-      const res = await fetch(url, isServer ? undefined : { credentials: "include" });
-      const json = await res.json();
-      return json.success ? json.data : [];
-    } catch {
-      return [];
-    }
-  }, { initialValue: [] });
+  const [savedCas, { refetch: refetchCas }] = createResource(
+    () => (isServer ? false : true),
+    async (shouldFetch) => {
+      if (!shouldFetch) return [];
+      try {
+        const res = await fetch("/api/cas", { credentials: "include" });
+        const json = await res.json();
+        return json.success ? json.data : [];
+      } catch {
+        return [];
+      }
+    },
+    { initialValue: [] }
+  );
 
   // Fetch saved protos from Registry
-  const [savedProtos, { refetch: refetchProtos }] = createResource(async () => {
-    const url = isServer ? `http://127.0.0.1:${process.env.PORT || 3000}/api/protos` : "/api/protos";
-    try {
-      const res = await fetch(url, isServer ? undefined : { credentials: "include" });
-      const json = await res.json();
-      return json.success ? json.data : [];
-    } catch {
-      return [];
-    }
-  }, { initialValue: [] });
+  const [savedProtos, { refetch: refetchProtos }] = createResource(
+    () => (isServer ? false : true),
+    async (shouldFetch) => {
+      if (!shouldFetch) return [];
+      try {
+        const res = await fetch("/api/protos", { credentials: "include" });
+        const json = await res.json();
+        return json.success ? json.data : [];
+      } catch {
+        return [];
+      }
+    },
+    { initialValue: [] }
+  );
 
   const ACCEPT_ALL_CA = "__accept_all__";
   const [serverAddress, setServerAddress] = createSignal("localhost:50051");
@@ -747,17 +759,21 @@ export default function WorkflowBuilder() {
   
   const [connectionId, setConnectionId] = createSignal<string>("");
   const [showSettings, setShowSettings] = createSignal(false);
-  const [connections, { refetch: refetchConnections }] = createResource(async () => {
-    try {
-      const url = isServer ? `http://127.0.0.1:${process.env.PORT || 3000}/api/connections` : "/api/connections";
-      const res = await fetch(url, isServer ? undefined : { credentials: "include" });
-      const json = await res.json();
-      return json.success ? json.data : [];
-    } catch (e) {
-      console.error("fetchConnections error:", e);
-      return [];
-    }
-  }, { initialValue: [] });
+  const [connections, { refetch: refetchConnections }] = createResource(
+    () => (isServer ? false : true),
+    async (shouldFetch) => {
+      if (!shouldFetch) return [];
+      try {
+        const res = await fetch("/api/connections", { credentials: "include" });
+        const json = await res.json();
+        return json.success ? json.data : [];
+      } catch (e) {
+        console.error("fetchConnections error:", e);
+        return [];
+      }
+    },
+    { initialValue: [] }
+  );
 
   // Prefetched IDP / OAuth tokens keyed by connection ID
   const [prefetchedTokens, setPrefetchedTokens] = createSignal<
@@ -927,12 +943,11 @@ export default function WorkflowBuilder() {
   };
 
 
-  const fetchWorkflow = async (idParam?: string) => {
-    const targetId = idParam || params.id;
-    if (!targetId || targetId === "new") return null;
-    const url = isServer ? `http://127.0.0.1:${process.env.PORT || 3000}/api/workflows/${targetId}` : `/api/workflows/${targetId}`;
+  const fetchWorkflow = async (idParam?: string | false) => {
+    if (!idParam || idParam === "new") return null;
+    const targetId = idParam;
     try {
-      const res = await fetch(url);
+      const res = await fetch(`/api/workflows/${targetId}`, { credentials: "include" });
       const json = await res.json();
       if (json.success && json.data) {
         return json.data;
@@ -943,7 +958,10 @@ export default function WorkflowBuilder() {
     return null;
   };
 
-  const [workflow, { refetch: refetchWorkflow }] = createResource(() => params.id, fetchWorkflow);
+  const [workflow, { refetch: refetchWorkflow }] = createResource(
+    () => (isServer ? false : params.id),
+    fetchWorkflow
+  );
 
   const varConfigStatus = createMemo(() => {
     const data = workflow();

@@ -17,10 +17,10 @@ export interface CaCert {
   updated_at: string;
 }
 
-const fetchCerts = async () => {
-  const url = isServer ? `http://127.0.0.1:${process.env.PORT || 3000}/api/cas` : "/api/cas";
+const fetchCerts = async (shouldFetch?: boolean) => {
+  if (isServer || shouldFetch === false) return [];
   try {
-    const res = await fetch(url);
+    const res = await fetch("/api/cas");
     const json = await res.json();
     return json.success ? (json.data as CaCert[]) : [];
   } catch {
@@ -29,7 +29,7 @@ const fetchCerts = async () => {
 };
 
 export default function CaCerts() {
-  const [certs, { refetch }] = createResource(fetchCerts);
+  const [certs, { refetch }] = createResource(() => (isServer ? false : true), fetchCerts);
   const [editing, setEditing] = createSignal<Partial<CaCert> | null>(null);
   const [isSaving, setIsSaving] = createSignal(false);
   const [errorMsg, setErrorMsg] = createSignal<string | null>(null);

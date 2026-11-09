@@ -17,11 +17,11 @@ export interface ProtoFile {
   updated_at: string;
 }
 
-const fetchProtos = async (q: string) => {
+const fetchProtos = async (q: string | false) => {
+  if (isServer || q === false) return [];
   try {
     const params = q ? `?q=${encodeURIComponent(q)}` : "";
-    const url = isServer ? `http://127.0.0.1:${process.env.PORT || 3000}/api/protos${params}` : `/api/protos${params}`;
-    const res = await fetch(url);
+    const res = await fetch(`/api/protos${params}`);
     if (!res.ok) return [];
     const json = await res.json();
     if (json.success) {
@@ -42,7 +42,10 @@ export default function Protos() {
     debounceTimer = setTimeout(() => setSearchQuery(value), 300);
   };
 
-  const [protos, { refetch }] = createResource(() => searchQuery(), fetchProtos);
+  const [protos, { refetch }] = createResource(
+    () => (isServer ? false : searchQuery()),
+    fetchProtos
+  );
   const [editingProto, setEditingProto] = createSignal<Partial<ProtoFile> | null>(null);
   const [isSaving, setIsSaving] = createSignal(false);
   const [errorMsg, setErrorMsg] = createSignal<string | null>(null);

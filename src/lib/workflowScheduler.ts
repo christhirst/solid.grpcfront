@@ -1,6 +1,7 @@
 import cron, { ScheduledTask } from "node-cron";
 import { getDb } from "~/lib/db";
 import { runWorkflowBackground, WorkflowDefinition } from "~/lib/workflowEngine";
+import { acquireLock } from "~/lib/cache/redis";
 import { v4 as uuidv4 } from "uuid";
 import { logger } from "./logger";
 
@@ -51,6 +52,15 @@ export function scheduleWorkflow(workflow: any) {
 
   try {
     const job = cron.schedule(workflow.schedule, async () => {
+      // Distributed deduplication: acquire lock for the current minute slot
+      const minuteSlot = Math.floor(Date.now() / 60000);
+      const lockKey = `lock:cron:${workflowId}:${minuteSlot}`;
+      const locked = await acquireLock(lockKey, 55);
+      if (!locked) {
+        console.log(`[Scheduler] Workflow ${workflowId} already triggered for minute ${minuteSlot} on another replica. Skipping duplicate run.`);
+        return;
+      }
+
       console.log(`Running scheduled workflow: ${workflow.name} (${workflowId})`);
       const runId = `workflow_run:${uuidv4()}`;
       

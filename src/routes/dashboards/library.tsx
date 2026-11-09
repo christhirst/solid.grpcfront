@@ -24,22 +24,23 @@ export default function DashboardLibrary() {
   const [selectedGroupTags, setSelectedGroupTags] = createSignal<string[]>([]);
   const [selectedContentTags, setSelectedContentTags] = createSignal<string[]>([]);
 
-  const [dashboards, { refetch }] = createResource<DashboardSummary[]>(async () => {
-    setError("");
-    try {
-      const url = isServer
-        ? `http://127.0.0.1:${process.env.PORT || 3000}/api/dashboards?library=true`
-        : `/api/dashboards?library=true`;
-      const res = await fetch(url);
-      const json = await res.json();
-      if (!res.ok || !json.success) throw new Error(json.error || "Failed to load library");
-      return json.data || [];
-    } catch (e: any) {
-      console.error("[Dashboard Library] Fetch error:", e);
-      setError(e.message);
-      return [];
+  const [dashboards, { refetch }] = createResource<DashboardSummary[], boolean>(
+    () => (isServer ? false : true),
+    async (shouldFetch) => {
+      if (!shouldFetch) return [];
+      setError("");
+      try {
+        const res = await fetch("/api/dashboards?library=true");
+        const json = await res.json();
+        if (!res.ok || !json.success) throw new Error(json.error || "Failed to load library");
+        return json.data || [];
+      } catch (e: any) {
+        console.error("[Dashboard Library] Fetch error:", e);
+        setError(e.message);
+        return [];
+      }
     }
-  });
+  );
 
   const allGroupTags = createMemo(() => {
     const tagSet = new Set<string>();

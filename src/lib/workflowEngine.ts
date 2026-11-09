@@ -12,6 +12,7 @@ import { listS3Objects, buildS3ListResult, toS3ObjectItem } from "~/lib/s3Execut
 import { resolveSubPath } from "~/lib/dashboard/widgetConditions";
 import { executeTextTransform, registerJsonataTextFunctions, coerceToText } from "~/lib/textProcessor";
 import { resolveObjectSecrets, readVaultSecret, isVaultSecretRef, STEP_SECRET_FIELDS } from "~/lib/openbao";
+import { publishEvent, getCache, setCache } from "~/lib/cache/redis";
 import { getStepCategory, type StepCategory, type WorkflowStep, type StepVariable } from "./stepCategories";
 export { getStepCategory, type StepCategory, type WorkflowStep, type StepVariable };
 
@@ -27,9 +28,12 @@ export function emitWorkflowEvent(runId: string, workflowId: string, type: strin
     data,
     timestamp: new Date().toISOString(),
   };
+  const serialized = JSON.stringify(payload);
   workflowStreamManager.emit(`run:${runId}`, payload);
+  publishEvent(`run:${runId}`, serialized).catch(() => {});
   if (workflowId) {
     workflowStreamManager.emit(`wf:${workflowId}`, payload);
+    publishEvent(`wf:${workflowId}`, serialized).catch(() => {});
   }
 }
 
@@ -524,6 +528,34 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
     workflowId: cleanWfId,
     startTime: runRecord.startTime,
   });
+
+  // Check read-workflow response cache
+  const cacheTtl = Number((workflow as any).cacheTtlSeconds || 0);
+  const isReadWorkflow = workflow.direction === "read" || (workflow.steps && workflow.steps.every(s => (s as any).direction !== "write"));
+  let cacheKey: string | null = null;
+  if (cacheTtl > 0 && isReadWorkflow && cleanWfId) {
+    const inputSig = JSON.stringify(customContext || {});
+    cacheKey = `wf_cache:${cleanWfId}:${Buffer.from(inputSig).toString("base64")}`;
+    const cachedResponse = await getCache(cacheKey);
+    if (cachedResponse) {
+      try {
+        const cachedData = JSON.parse(cachedResponse);
+        runRecord.status = "completed";
+        runRecord.endTime = new Date().toISOString();
+        runRecord.context = cachedData.context;
+        runRecord.logs = cachedData.logs || [];
+        await saveRunState(true);
+        emitWorkflowEvent(runId, workflow.id || "", "workflow_complete", {
+          runId,
+          workflowId: workflow.id,
+          status: "completed",
+          fromCache: true,
+          endTime: runRecord.endTime,
+        });
+        return;
+      } catch {}
+    }
+  }
 
   console.log("runWorkflowBackground called. Workflow object keys:", Object.keys(workflow));
 
@@ -2242,6 +2274,10 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
     runRecord.status = "completed";
     runRecord.endTime = new Date().toISOString();
     await saveRunState(true);
+
+    if (cacheKey && cacheTtl > 0) {
+      setCache(cacheKey, JSON.stringify({ context, logs: runRecord.logs }), cacheTtl).catch(() => {});
+    }
 
     emitWorkflowEvent(runId, workflow.id || "", "workflow_complete", {
       runId,

@@ -29,28 +29,29 @@ export default function Dashboards() {
   const [error, setError] = createSignal("");
   let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 
-  const [dashboards, { refetch, mutate }] = createResource<DashboardSummary[], string>(() => query(), async (q) => {
-    setError("");
-    try {
-      const params = q ? `?q=${encodeURIComponent(q)}` : "";
-      const url = isServer
-        ? `http://127.0.0.1:${process.env.PORT || 3000}/api/dashboards${params}`
-        : `/api/dashboards${params}`;
-      const res = await fetch(url);
-      const text = await res.text();
-      const json = JSON.parse(text);
-      if (!res.ok || !json.success) {
-        throw new Error(json.error || "Unable to load dashboards");
+  const [dashboards, { refetch, mutate }] = createResource<DashboardSummary[], string | false>(
+    () => (isServer ? false : query()),
+    async (q) => {
+      if (q === false) return [];
+      setError("");
+      try {
+        const params = q ? `?q=${encodeURIComponent(q)}` : "";
+        const res = await fetch(`/api/dashboards${params}`);
+        const text = await res.text();
+        const json = JSON.parse(text);
+        if (!res.ok || !json.success) {
+          throw new Error(json.error || "Unable to load dashboards");
+        }
+        return json.success ? json.data : [];
+      } catch (e: any) {
+        console.error("Dashboards fetch failed:", e);
+        if (!isServer) {
+          setError(e?.message || "Unable to load dashboards");
+        }
+        return [];
       }
-      return json.success ? json.data : [];
-    } catch (e: any) {
-      console.error("Dashboards fetch failed:", e);
-      if (!isServer) {
-        setError(e?.message || "Unable to load dashboards");
-      }
-      return [];
     }
-  });
+  );
 
   onMount(() => {
     refetch();

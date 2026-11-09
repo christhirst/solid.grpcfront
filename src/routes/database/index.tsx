@@ -23,10 +23,10 @@ export default function DatabaseOverview() {
   const [isCreating, setIsCreating] = createSignal(false);
   const [errorMsg, setErrorMsg] = createSignal("");
 
-  const fetchDatabases = async (): Promise<DatabaseInfo> => {
+  const fetchDatabases = async (shouldFetch?: boolean): Promise<DatabaseInfo> => {
+    if (isServer || shouldFetch === false) return { names: [], meta: [] };
     try {
-      const url = isServer ? `http://127.0.0.1:${process.env.PORT || 3000}/api/database` : "/api/database";
-      const res = await fetch(url);
+      const res = await fetch("/api/database");
       const text = await res.text();
       const json = JSON.parse(text);
       return json.success
@@ -41,7 +41,7 @@ export default function DatabaseOverview() {
     }
   };
 
-  const [dbInfo, { refetch }] = createResource(fetchDatabases);
+  const [dbInfo, { refetch }] = createResource(() => (isServer ? false : true), fetchDatabases);
   const databases = () => dbInfo()?.names || [];
   const getDbMeta = (dbName: string) => dbInfo()?.meta?.find((m) => m.name === dbName);
 

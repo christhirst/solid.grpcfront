@@ -55,10 +55,10 @@ export default function DatabaseViewer() {
   };
 
 
-  const fetchTables = async () => {
-    const url = isServer ? `http://127.0.0.1:${process.env.PORT || 3000}/api/database/${dbName}/tables` : `/api/database/${dbName}/tables`;
+  const fetchTables = async (shouldFetch?: boolean) => {
+    if (isServer || shouldFetch === false) return [];
     try {
-      const res = await fetch(url);
+      const res = await fetch(`/api/database/${dbName}/tables`);
       const json = await res.json();
       const tables = json.success ? (json.data as string[]) : [];
       if (tables.length > 0 && !selectedTable()) {
@@ -70,13 +70,12 @@ export default function DatabaseViewer() {
     }
   };
 
-  const [tables] = createResource(fetchTables);
+  const [tables] = createResource(() => (isServer ? false : true), fetchTables);
 
-  const fetchRecords = async (table: string) => {
-    if (!table) return [];
-    const url = isServer ? `http://127.0.0.1:${process.env.PORT || 3000}/api/database/${dbName}/${table}` : `/api/database/${dbName}/${table}`;
+  const fetchRecords = async (table: string | false) => {
+    if (isServer || !table) return [];
     try {
-      const res = await fetch(url);
+      const res = await fetch(`/api/database/${dbName}/${table}`);
       const json = await res.json();
       return json.success ? (json.data as any[]) : [];
     } catch {
@@ -85,7 +84,10 @@ export default function DatabaseViewer() {
   };
 
   // We use createResource with a signal source so it refetches when selectedTable changes
-  const [records, { refetch: refetchRecords }] = createResource(selectedTable, fetchRecords);
+  const [records, { refetch: refetchRecords }] = createResource(
+    () => (isServer ? false : selectedTable()),
+    fetchRecords
+  );
 
   const handleAddData = async () => {
     setErrorMsg("");

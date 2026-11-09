@@ -1,6 +1,7 @@
 import { APIEvent } from "@solidjs/start/server";
 import { RecordId } from "surrealdb";
 import { workflowStreamManager } from "~/lib/workflowEngine";
+import { subscribeEvent } from "~/lib/cache/redis";
 import { getDb } from "~/lib/db";
 import { getEffectiveAccessContext } from "~/lib/auth";
 import { canAccessObject } from "~/lib/groupAuth";
@@ -63,10 +64,17 @@ export async function GET(event: APIEvent) {
           }
         };
 
-        workflowStreamManager.on(channel, eventHandler);
+        const unsub = await subscribeEvent(channel, (raw) => {
+          try {
+            const payload = typeof raw === "string" ? JSON.parse(raw) : raw;
+            eventHandler(payload);
+          } catch (e) {
+            console.warn("[Stream] Failed to parse event payload:", e);
+          }
+        });
 
         event.request.signal.addEventListener("abort", () => {
-          workflowStreamManager.off(channel, eventHandler);
+          unsub();
         });
       },
     });

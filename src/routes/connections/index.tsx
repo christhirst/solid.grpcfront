@@ -6,9 +6,9 @@ import { isVaultSecretRef } from "~/lib/vaultRef";
 import { ResourceTagEditor } from "~/components/ResourceTagEditor";
 
 const fetchVaultStatus = async () => {
+  if (isServer) return null;
   try {
-    const url = isServer ? `http://127.0.0.1:${process.env.PORT || 3000}/api/vault` : "/api/vault";
-    const res = await fetch(url, isServer ? undefined : { credentials: "include" });
+    const res = await fetch("/api/vault", { credentials: "include" });
     if (!res.ok) return null;
     return await res.json();
   } catch {
@@ -17,16 +17,20 @@ const fetchVaultStatus = async () => {
 };
 
 const fetchConnections = async () => {
-  const url = isServer ? `http://127.0.0.1:${process.env.PORT || 3000}/api/connections` : "/api/connections";
-  const res = await fetch(url, isServer ? undefined : { credentials: "include" });
-  const json = await res.json();
-  return json.success ? json.data : [];
+  if (isServer) return [];
+  try {
+    const res = await fetch("/api/connections", { credentials: "include" });
+    const json = await res.json();
+    return json.success ? json.data : [];
+  } catch {
+    return [];
+  }
 };
 
 const fetchCas = async () => {
+  if (isServer) return [];
   try {
-    const url = isServer ? `http://127.0.0.1:${process.env.PORT || 3000}/api/cas` : "/api/cas";
-    const res = await fetch(url, isServer ? undefined : { credentials: "include" });
+    const res = await fetch("/api/cas", { credentials: "include" });
     const json = await res.json();
     return json.success ? json.data : [];
   } catch {
@@ -35,9 +39,9 @@ const fetchCas = async () => {
 };
 
 const fetchProtos = async () => {
+  if (isServer) return [];
   try {
-    const url = isServer ? `http://127.0.0.1:${process.env.PORT || 3000}/api/protos` : "/api/protos";
-    const res = await fetch(url, isServer ? undefined : { credentials: "include" });
+    const res = await fetch("/api/protos", { credentials: "include" });
     const json = await res.json();
     return json.success ? json.data : [];
   } catch {
@@ -66,10 +70,10 @@ function getMethodStreamBadge(kind: string): { bg: string; text: string; border:
 }
 
 export default function Connections() {
-  const [connections, { refetch }] = createResource(fetchConnections);
-  const [cas, { refetch: refetchCas }] = createResource(fetchCas);
-  const [protos, { refetch: refetchProtos }] = createResource(fetchProtos);
-  const [vaultStatus, { refetch: refetchVault }] = createResource(fetchVaultStatus);
+  const [connections, { refetch }] = createResource(() => (isServer ? false : true), fetchConnections);
+  const [cas, { refetch: refetchCas }] = createResource(() => (isServer ? false : true), fetchCas);
+  const [protos, { refetch: refetchProtos }] = createResource(() => (isServer ? false : true), fetchProtos);
+  const [vaultStatus, { refetch: refetchVault }] = createResource(() => (isServer ? false : true), fetchVaultStatus);
 
   onMount(() => {
     refetch();
