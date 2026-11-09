@@ -460,7 +460,7 @@ function normalizeVisualData(value: any): any[] {
   return data.map(parseJsonString);
 }
 
-export async function runWorkflowBackground(workflow: WorkflowDefinition, runId: string, customContext: Record<string, any> = {}) {
+export async function runWorkflowBackground(workflow: WorkflowDefinition, runId: string, customContext: Record<string, any> = {}, dbOverride?: any) {
   return Sentry.startSpan(
     {
       name: `workflow.run: ${workflow.name}`,
@@ -472,22 +472,44 @@ export async function runWorkflowBackground(workflow: WorkflowDefinition, runId:
         "workflow.step_count": workflow.steps.length,
       },
     },
-    async () => _runWorkflowBackground(workflow, runId, customContext),
+    async () => _runWorkflowBackground(workflow, runId, customContext, dbOverride),
   );
 }
 
-async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: string, customContext: Record<string, any> = {}) {
-  const db = await getDb();
+async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: string, customContext: Record<string, any> = {}, dbOverride?: any) {
+  const db = dbOverride || (await getDb());
   
   const rawWfId = workflow.id ? (typeof workflow.id === "object" ? (workflow.id as any).toString() : String(workflow.id)) : "";
   const cleanWfId = rawWfId.replace(/[⟨⟩]/g, "");
+
+  const formPayload = customContext.form || {};
+  let context: {
+    steps: any;
+    auth: any;
+    form: any;
+    dashboard_form: any;
+    variables?: Record<string, any>;
+    [key: string]: any;
+  } = {
+    steps: {} as any,
+    auth: {} as any,
+    form: formPayload,
+    dashboard_form: formPayload,
+    variables: {},
+    ...customContext,
+  };
+
+  const sanitizeContextForStorage = (ctx: Record<string, any>) => {
+    const { __vaultRefs, __stepLiteralVars, ...rest } = ctx || {};
+    return rest;
+  };
 
   const runRecord: WorkflowRun = {
     id: runId,
     workflowId: cleanWfId,
     status: "running",
     startTime: new Date().toISOString(),
-    context: { steps: {}, ...customContext },
+    context: sanitizeContextForStorage(context),
     logs: [],
   };
 
@@ -500,7 +522,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
 
   const saveRunState = async (terminal = false) => {
     if (terminal) {
-      runRecord.context = context;
+      runRecord.context = sanitizeContextForStorage(context);
       const { id: _ignore, ...data } = runRecord;
       try {
         await db.query("UPDATE $id CONTENT $data", { id: runRecordId, data });
@@ -542,7 +564,9 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
         const cachedData = JSON.parse(cachedResponse);
         runRecord.status = "completed";
         runRecord.endTime = new Date().toISOString();
-        runRecord.context = cachedData.context;
+        if (cachedData.context) {
+          context = { ...context, ...cachedData.context };
+        }
         runRecord.logs = cachedData.logs || [];
         await saveRunState(true);
         emitWorkflowEvent(runId, workflow.id || "", "workflow_complete", {
@@ -607,23 +631,6 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
     const caCert = await resolveCaCert(defaultCaId);
 
     const parsedProto = parseProtoContent(protoContent);
-
-    const formPayload = customContext.form || {};
-    const context: {
-      steps: any;
-      auth: any;
-      form: any;
-      dashboard_form: any;
-      variables?: Record<string, any>;
-      [key: string]: any;
-    } = {
-      steps: {} as any,
-      auth: {} as any,
-      form: formPayload,
-      dashboard_form: formPayload,
-      variables: {},
-      ...customContext
-    };
 
     // 1. Perform Authentication if configured
     const tokenCache = new Map<string, { header?: string; token?: string; response?: any }>();
@@ -2276,7 +2283,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
     await saveRunState(true);
 
     if (cacheKey && cacheTtl > 0) {
-      setCache(cacheKey, JSON.stringify({ context, logs: runRecord.logs }), cacheTtl).catch(() => {});
+      setCache(cacheKey, JSON.stringify({ context: sanitizeContextForStorage(context), logs: runRecord.logs }), cacheTtl).catch(() => {});
     }
 
     emitWorkflowEvent(runId, workflow.id || "", "workflow_complete", {
