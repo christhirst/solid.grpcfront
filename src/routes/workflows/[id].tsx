@@ -3826,6 +3826,9 @@ export default function WorkflowBuilder() {
                                               <Show when={(conn() as any).namespace || (conn() as any).database}>
                                                 <span class="ml-2 text-emerald-400 font-semibold">ns: {(conn() as any).namespace} / db: {(conn() as any).database}</span>
                                               </Show>
+                                              <span class="ml-2 text-cyan-300 font-semibold uppercase">
+                                                user: {(conn() as any).authLevel || "auto"}
+                                              </span>
                                             </div>
                                           </div>
                                         </div>
@@ -3848,7 +3851,7 @@ export default function WorkflowBuilder() {
                                   <span class="text-[10px] text-[#5b5b6e]">Leave blank to use connection defaults</span>
                                 </summary>
                                 <div class="mt-3 pt-3 border-t border-[#2a2a3a] space-y-3">
-                                  <div class="grid grid-cols-2 gap-3">
+                                  <div class="grid grid-cols-3 gap-3">
                                     <div>
                                       <label class="mb-1 block text-[11px] text-[#8b8b9e]">Override URL</label>
                                       <input
@@ -3868,6 +3871,26 @@ export default function WorkflowBuilder() {
                                         value={step.databaseNs || ""}
                                         onInput={(e) => updateStep(index(), "databaseNs", e.currentTarget.value)}
                                       />
+                                    </div>
+                                    <div>
+                                      <label class="mb-1 block text-[11px] text-[#8b8b9e]">Override User Scope</label>
+                                      <select
+                                        class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2 text-xs text-white focus:border-red-500 focus:outline-none"
+                                        value={step.databaseAuthLevel || ""}
+                                        onChange={(e) =>
+                                          updateStep(
+                                            index(),
+                                            "databaseAuthLevel",
+                                            (e.currentTarget.value as any) || undefined
+                                          )
+                                        }
+                                      >
+                                        <option value="">Inherit from Connection</option>
+                                        <option value="auto">🔄 Auto-Detect (DB → NS → Root)</option>
+                                        <option value="namespace">🏢 Namespace User (ON NAMESPACE)</option>
+                                        <option value="database">🗄️ Database User (ON DATABASE)</option>
+                                        <option value="root">👑 Root User (ON ROOT)</option>
+                                      </select>
                                     </div>
                                   </div>
                                   <div class="grid grid-cols-3 gap-3">
@@ -3910,7 +3933,7 @@ export default function WorkflowBuilder() {
                           {/* Custom Manual Configuration View */}
                           <Show when={isCustom()}>
                             <div class="space-y-4">
-                              <div class="grid grid-cols-2 gap-4">
+                              <div class="grid grid-cols-3 gap-4">
                                 <div>
                                   <label class="mb-1 block text-xs text-[#8b8b9e]">Connection URL <span class="text-[10px] text-[#5b5b6e]">(supports {'{{ variables }}'})</span></label>
                                   <input
@@ -3931,6 +3954,20 @@ export default function WorkflowBuilder() {
                                     value={step.databaseNs || ""}
                                     onInput={(e) => updateStep(index(), "databaseNs", e.currentTarget.value)}
                                   />
+                                </div>
+
+                                <div>
+                                  <label class="mb-1 block text-xs text-[#8b8b9e]">User Scope / Auth Level</label>
+                                  <select
+                                    class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2.5 text-sm text-white focus:border-red-500 focus:outline-none"
+                                    value={step.databaseAuthLevel || "auto"}
+                                    onChange={(e) => updateStep(index(), "databaseAuthLevel", e.currentTarget.value as any)}
+                                  >
+                                    <option value="auto">🔄 Auto-Detect (DB → NS → Root)</option>
+                                    <option value="namespace">🏢 Namespace User (ON NAMESPACE)</option>
+                                    <option value="database">🗄️ Database User (ON DATABASE)</option>
+                                    <option value="root">👑 Root User (ON ROOT)</option>
+                                  </select>
                                 </div>
                               </div>
 

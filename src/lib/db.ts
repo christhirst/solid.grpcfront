@@ -376,6 +376,59 @@ async function connectWithTimeout(
     }
 }
 
+export type SurrealAuthLevel = "auto" | "database" | "namespace" | "root";
+
+export function normalizeSurrealAuthLevel(raw?: string | null): SurrealAuthLevel {
+    const val = (raw || "").trim().toLowerCase();
+    if (val === "database" || val === "db") return "database";
+    if (val === "namespace" || val === "ns") return "namespace";
+    if (val === "root") return "root";
+    return "auto";
+}
+
+export function buildSurrealAuthAttempts(
+    user: string,
+    pass: string,
+    namespace?: string,
+    database?: string,
+    authLevel: SurrealAuthLevel = "auto",
+): Array<Record<string, string>> {
+    const level = normalizeSurrealAuthLevel(authLevel);
+    const rootAuth = { username: user, password: pass };
+    const nsAuth = namespace ? { namespace, username: user, password: pass } : null;
+    const dbAuth = namespace && database ? { namespace, database, username: user, password: pass } : null;
+
+    const candidates: Array<Record<string, string> | null> = [];
+    if (level === "namespace") {
+        candidates.push(nsAuth, dbAuth, rootAuth);
+    } else if (level === "database") {
+        candidates.push(dbAuth, nsAuth, rootAuth);
+    } else if (level === "root") {
+        candidates.push(rootAuth, nsAuth, dbAuth);
+    } else {
+        // auto
+        if (user === "root" || !namespace) {
+            candidates.push(rootAuth, nsAuth, dbAuth);
+        } else if (!database) {
+            candidates.push(nsAuth, rootAuth);
+        } else {
+            candidates.push(dbAuth, nsAuth, rootAuth);
+        }
+    }
+
+    const seen = new Set<string>();
+    const result: Array<Record<string, string>> = [];
+    for (const c of candidates) {
+        if (!c) continue;
+        const sig = JSON.stringify(c);
+        if (!seen.has(sig)) {
+            seen.add(sig);
+            result.push(c);
+        }
+    }
+    return result;
+}
+
 /**
  * Creates and connects a Surreal client with timeout and sensible auth fallback.
  * Critical: When connection fails, a fresh Surreal instance MUST be created because
@@ -388,18 +441,9 @@ async function createConnectedClient(
     namespace?: string,
     database?: string,
     connectTimeoutMs = 3000,
+    authLevel: SurrealAuthLevel = "auto",
 ): Promise<Surreal> {
-    // Root user credentials in SurrealDB must use root-level auth (without namespace/database).
-    // Scoped users authenticate with namespace and database.
-    const authAttempts = user === "root" || !namespace || !database
-        ? [
-            { username: user, password: pass },
-            ...(namespace && database ? [{ namespace, database, username: user, password: pass }] : []),
-          ]
-        : [
-            { namespace, database, username: user, password: pass },
-            { username: user, password: pass },
-          ];
+    const authAttempts = buildSurrealAuthAttempts(user, pass, namespace, database, authLevel);
 
     let lastError: any;
     for (const auth of authAttempts) {
@@ -447,6 +491,7 @@ export async function getDb(): Promise<TracedDb> {
             const pass = process.env.SURREALDB_PASS || DEFAULT_SURREALDB_PASS;
             const namespace = process.env.SURREALDB_NS || DEFAULT_SURREALDB_NS;
             const database = process.env.SURREALDB_DB || DEFAULT_SURREALDB_DB;
+            const authLevel = normalizeSurrealAuthLevel(process.env.SURREALDB_AUTH_LEVEL);
             const connectTimeoutMs = Number(process.env.SURREALDB_CONNECT_TIMEOUT_MS || 8000);
 
             connectSpan.setAttribute("db.url", url);
@@ -456,8 +501,8 @@ export async function getDb(): Promise<TracedDb> {
             console.log(`[DB] [INIT] Connecting to SurrealDB at ${url}...`);
 
             try {
-                console.log(`[DB] [INIT] Authenticating as user: ${user}`);
-                const db = await createConnectedClient(url, user, pass, namespace, database, connectTimeoutMs);
+                console.log(`[DB] [INIT] Authenticating as user: ${user} (scope: ${authLevel})`);
+                const db = await createConnectedClient(url, user, pass, namespace, database, connectTimeoutMs, authLevel);
 
                 // Ensure namespace and database exist (ignore IAM errors for DB-scoped users)
                 try {
@@ -556,6 +601,7 @@ export async function getDynamicDb(dbName: string): Promise<TracedDb> {
             const user = process.env.SURREALDB_USER || DEFAULT_SURREALDB_USER;
             const pass = process.env.SURREALDB_PASS || DEFAULT_SURREALDB_PASS;
             const namespace = process.env.SURREALDB_NS || DEFAULT_SURREALDB_NS;
+            const authLevel = normalizeSurrealAuthLevel(process.env.SURREALDB_AUTH_LEVEL);
             const connectTimeoutMs = Number(process.env.SURREALDB_CONNECT_TIMEOUT_MS || 8000);
 
             connectSpan.setAttribute("db.url", url);
@@ -565,7 +611,7 @@ export async function getDynamicDb(dbName: string): Promise<TracedDb> {
                 `[DB] [DYNAMIC] Connecting to dynamic database '${dbName}' at ${url}...`,
             );
             try {
-                const s = await createConnectedClient(url, user, pass, namespace, dbName, connectTimeoutMs);
+                const s = await createConnectedClient(url, user, pass, namespace, dbName, connectTimeoutMs, authLevel);
                 await s.use({ namespace, database: dbName });
                 console.log(`[DB] [DYNAMIC] Successfully connected to '${dbName}'`);
                 return new TracedDb(s, dbName);
@@ -593,6 +639,7 @@ export interface CustomDbOpts {
     pass?: string;
     namespace?: string;
     database?: string;
+    authLevel?: SurrealAuthLevel;
     timeoutMs?: number;
 }
 
@@ -602,9 +649,10 @@ export async function getCustomDb(opts: CustomDbOpts): Promise<TracedDb> {
     const pass = opts.pass || process.env.SURREALDB_PASS || DEFAULT_SURREALDB_PASS;
     const namespace = opts.namespace || process.env.SURREALDB_NS || DEFAULT_SURREALDB_NS;
     const database = opts.database || "main";
+    const authLevel = normalizeSurrealAuthLevel(opts.authLevel);
     const connectTimeoutMs = opts.timeoutMs || Number(process.env.SURREALDB_CONNECT_TIMEOUT_MS || 8000);
 
-    const cacheKey = `${url}|${user}|${pass}|${namespace}|${database}`;
+    const cacheKey = `${url}|${user}|${pass}|${namespace}|${database}|${authLevel}`;
 
     if (customDbs.has(cacheKey)) {
         return customDbs.get(cacheKey)!;
@@ -624,10 +672,10 @@ export async function getCustomDb(opts: CustomDbOpts): Promise<TracedDb> {
             connectSpan.setAttribute("db.namespace", namespace);
 
             console.log(
-                `[DB] [CUSTOM] Connecting to custom database '${database}' at ${url}...`,
+                `[DB] [CUSTOM] Connecting to custom database '${database}' at ${url} (scope: ${authLevel})...`,
             );
             try {
-                const s = await createConnectedClient(url, user, pass, namespace, database, connectTimeoutMs);
+                const s = await createConnectedClient(url, user, pass, namespace, database, connectTimeoutMs, authLevel);
                 
                 await s.use({ namespace, database });
                 

@@ -72,6 +72,9 @@ async function getStepAuthHeader(
   context?: any,
   tokenCache?: Map<string, { header?: string; token?: string; response?: any; name?: string }>
 ): Promise<string | undefined> {
+  if (rawStep?.type === "database" || rawStep?.type === "surreal_live" || rawStep?.type === "s3") {
+    return undefined;
+  }
   const step = await resolveObjectSecrets(rawStep, STEP_SECRET_FIELDS);
   const authType = step.authType || "none";
   if (authType === "basic" && (step.authUsername || step.authPassword || step.username || step.password)) {
@@ -1167,6 +1170,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
         let targetDbUser = interpolateTemplate(step.databaseUser || "", context) || undefined;
         let targetDbPass = interpolateTemplate(step.databasePass || "", context) || undefined;
         let targetDbNs = interpolateTemplate(step.databaseNs || "", context) || undefined;
+        let targetDbAuthLevel = step.databaseAuthLevel || undefined;
         let targetDbTimeout: number | undefined = undefined;
 
         if (step.connectionId) {
@@ -1175,12 +1179,13 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
             const connRecord = await db.select(new RecordId("connection", connDbId));
             const rawConn = Array.isArray(connRecord) ? connRecord[0] : connRecord;
             if (rawConn) {
-              const conn = normalizeConnection(rawConn) as any;
+              const conn = (await resolveObjectSecrets(normalizeConnection(rawConn) as any)) as any;
               if (conn.url && !targetDbUrl) targetDbUrl = conn.url;
               if (conn.username && !targetDbUser) targetDbUser = conn.username;
               if (conn.password && !targetDbPass) targetDbPass = conn.password;
               if (conn.namespace && !targetDbNs) targetDbNs = conn.namespace;
               if (conn.database && !targetDbName) targetDbName = conn.database;
+              if (conn.authLevel && !targetDbAuthLevel) targetDbAuthLevel = conn.authLevel;
               if (conn.timeoutMs) targetDbTimeout = conn.timeoutMs;
             }
           } catch (e) {
@@ -1199,6 +1204,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
             pass: targetDbPass,
             namespace: targetDbNs,
             database: targetDbName,
+            authLevel: targetDbAuthLevel,
             timeoutMs: targetDbTimeout,
           });
 
@@ -1564,6 +1570,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
           let targetDbUser = interpolateTemplate(step.databaseUser || "", context) || undefined;
           let targetDbPass = interpolateTemplate(step.databasePass || "", context) || undefined;
           let targetDbNs = interpolateTemplate(step.databaseNs || "", context) || undefined;
+          let targetDbAuthLevel = step.databaseAuthLevel || undefined;
           let targetDbTimeout: number | undefined = undefined;
 
           if (step.connectionId) {
@@ -1572,12 +1579,13 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
               const connRecord = await db.select(new RecordId("connection", connDbId));
               const rawConn = Array.isArray(connRecord) ? connRecord[0] : connRecord;
               if (rawConn) {
-                const conn = await resolveObjectSecrets(normalizeConnection(rawConn) as any);
+                const conn = (await resolveObjectSecrets(normalizeConnection(rawConn) as any)) as any;
                 if (conn.url && !targetDbUrl) targetDbUrl = conn.url;
                 if (conn.username && !targetDbUser) targetDbUser = conn.username;
                 if (conn.password && !targetDbPass) targetDbPass = conn.password;
                 if (conn.namespace && !targetDbNs) targetDbNs = conn.namespace;
                 if (conn.database && !targetDbName) targetDbName = conn.database;
+                if (conn.authLevel && !targetDbAuthLevel) targetDbAuthLevel = conn.authLevel;
                 if (conn.timeoutMs) targetDbTimeout = conn.timeoutMs;
               }
             } catch (e) {
@@ -1593,6 +1601,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
             pass: targetDbPass,
             namespace: targetDbNs,
             database: targetDbName,
+            authLevel: targetDbAuthLevel,
             timeoutMs: targetDbTimeout,
           });
           

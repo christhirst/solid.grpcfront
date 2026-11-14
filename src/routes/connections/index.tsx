@@ -1,6 +1,6 @@
 import { createSignal, createResource, createMemo, onMount, onCleanup, For, Show } from "solid-js";
 import { isServer } from "solid-js/web";
-import { type ConnectionType, type AuthType } from "~/lib/connections";
+import { type ConnectionType, type AuthType, type SurrealAuthLevel } from "~/lib/connections";
 import { isOAuthProvider } from "~/lib/stepCategories";
 import { isVaultSecretRef } from "~/lib/vaultRef";
 import { ResourceTagEditor } from "~/components/ResourceTagEditor";
@@ -171,6 +171,7 @@ export default function Connections() {
   const [dbPassword, setDbPassword] = createSignal("");
   const [dbNamespace, setDbNamespace] = createSignal("solidflow");
   const [dbDatabase, setDbDatabase] = createSignal("main");
+  const [dbAuthLevel, setDbAuthLevel] = createSignal<SurrealAuthLevel>("auto");
   const [dbTimeoutMs, setDbTimeoutMs] = createSignal<number>(5000);
 
   // S3 Fields
@@ -285,6 +286,7 @@ export default function Connections() {
     setDbPassword("");
     setDbNamespace("solidflow");
     setDbDatabase("main");
+    setDbAuthLevel("auto");
     setDbTimeoutMs(5000);
     setS3Endpoint("https://s3.amazonaws.com");
     setS3Region("us-east-1");
@@ -467,6 +469,7 @@ export default function Connections() {
     setDbPassword(conn.password || "");
     setDbNamespace(conn.namespace || "solidflow");
     setDbDatabase(conn.database || "main");
+    setDbAuthLevel((conn.authLevel as SurrealAuthLevel) || "auto");
     setDbTimeoutMs(conn.timeoutMs || 5000);
 
     // S3
@@ -600,6 +603,7 @@ export default function Connections() {
         password: dbPassword() || undefined,
         namespace: dbNamespace().trim() || undefined,
         database: dbDatabase().trim() || undefined,
+        authLevel: dbAuthLevel() || "auto",
         timeoutMs: dbTimeoutMs() ? Number(dbTimeoutMs()) : 5000,
       };
     }
@@ -1356,6 +1360,9 @@ export default function Connections() {
                               <span class="text-[9px] font-bold px-1.5 py-0.5 bg-emerald-500/10 text-emerald-400 rounded border border-emerald-500/20 font-mono">
                                 NS: {conn.namespace || "solidflow"} / DB: {conn.database || "main"}
                               </span>
+                              <span class="text-[9px] font-bold px-1.5 py-0.5 bg-cyan-500/10 text-cyan-300 rounded border border-cyan-500/20 font-mono uppercase">
+                                User: {conn.authLevel || "auto"}
+                              </span>
                               <Show when={conn.timeoutMs}>
                                 <span class="text-[9px] font-bold px-1.5 py-0.5 bg-[#1e1e2e] text-[#8b8b9e] rounded border border-[#2a2a3a] font-mono">
                                   {conn.timeoutMs}ms
@@ -1883,7 +1890,20 @@ export default function Connections() {
                     </div>
                   </div>
 
-                  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <label class="mb-1 block text-xs font-medium text-[#8b8b9e]">User Scope / Auth Level</label>
+                      <select
+                        class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-blue-500 focus:outline-none"
+                        value={dbAuthLevel()}
+                        onChange={(e) => setDbAuthLevel(e.currentTarget.value as SurrealAuthLevel)}
+                      >
+                        <option value="auto">🔄 Auto-Detect (DB → NS → Root)</option>
+                        <option value="namespace">🏢 Namespace User (ON NAMESPACE)</option>
+                        <option value="database">🗄️ Database User (ON DATABASE)</option>
+                        <option value="root">👑 Root User (ON ROOT)</option>
+                      </select>
+                    </div>
                     <div>
                       <label class="mb-1 block text-xs font-medium text-[#8b8b9e]">Username</label>
                       <input

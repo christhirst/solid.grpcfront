@@ -80,6 +80,8 @@ export interface GrpcConnection extends ConnectionBase, OAuthConfig {
   bearerToken?: string;
 }
 
+export type SurrealAuthLevel = "auto" | "database" | "namespace" | "root";
+
 export interface SurrealDbConnection extends ConnectionBase {
   type: "surrealdb";
   url: string;
@@ -87,6 +89,7 @@ export interface SurrealDbConnection extends ConnectionBase {
   password?: string;
   namespace?: string;
   database?: string;
+  authLevel?: SurrealAuthLevel;
   timeoutMs?: number;
 }
 
@@ -202,11 +205,24 @@ export function normalizeConnection(raw: any): Connection {
       ? Boolean(raw.oauthProvider)
       : Boolean((authType === "oauth" || type === "oauth") && tokenUrl);
 
+  const rawAuthLevel = String(raw.authLevel || raw.userLevel || "").trim().toLowerCase();
+  const normalizedAuthLevel: SurrealAuthLevel | undefined =
+    type === "surrealdb"
+      ? rawAuthLevel === "database" || rawAuthLevel === "db"
+        ? "database"
+        : rawAuthLevel === "namespace" || rawAuthLevel === "ns"
+          ? "namespace"
+          : rawAuthLevel === "root"
+            ? "root"
+            : "auto"
+      : undefined;
+
   const normalizedObj = {
     ...raw,
     id: rawId,
     type: type === "oauth" ? "http" : type,
     authType,
+    ...(normalizedAuthLevel ? { authLevel: normalizedAuthLevel } : {}),
     oauthProvider,
     oauthVerifiedAt: raw.oauthVerifiedAt || undefined,
     oauthLastError: raw.oauthLastError || undefined,
@@ -773,8 +789,10 @@ export async function testGrpcConnection(rawConfig: any): Promise<any> {
  */
 export async function testSurrealDbConnection(rawConfig: any): Promise<any> {
   const { resolveObjectSecrets } = await import("~/lib/openbao");
+  const { buildSurrealAuthAttempts, normalizeSurrealAuthLevel } = await import("~/lib/db");
   const config = await resolveObjectSecrets(rawConfig);
   const { url, username, password, namespace, database } = config;
+  const authLevel = normalizeSurrealAuthLevel(config.authLevel || config.userLevel);
   const timeoutMs = Number(config.timeoutMs || config.timeout || 5000);
 
   if (!url) {
@@ -806,9 +824,8 @@ export async function testSurrealDbConnection(rawConfig: any): Promise<any> {
           if (namespace) {
             await s.use({ namespace, database: database || undefined });
           }
-          // Run test query
-          const res = await s.query("INFO FOR DB;");
-          return res;
+          // Run lightweight ping query that works for all user roles (VIEWER/EDITOR/OWNER)
+          await s.query("RETURN true;");
         })(),
         timeoutPromise,
       ]);
@@ -818,30 +835,10 @@ export async function testSurrealDbConnection(rawConfig: any): Promise<any> {
     }
   };
 
-  // Determine auth attempts order:
-  // - If username is "root": try root-level auth first, then scoped
-  // - If username is non-root (e.g. "ai"): try DB-scoped first, then NS-scoped, then root fallback
-  const authAttempts: Array<any> = [];
-  if (username || password) {
-    const user = username || "root";
-    const pass = password || "";
-    if (user === "root") {
-      authAttempts.push({ username: user, password: pass });
-      if (namespace && database) {
-        authAttempts.push({ namespace, database, username: user, password: pass });
-      }
-    } else {
-      if (namespace && database) {
-        authAttempts.push({ namespace, database, username: user, password: pass });
-      }
-      if (namespace) {
-        authAttempts.push({ namespace, username: user, password: pass });
-      }
-      authAttempts.push({ username: user, password: pass });
-    }
-  } else {
-    authAttempts.push(undefined);
-  }
+  const authAttempts: Array<any> =
+    username || password
+      ? buildSurrealAuthAttempts(username || "root", password || "", namespace, database, authLevel)
+      : [undefined];
 
   let lastError: any;
   for (const auth of authAttempts) {
@@ -856,15 +853,24 @@ export async function testSurrealDbConnection(rawConfig: any): Promise<any> {
         await client.close();
       } catch {}
 
+      const matchedScope = !auth
+        ? "unauthenticated"
+        : auth.database
+          ? "database"
+          : auth.namespace
+            ? "namespace"
+            : "root";
+
       return {
         success: true,
         type: "surrealdb",
         url,
         namespace: namespace || "default",
         database: database || "default",
+        authLevel: matchedScope,
         latencyMs,
         info: infoResult,
-        message: `Successfully connected to SurrealDB at ${url} (NS: ${namespace || "default"}, DB: ${database || "default"}).`,
+        message: `Successfully connected to SurrealDB at ${url} (NS: ${namespace || "default"}, DB: ${database || "default"}, User Scope: ${matchedScope.toUpperCase()}).`,
       };
     } catch (err: any) {
       lastError = err;

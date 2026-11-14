@@ -77,6 +77,7 @@ export interface WorkflowStep {
   databaseUser?: string;
   databasePass?: string;
   databaseNs?: string;
+  databaseAuthLevel?: "auto" | "database" | "namespace" | "root";
   serviceName?: string;
   methodName?: string;
   protoContent?: string;
