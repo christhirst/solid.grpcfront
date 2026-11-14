@@ -3,6 +3,7 @@ import * as protoLoader from "@grpc/proto-loader";
 import { writeFileSync, rmSync, mkdtempSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
+import { toAuthzenGrpcRequest, fromAuthzenGrpcResponse } from "~/lib/authzenProto";
 
 export interface GrpcCallParams {
   protoContent: string;
@@ -138,11 +139,18 @@ export async function executeGrpcCall(params: GrpcCallParams): Promise<GrpcCallR
         }
       }
 
-      client[methodName](requestBody, grpcMetadata, { deadline }, (err: any, response: any) => {
+      const usesStructProto =
+        Boolean(protoContent && protoContent.includes("google/protobuf/struct.proto")) ||
+        serviceName.includes("authzen");
+      const effectiveRequestBody = usesStructProto
+        ? toAuthzenGrpcRequest(requestBody || {})
+        : requestBody;
+
+      client[methodName](effectiveRequestBody, grpcMetadata, { deadline }, (err: any, response: any) => {
         if (err) {
           reject(err);
         } else {
-          resolve(response);
+          resolve(usesStructProto ? fromAuthzenGrpcResponse(response) : response);
         }
       });
     });

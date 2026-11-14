@@ -13,6 +13,16 @@ import { resolveSubPath } from "~/lib/dashboard/widgetConditions";
 import { executeTextTransform, registerJsonataTextFunctions, coerceToText } from "~/lib/textProcessor";
 import { resolveObjectSecrets, readVaultSecret, isVaultSecretRef, STEP_SECRET_FIELDS } from "~/lib/openbao";
 import { publishEvent, getCache, setCache } from "~/lib/cache/redis";
+import { createDefaultWorkflowUserContext } from "~/lib/groupAuth";
+import {
+  AUTHZEN_PROTO_CONTENT,
+  RRM_AUTHZ_PROTO_CONTENT,
+  buildCerbosRestPayload,
+  normalizeAuthzResponse,
+  type AuthzProvider,
+  type AuthzOnDeny,
+  type NormalizedAuthzInput,
+} from "~/lib/authzenProto";
 import { getStepCategory, type StepCategory, type WorkflowStep, type StepVariable } from "./stepCategories";
 export { getStepCategory, type StepCategory, type WorkflowStep, type StepVariable };
 
@@ -253,7 +263,7 @@ export interface WorkflowDefinition {
 
 export interface WorkflowRunLog {
   stepId: string;
-  stepType?: "grpc" | "table" | "chart" | "database" | "rest" | "grpc_stream" | "rest_stream" | "surreal_live" | "transform" | "text_transform" | "infographic" | "s3";
+  stepType?: "grpc" | "table" | "chart" | "database" | "rest" | "grpc_stream" | "rest_stream" | "surreal_live" | "transform" | "text_transform" | "infographic" | "s3" | "authz";
   status: "success" | "error";
   request: any;
   response?: any;
@@ -398,6 +408,48 @@ function parseJsonString(value: any): any {
   }
 }
 
+export function evaluateJsonOrTemplateObject(
+  rawTemplate: string | undefined,
+  context: Record<string, any>
+): Record<string, any> {
+  const trimmed = (rawTemplate || "").trim();
+  if (!trimmed || trimmed === "{}") return {};
+
+  const exactMatch = trimmed.match(/^\{\{\s*([^{}]+?)\s*\}\}$/);
+  if (exactMatch) {
+    const evaluated = evaluatePayload(trimmed, context);
+    if (evaluated && typeof evaluated === "object" && !Array.isArray(evaluated)) {
+      return evaluated;
+    }
+    if (typeof evaluated === "string") {
+      try {
+        const parsed = JSON.parse(evaluated);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
+      } catch {}
+    }
+    return { value: evaluated };
+  }
+
+  try {
+    const parsed = safeJsonParseWithEscapes(trimmed);
+    const evaluated = evaluatePayload(parsed, context);
+    if (evaluated && typeof evaluated === "object" && !Array.isArray(evaluated)) {
+      return evaluated;
+    }
+    return { value: evaluated };
+  } catch {
+    try {
+      const interpolated = interpolateTemplate(trimmed, context);
+      const parsed = JSON.parse(interpolated);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed;
+      }
+    } catch {}
+  }
+
+  return {};
+}
+
 
 /**
  * Topologically sort workflow steps so that all upstream dependencies (sourceStepIds)
@@ -483,11 +535,13 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
   const cleanWfId = rawWfId.replace(/[⟨⟩]/g, "");
 
   const formPayload = customContext.form || {};
+  const userContext = customContext.$user || createDefaultWorkflowUserContext();
   let context: {
     steps: any;
     auth: any;
     form: any;
     dashboard_form: any;
+    $user: any;
     variables?: Record<string, any>;
     [key: string]: any;
   } = {
@@ -495,9 +549,13 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
     auth: {} as any,
     form: formPayload,
     dashboard_form: formPayload,
+    $user: userContext,
     variables: {},
     ...customContext,
   };
+  if (!context.$user) {
+    context.$user = userContext;
+  }
 
   const sanitizeContextForStorage = (ctx: Record<string, any>) => {
     const { __vaultRefs, __stepLiteralVars, ...rest } = ctx || {};
@@ -1215,7 +1273,9 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
           const exprString = (step.transformExpression || "").trim() || "$";
           const expression = jsonata(exprString);
           registerJsonataTextFunctions(expression);
-          transformedResult = await expression.evaluate(evaluationScope);
+          transformedResult = await expression.evaluate(evaluationScope, {
+            user: context.$user,
+          });
 
           if (transformedResult === undefined) {
             transformedResult = null;
@@ -1881,6 +1941,395 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
           stepId: step.id,
           response: responsePayload,
           latencyMs: finalResult.latencyMs,
+          timestamp: new Date().toISOString(),
+        });
+        return "continue";
+      }
+
+      if (step.type === "authz") {
+        emitWorkflowEvent(runId, workflow.id || "", "step_start", {
+          stepId: step.id,
+          stepType: "authz",
+          timestamp: new Date().toISOString(),
+        });
+
+        const provider: AuthzProvider = step.authzProvider || (step as any).authzProtocol || "authzen_grpc";
+        const onDeny: AuthzOnDeny = step.authzOnDeny || "enforce";
+        const isGrpcProvider = provider === "authzen_grpc" || provider === "rrm_grpc";
+
+        let targetServerAddress = step.serverAddress || serverAddress || "";
+        let targetRestUrl = interpolateTemplate(step.restUrl || (step as any).url || "", context).trim();
+        let stepCaId = step.caId ?? defaultCaId;
+        let stepUseTls = step.useTls;
+        let stepAcceptInvalidCert = step.acceptInvalidCert;
+        let stepProtoContent = step.protoContent || "";
+        let authHeaderName = "Authorization";
+        let connTimeoutMs: number | undefined;
+        const metadata: Record<string, string> = {};
+
+        if (step.connectionId) {
+          try {
+            const connDbId = (step.connectionId.includes(":") ? step.connectionId.split(":")[1] : step.connectionId)
+              .replace(/[⟨⟩]/g, "")
+              .trim();
+            const connRecord = await db.select(new RecordId("connection", connDbId));
+            const rawConn = Array.isArray(connRecord) ? connRecord[0] : connRecord;
+            if (rawConn) {
+              const conn = (await resolveObjectSecrets(normalizeConnection(rawConn))) as any;
+              if (conn.serverAddress && !step.serverAddress) {
+                targetServerAddress = conn.serverAddress;
+              }
+              if (conn.url) {
+                if (targetRestUrl && !targetRestUrl.startsWith("http://") && !targetRestUrl.startsWith("https://")) {
+                  targetRestUrl = conn.url.replace(/\/+$/, "") + "/" + targetRestUrl.replace(/^\/+/, "");
+                } else if (!targetRestUrl) {
+                  targetRestUrl = conn.url;
+                }
+                if (!targetServerAddress) {
+                  targetServerAddress = String(conn.url).replace(/^https?:\/\//, "").split("/")[0] || "";
+                }
+              }
+              if (conn.caId && !step.caId) stepCaId = conn.caId;
+              if (stepUseTls === undefined && conn.useTls !== undefined) stepUseTls = conn.useTls;
+              if (stepAcceptInvalidCert === undefined && conn.acceptInvalidCert !== undefined) {
+                stepAcceptInvalidCert = conn.acceptInvalidCert;
+              }
+              if (conn.tokenHeaderName) authHeaderName = conn.tokenHeaderName;
+              if (conn.timeoutMs) connTimeoutMs = Number(conn.timeoutMs);
+              if (conn.metadata) {
+                try {
+                  const connMeta = typeof conn.metadata === "string" ? JSON.parse(conn.metadata) : conn.metadata;
+                  for (const [k, v] of Object.entries(connMeta || {})) {
+                    metadata[k] = String(v);
+                  }
+                } catch {}
+              }
+              if (conn.headers) {
+                try {
+                  const connHeaders = typeof conn.headers === "string" ? JSON.parse(conn.headers) : conn.headers;
+                  for (const [k, v] of Object.entries(connHeaders || {})) {
+                    metadata[k] = String(v);
+                  }
+                } catch {}
+              }
+              if (!stepProtoContent && conn.protoId) {
+                try {
+                  const protoDbId = String(conn.protoId).replace(/^proto_file:/, "").replace(/[⟨⟩]/g, "").trim();
+                  const protoRecord = await db.select(new RecordId("proto_file", protoDbId));
+                  const rawProto = Array.isArray(protoRecord) ? protoRecord[0] : protoRecord;
+                  if (rawProto?.content) stepProtoContent = rawProto.content;
+                } catch {}
+              }
+            }
+          } catch (e) {
+            console.error("[WORKFLOW] Could not resolve connection for authz step:", e);
+          }
+        }
+
+        if (stepAuthHeader) {
+          metadata[authHeaderName] = stepAuthHeader;
+        }
+
+        if (step.headersTemplate) {
+          try {
+            const parsedHeaders = JSON.parse(step.headersTemplate);
+            const evaluatedHeaders = evaluatePayload(parsedHeaders, context);
+            for (const [key, value] of Object.entries(evaluatedHeaders || {})) {
+              const strVal = String(value ?? "").trim();
+              if (
+                key.toLowerCase() === authHeaderName.toLowerCase() &&
+                (!strVal || strVal === "Bearer" || strVal === "Basic") &&
+                stepAuthHeader
+              ) {
+                continue;
+              }
+              metadata[key] = String(value);
+            }
+          } catch (e) {
+            console.error(`Failed to parse/evaluate headers for authz step ${step.id}:`, e);
+          }
+        }
+
+        const defaultSubjectPropsTemplate = JSON.stringify({
+          oidc_claims: "{{ $user.oidc.claims }}",
+          userdata: "{{ $user.userdata }}",
+          roles: "{{ $user.userdata.groups }}",
+          platform_role: "{{ $user.userdata.platformRole }}",
+        });
+
+        const sInput: NormalizedAuthzInput = {
+          spaceId: interpolateTemplate(step.authzSpaceId || "default", context).trim() || "default",
+          subjectType: interpolateTemplate(step.authzSubjectType || "user", context).trim() || "user",
+          subjectId:
+            interpolateTemplate(step.authzSubjectId || "{{ $user.username }}", context).trim() ||
+            context.$user?.username ||
+            context.$user?.sub ||
+            "anonymous",
+          subjectProperties: evaluateJsonOrTemplateObject(
+            step.authzSubjectProperties !== undefined ? step.authzSubjectProperties : defaultSubjectPropsTemplate,
+            context
+          ),
+          actionName: interpolateTemplate(step.authzActionName || "access", context).trim() || "access",
+          actionProperties: evaluateJsonOrTemplateObject(step.authzActionProperties || "{}", context),
+          resourceType: interpolateTemplate(step.authzResourceType || "resource", context).trim() || "resource",
+          resourceId: interpolateTemplate(step.authzResourceId || "default", context).trim() || "default",
+          resourceProperties: evaluateJsonOrTemplateObject(step.authzResourceProperties || "{}", context),
+          context: evaluateJsonOrTemplateObject(step.authzContext || "{}", context),
+        };
+
+        let requestPayload: Record<string, any>;
+        if (step.authzCustomPayload && step.requestBodyTemplate?.trim()) {
+          requestPayload = evaluateJsonOrTemplateObject(step.requestBodyTemplate, context);
+        } else if (provider === "authzen_grpc") {
+          requestPayload = {
+            space_id: sInput.spaceId,
+            subject: {
+              type: sInput.subjectType,
+              id: sInput.subjectId,
+              properties: sInput.subjectProperties,
+            },
+            action: {
+              name: sInput.actionName,
+              properties: sInput.actionProperties,
+            },
+            resource: {
+              type: sInput.resourceType,
+              id: sInput.resourceId,
+              properties: sInput.resourceProperties,
+            },
+            context: sInput.context,
+          };
+        } else if (provider === "rrm_grpc") {
+          requestPayload = {
+            space_id: sInput.spaceId,
+            principal: {
+              entity_type: sInput.subjectType || "User",
+              entity_id: sInput.subjectId,
+            },
+            action: {
+              entity_type: "Action",
+              entity_id: sInput.actionName,
+            },
+            resource: {
+              entity_type: sInput.resourceType || "Resource",
+              entity_id: sInput.resourceId,
+            },
+            context_json: JSON.stringify({
+              ...sInput.context,
+              subject_properties: sInput.subjectProperties,
+              action_properties: sInput.actionProperties,
+              resource_properties: sInput.resourceProperties,
+            }),
+            additional_entities: [],
+          };
+        } else if (provider === "cerbos_rest") {
+          requestPayload = buildCerbosRestPayload(sInput, `${runId}_${step.id}`);
+        } else {
+          // authzen_rest
+          requestPayload = {
+            subject: {
+              type: sInput.subjectType,
+              id: sInput.subjectId,
+              properties: sInput.subjectProperties,
+            },
+            action: {
+              name: sInput.actionName,
+              properties: sInput.actionProperties,
+            },
+            resource: {
+              type: sInput.resourceType,
+              id: sInput.resourceId,
+              properties: sInput.resourceProperties,
+            },
+            context: sInput.context,
+          };
+        }
+
+        let execSuccess = false;
+        let rawResponse: any = undefined;
+        let execError: string | undefined = undefined;
+        let latencyMs = 0;
+        let requestMeta: any = requestPayload;
+
+        if (isGrpcProvider) {
+          const effectiveProto =
+            stepProtoContent || (provider === "rrm_grpc" ? RRM_AUTHZ_PROTO_CONTENT : AUTHZEN_PROTO_CONTENT);
+          const effectiveService =
+            step.serviceName ||
+            (provider === "rrm_grpc"
+              ? "rrm.v1.AuthorizationService"
+              : "authzen.authorization.v1.AuthorizationService");
+          const effectiveMethod =
+            step.methodName || (provider === "rrm_grpc" ? "Authorize" : "AccessEvaluation");
+
+          const grpcRes = await executeGrpcCall({
+            protoContent: effectiveProto,
+            serverAddress: targetServerAddress || "localhost:50051",
+            useTls: stepCaId !== "" || Boolean(stepUseTls),
+            caCert: await resolveCaCert(stepCaId),
+            acceptInvalidCert: stepCaId === ACCEPT_ALL_CA || Boolean(stepAcceptInvalidCert),
+            serviceName: effectiveService,
+            methodName: effectiveMethod,
+            requestBody: requestPayload,
+            metadata,
+          });
+          execSuccess = grpcRes.success;
+          rawResponse = grpcRes.data;
+          execError = grpcRes.error;
+          latencyMs = grpcRes.latencyMs || 0;
+          requestMeta = {
+            provider,
+            serverAddress: targetServerAddress || "localhost:50051",
+            service: `${effectiveService}/${effectiveMethod}`,
+            body: requestPayload,
+          };
+        } else {
+          // REST PDP (authzen_rest or cerbos_rest)
+          let finalUrl = normalizeStepHttpUrl(targetRestUrl);
+          if (finalUrl) {
+            try {
+              const parsedUrl = new URL(finalUrl);
+              if (!parsedUrl.pathname || parsedUrl.pathname === "/") {
+                if (provider === "cerbos_rest") {
+                  parsedUrl.pathname = "/api/check/resources";
+                } else if (sInput.spaceId && sInput.spaceId !== "default") {
+                  parsedUrl.pathname = `/spaces/${encodeURIComponent(sInput.spaceId)}/access/v1/evaluation`;
+                } else {
+                  parsedUrl.pathname = "/access/v1/evaluation";
+                }
+                finalUrl = parsedUrl.toString();
+              }
+            } catch {}
+          }
+
+          const startTimeMs = Date.now();
+          try {
+            if (!finalUrl) {
+              throw new Error("Authorization REST URL is empty");
+            }
+            const timeoutMs = Number((step as any).timeoutMs || connTimeoutMs || 15000);
+            const headersObj: Record<string, string> = {
+              "Content-Type": "application/json",
+              ...metadata,
+            };
+            const fetchOptions: RequestInit = {
+              method: "POST",
+              headers: headersObj,
+              body: JSON.stringify(requestPayload),
+              signal: AbortSignal.timeout(timeoutMs),
+            };
+            const stepCaCert = await resolveCaCert(stepCaId);
+            if (stepCaId) {
+              (fetchOptions as any).tls = {
+                ca: stepCaCert,
+                rejectUnauthorized: stepCaId !== ACCEPT_ALL_CA,
+              };
+            }
+
+            const res = await fetch(finalUrl, fetchOptions);
+            latencyMs = Date.now() - startTimeMs;
+            const contentType = res.headers.get("content-type") || "";
+            const data = contentType.includes("application/json")
+              ? await res.json()
+              : parseJsonString(await res.text());
+
+            if (!res.ok) {
+              throw new Error(`HTTP ${res.status}: ${typeof data === "object" ? JSON.stringify(data) : data}`);
+            }
+            execSuccess = true;
+            rawResponse = data;
+          } catch (err: any) {
+            latencyMs = Date.now() - startTimeMs;
+            const rawErr = err?.cause?.message
+              ? `${err.message} (${err.cause.message})`
+              : err?.message || String(err);
+            execSuccess = false;
+            execError = rawErr.startsWith("HTTP ")
+              ? rawErr
+              : `Authz REST POST ${finalUrl || "(empty URL)"} failed: ${rawErr}`;
+          }
+          requestMeta = {
+            provider,
+            url: finalUrl,
+            method: "POST",
+            body: requestPayload,
+          };
+        }
+
+        if (!execSuccess) {
+          context.steps[step.id] = {
+            request: requestMeta,
+            response: undefined,
+            error: execError,
+          };
+          runRecord.logs.push({
+            stepId: step.id,
+            stepType: "authz",
+            status: "error",
+            request: requestMeta,
+            error: execError,
+            latencyMs,
+            meta: { provider, onDeny, spaceId: sInput.spaceId },
+          });
+          emitWorkflowEvent(runId, workflow.id || "", "step_failed", {
+            stepId: step.id,
+            error: execError,
+            timestamp: new Date().toISOString(),
+          });
+          runRecord.status = "failed";
+          runRecord.endTime = new Date().toISOString();
+          await saveRunState(true);
+          return "abort";
+        }
+
+        const normalized = normalizeAuthzResponse(provider, rawResponse, sInput.actionName);
+        const deniedAndEnforced = !normalized.decision && onDeny === "enforce";
+        const denyErrorMsg = deniedAndEnforced
+          ? `Authorization denied by PDP (${provider}): ${normalized.reason || "Access denied"}`
+          : undefined;
+
+        context.steps[step.id] = {
+          request: requestMeta,
+          response: normalized,
+          decision: normalized.decision,
+          allowed: normalized.allowed,
+          error: denyErrorMsg,
+        };
+
+        runRecord.logs.push({
+          stepId: step.id,
+          stepType: "authz",
+          status: deniedAndEnforced ? "error" : "success",
+          request: requestMeta,
+          response: normalized,
+          error: denyErrorMsg,
+          latencyMs,
+          meta: {
+            provider,
+            onDeny,
+            decision: normalized.decision,
+            spaceId: sInput.spaceId,
+          },
+        });
+
+        if (deniedAndEnforced) {
+          emitWorkflowEvent(runId, workflow.id || "", "step_failed", {
+            stepId: step.id,
+            error: denyErrorMsg,
+            response: normalized,
+            timestamp: new Date().toISOString(),
+          });
+          runRecord.status = "failed";
+          runRecord.endTime = new Date().toISOString();
+          await saveRunState(true);
+          return "abort";
+        }
+
+        await saveRunState(false);
+        emitWorkflowEvent(runId, workflow.id || "", "step_complete", {
+          stepId: step.id,
+          response: normalized,
+          latencyMs,
           timestamp: new Date().toISOString(),
         });
         return "continue";

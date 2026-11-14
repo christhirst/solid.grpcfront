@@ -4,7 +4,7 @@ import { runWorkflowBackground } from "~/lib/workflowEngine";
 import { v4 as uuidv4 } from "uuid";
 import { RecordId } from "surrealdb";
 import { readJsonBody } from "~/lib/requestUtils";
-import { getEffectiveAccessContext } from "~/lib/auth";
+import { buildWorkflowUserContext, getEffectiveAccessContext } from "~/lib/auth";
 import { canAccessObject } from "~/lib/groupAuth";
 import { canUseWorkflowViaDashboard } from "~/lib/dashboard/dashboardScope";
 
@@ -73,9 +73,10 @@ export async function POST(event: APIEvent) {
     }
 
     const runId = `workflow_run:${uuidv4()}`;
+    const $user = await buildWorkflowUserContext(event.request, db);
 
     // Kick off the background execution!
-    runWorkflowBackground(workflow, runId, { form: formPayload }).catch(console.error);
+    runWorkflowBackground(workflow, runId, { form: formPayload, $user }).catch(console.error);
 
     return new Response(JSON.stringify({ success: true, runId }), {
       headers: { "Content-Type": "application/json" },

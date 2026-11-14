@@ -547,7 +547,7 @@ function LogChart(props: { data: any[]; xKey?: string; yKey?: string; chartType?
   );
 }
 
-const DATA_SOURCE_STEP_TYPES = new Set(["grpc", "rest", "database", "s3", "oauth_token", "transform", "text_transform"]);
+const DATA_SOURCE_STEP_TYPES = new Set(["grpc", "rest", "database", "s3", "oauth_token", "authz", "transform", "text_transform"]);
 
 function isDataSourceStep(step: any) {
   return !!step && (!step.type || DATA_SOURCE_STEP_TYPES.has(step.type));
@@ -756,6 +756,7 @@ export default function WorkflowBuilder() {
   const [isTestingAuth, setIsTestingAuth] = createSignal(false);
   const [steps, setSteps] = createStore<any[]>([]);
   const [showAddStepMenu, setShowAddStepMenu] = createSignal(false);
+  const [showUserVarMenu, setShowUserVarMenu] = createSignal(false);
   
   const [connectionId, setConnectionId] = createSignal<string>("");
   const [showSettings, setShowSettings] = createSignal(false);
@@ -1279,6 +1280,31 @@ export default function WorkflowBuilder() {
          newStep.authConnectionId = conn.id;
          newStep.connectionId = conn.id;
        }
+    } else if (type === "authz") {
+       const conn = (connections() || []).find((c: any) => c.type === "grpc" || c.type === "http");
+       newStep.connectionMode = conn ? "saved" : "custom";
+       if (conn) newStep.connectionId = conn.id;
+       newStep.authzProvider = conn?.type === "http" ? "authzen_rest" : "authzen_grpc";
+       newStep.authzOnDeny = "enforce";
+       newStep.authzSpaceId = "default";
+       newStep.authzSubjectType = "user";
+       newStep.authzSubjectId = "{{ $user.username }}";
+       newStep.authzSubjectProperties = JSON.stringify(
+         {
+           oidc_claims: "{{ $user.oidc.claims }}",
+           userdata: "{{ $user.userdata }}",
+           roles: "{{ $user.userdata.groups }}",
+           platform_role: "{{ $user.userdata.platformRole }}",
+         },
+         null,
+         2
+       );
+       newStep.authzActionName = "access";
+       newStep.authzActionProperties = "{}";
+       newStep.authzResourceType = "workflow";
+       newStep.authzResourceId = "default";
+       newStep.authzResourceProperties = "{}";
+       newStep.authzContext = "{}";
     }
 
     setSteps(produce((s: any[]) => s.push(newStep)));
@@ -1556,6 +1582,76 @@ export default function WorkflowBuilder() {
           >
             🔑 + Access Token
           </button>
+
+          <div class="relative">
+            <button
+              type="button"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                setShowUserVarMenu(!showUserVarMenu());
+              }}
+              class={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                hasActiveInput()
+                  ? "bg-emerald-600 hover:bg-emerald-500 text-white shadow-md ring-2 ring-emerald-500/50"
+                  : "bg-[#1e2923] hover:bg-[#24342b] text-emerald-300 border border-emerald-500/30"
+              }`}
+              title="Insert or copy current user ({{ $user.* }}) runtime variable (oidc.claims & userdata)"
+            >
+              <span>👤 + $user Variable</span>
+              <span class="text-[9px] opacity-80">▾</span>
+            </button>
+
+            <Show when={showUserVarMenu()}>
+              <div class="absolute right-0 mt-2 w-80 rounded-2xl bg-[#181824] border border-[#2a2a3a] shadow-2xl z-50 overflow-hidden py-1.5 divide-y divide-[#2a2a3a]/60">
+                <div class="px-3 py-1.5">
+                  <div class="text-[10px] font-bold text-emerald-400 uppercase tracking-wider">
+                    👤 Current User Runtime Context ($user)
+                  </div>
+                  <div class="text-[10px] text-[#8b8b9e] mt-0.5">
+                    {hasActiveInput() ? "Click to insert at cursor" : "Click to copy variable to clipboard"}
+                  </div>
+                </div>
+                <div class="p-1 space-y-0.5 max-h-72 overflow-y-auto custom-scrollbar">
+                  <For
+                    each={[
+                      { token: "{{ $user.username }}", desc: "Current username / display login" },
+                      { token: "{{ $user.sub }}", desc: "OIDC Subject ID (sub)" },
+                      { token: "{{ $user.email }}", desc: "User email address" },
+                      { token: "{{ $user.oidc.claims }}", desc: "Full OIDC JWT claims object" },
+                      { token: "{{ $user.oidc.claims.groups }}", desc: "OIDC IdP groups claim array" },
+                      { token: "{{ $user.userdata }}", desc: "Full SolidFlow userdata object" },
+                      { token: "{{ $user.userdata.platformRole }}", desc: "Effective role (admin/creator/user/viewer)" },
+                      { token: "{{ $user.userdata.idpRole }}", desc: "Authoritative IdP role" },
+                      { token: "{{ $user.userdata.groups }}", desc: "Active SolidFlow space groups array" },
+                      { token: "{{ $user.userdata.activeGrants }}", desc: "Active group grants (e.g. group:write)" },
+                      { token: "{{ $user.userdata.namespace }}", desc: "User personal namespace" },
+                      { token: "{{ $user.userdata.capabilities }}", desc: "Platform capability booleans" },
+                      { token: "{{ $user }}", desc: "Complete $user context object" },
+                    ]}
+                  >
+                    {(item) => (
+                      <button
+                        type="button"
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          const inserted = insertTextAtCursor(item.token);
+                          if (!inserted && !isServer && navigator?.clipboard?.writeText) {
+                            navigator.clipboard.writeText(item.token);
+                            setActionMessage({ type: "success", text: `Copied ${item.token} to clipboard` });
+                          }
+                          setShowUserVarMenu(false);
+                        }}
+                        class="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-[#222234] transition-colors flex flex-col gap-0.5"
+                      >
+                        <span class="text-xs font-mono font-bold text-emerald-300">{item.token}</span>
+                        <span class="text-[10px] text-[#8b8b9e]">{item.desc}</span>
+                      </button>
+                    )}
+                  </For>
+                </div>
+              </div>
+            </Show>
+          </div>
           
           <div class="w-px h-6 bg-[#2a2a3a] mx-1"></div>
 
@@ -1824,6 +1920,9 @@ export default function WorkflowBuilder() {
                     <button type="button" onClick={() => addStep("oauth_token", "source")} class="w-full text-left px-3 py-1.5 text-xs text-amber-300 hover:bg-[#222234] rounded-lg flex items-center gap-2 transition-colors">
                       <span>🔑</span> OAuth Token (Source)
                     </button>
+                    <button type="button" onClick={() => addStep("authz", "source")} class="w-full text-left px-3 py-1.5 text-xs text-emerald-300 hover:bg-[#222234] rounded-lg flex items-center gap-2 transition-colors">
+                      <span>🛡️</span> Authorization (AuthZEN / Cerbos)
+                    </button>
                   </div>
 
                   {/* 2. TRANSFORMS & SERVICE CALLS */}
@@ -1832,6 +1931,9 @@ export default function WorkflowBuilder() {
                       <span>🔀 2. TRANSFORMS & SERVICES</span>
                       <span class="text-[9px] text-[#5b5b6e] font-normal">(In ➔ Out)</span>
                     </div>
+                    <button type="button" onClick={() => addStep("authz", "transform")} class="w-full text-left px-3 py-1.5 text-xs text-emerald-300 hover:bg-[#222234] rounded-lg flex items-center gap-2 transition-colors">
+                      <span>🛡️</span> Authorization Gate (AuthZEN / Cerbos)
+                    </button>
                     <button type="button" onClick={() => addStep("transform", "transform")} class="w-full text-left px-3 py-1.5 text-xs text-purple-300 hover:bg-[#222234] rounded-lg flex items-center gap-2 transition-colors">
                       <span>🔀</span> JSONata Transformer / Merger
                     </button>
@@ -2112,6 +2214,7 @@ export default function WorkflowBuilder() {
                             <option value="database">🛢️ Database Query</option>
                             <option value="s3">🪣 S3 Storage Files (Filenames / URIs)</option>
                             <option value="oauth_token">🔑 OAuth Token (Fetch &amp; Output)</option>
+                            <option value="authz">🛡️ Authorization (AuthZEN / Cerbos)</option>
                           </optgroup>
                           <optgroup label="🔀 2. Transforms (Processing)">
                             <option value="transform">🔀 JSONata Transformer / Merger</option>
@@ -3888,6 +3991,394 @@ export default function WorkflowBuilder() {
                       );
                     })()}
                   </Show>
+
+                  {/* Authorization (AuthZEN / RRM / Cerbos) PDP Step Configuration */}
+                  <Show when={step.type === "authz"}>
+                    {(() => {
+                      const provider = () => step.authzProvider || "authzen_grpc";
+                      const isGrpcPdp = () => provider() === "authzen_grpc" || provider() === "rrm_grpc";
+                      const onDeny = () => step.authzOnDeny || "enforce";
+                      const isCustom = () => {
+                        if (step.connectionMode === "custom") return true;
+                        if (step.connectionMode === "saved") return false;
+                        if (step.connectionId) return false;
+                        return false;
+                      };
+                      const matchingConns = () =>
+                        (connections() || []).filter((c: any) =>
+                          isGrpcPdp() ? c.type === "grpc" : c.type === "http"
+                        );
+
+                      return (
+                        <div class="mb-4 space-y-4">
+                          {/* Provider & Enforcement Banner */}
+                          <div class="p-3.5 rounded-xl bg-gradient-to-r from-emerald-500/10 via-teal-500/5 to-indigo-500/10 border border-emerald-500/30 space-y-3">
+                            <div class="flex flex-wrap items-center justify-between gap-2">
+                              <div class="flex items-center gap-2">
+                                <span class="text-base">🛡️</span>
+                                <div>
+                                  <div class="text-xs font-bold text-emerald-300 uppercase tracking-wider">
+                                    Policy Decision Point (PDP) Authorization
+                                  </div>
+                                  <div class="text-[11px] text-[#8b8b9e]">
+                                    Evaluates access for the triggering user (<code class="text-emerald-300 font-mono">{"{{ $user.* }}"}</code>) via OpenID AuthZEN 1.0, RRM, or Cerbos
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+                              <div>
+                                <label class="mb-1 block text-[11px] font-semibold text-emerald-300 uppercase tracking-wider">
+                                  PDP Protocol / Provider
+                                </label>
+                                <select
+                                  class="w-full rounded-lg border border-[#2a2a3a] bg-[#141420] p-2 text-xs text-white focus:border-emerald-500 focus:outline-none"
+                                  value={provider()}
+                                  onChange={(e) => updateStep(index(), "authzProvider", e.currentTarget.value)}
+                                >
+                                  <option value="authzen_grpc">⚡ AuthZEN 1.0 gRPC (authzen.proto • RRM / PDP)</option>
+                                  <option value="authzen_rest">🌐 AuthZEN 1.0 REST (/access/v1/evaluation)</option>
+                                  <option value="rrm_grpc">🦀 RRM Native gRPC (rrm.v1.AuthorizationService/Authorize)</option>
+                                  <option value="cerbos_rest">🛡️ Cerbos REST (/api/check/resources)</option>
+                                </select>
+                              </div>
+
+                              <div>
+                                <label class="mb-1 block text-[11px] font-semibold text-emerald-300 uppercase tracking-wider">
+                                  When Decision is Deny (false)
+                                </label>
+                                <div class="grid grid-cols-2 gap-1.5 rounded-lg border border-[#2a2a3a] bg-[#0a0a0f] p-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => updateStep(index(), "authzOnDeny", "enforce")}
+                                    class={`px-2.5 py-1.5 rounded-md text-xs font-bold transition-all ${
+                                      onDeny() === "enforce"
+                                        ? "bg-red-600/90 text-white shadow-sm"
+                                        : "text-[#8b8b9e] hover:text-white"
+                                    }`}
+                                    title="Abort workflow immediately and mark run as failed when decision is false"
+                                  >
+                                    🛑 Enforce (Abort)
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => updateStep(index(), "authzOnDeny", "continue")}
+                                    class={`px-2.5 py-1.5 rounded-md text-xs font-bold transition-all ${
+                                      onDeny() === "continue"
+                                        ? "bg-amber-600/90 text-white shadow-sm"
+                                        : "text-[#8b8b9e] hover:text-white"
+                                    }`}
+                                    title="Continue workflow and pass steps.<id>.response.decision = false downstream"
+                                  >
+                                    ➡️ Continue Flow
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Connection Mode Toggle */}
+                          <div class="flex flex-wrap items-center justify-between gap-2 p-2 rounded-xl bg-[#141420] border border-[#2a2a3a]">
+                            <div class="flex items-center gap-2">
+                              <span class="text-xs font-semibold text-[#8b8b9e]">PDP Endpoint Connection:</span>
+                              <span class="text-[10px] text-[#5b5b6e]">
+                                {isCustom() ? "Custom PDP endpoint & credentials" : "Saved connection profile from /connections"}
+                              </span>
+                            </div>
+                            <div class="inline-flex rounded-lg border border-[#2a2a3a] bg-[#0a0a0f] p-0.5">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  updateStep(index(), "connectionMode", "saved");
+                                  if (!step.connectionId && matchingConns().length > 0) {
+                                    updateStep(index(), "connectionId", matchingConns()[0].id);
+                                  }
+                                }}
+                                class={`px-3 py-1 text-xs rounded-md font-medium transition-all ${!isCustom() ? "bg-emerald-600 text-white shadow-sm" : "text-[#8b8b9e] hover:text-white"}`}
+                              >
+                                📦 Saved Connection
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  updateStep(index(), "connectionMode", "custom");
+                                  updateStep(index(), "connectionId", undefined);
+                                }}
+                                class={`px-3 py-1 text-xs rounded-md font-medium transition-all ${isCustom() ? "bg-emerald-600 text-white shadow-sm" : "text-[#8b8b9e] hover:text-white"}`}
+                              >
+                                ⚙️ Custom Endpoint
+                              </button>
+                            </div>
+                          </div>
+
+                          <Show when={!isCustom()}>
+                            <div class="space-y-2">
+                              <label class="mb-1 block text-xs font-semibold text-[#8b8b9e] uppercase tracking-wider">
+                                Select Saved {isGrpcPdp() ? "gRPC" : "HTTP"} Connection
+                              </label>
+                              <Show
+                                when={matchingConns().length > 0}
+                                fallback={
+                                  <div class="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-xs text-amber-300 flex items-center justify-between">
+                                    <span>No saved {isGrpcPdp() ? "gRPC" : "HTTP"} connections found. Switch to Custom Endpoint or create one in <code>/connections</code>.</span>
+                                    <a href="/connections" target="_blank" class="px-3 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 rounded-lg font-medium transition-colors">
+                                      + Create Connection ↗
+                                    </a>
+                                  </div>
+                                }
+                              >
+                                <select
+                                  class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-emerald-500 focus:outline-none"
+                                  value={step.connectionId || ""}
+                                  onChange={(e) => updateStep(index(), "connectionId", e.currentTarget.value)}
+                                >
+                                  <option value="">Choose a saved connection...</option>
+                                  <For each={matchingConns()}>
+                                    {(conn: any) => (
+                                      <option value={conn.id}>
+                                        {isGrpcPdp() ? "⚡" : "🌐"} {conn.name}{conn.serverAddress ? ` (${conn.serverAddress})` : conn.url ? ` (${conn.url})` : ""}
+                                      </option>
+                                    )}
+                                  </For>
+                                </select>
+                              </Show>
+                            </div>
+                          </Show>
+
+                          <Show when={isCustom()}>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                              <Show
+                                when={isGrpcPdp()}
+                                fallback={
+                                  <div>
+                                    <label class="mb-1 block text-xs text-[#8b8b9e]">PDP REST Endpoint URL</label>
+                                    <input
+                                      type="text"
+                                      class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2.5 text-xs text-white font-mono focus:border-emerald-500 focus:outline-none"
+                                      placeholder={provider() === "cerbos_rest" ? "http://localhost:3592/api/check/resources" : "http://localhost:8080/access/v1/evaluation"}
+                                      value={step.restUrl || ""}
+                                      onInput={(e) => updateStep(index(), "restUrl", e.currentTarget.value)}
+                                    />
+                                  </div>
+                                }
+                              >
+                                <div>
+                                  <label class="mb-1 block text-xs text-[#8b8b9e]">PDP gRPC Server (host:port)</label>
+                                  <input
+                                    type="text"
+                                    class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2.5 text-xs text-white font-mono focus:border-emerald-500 focus:outline-none"
+                                    placeholder="localhost:50051"
+                                    value={step.serverAddress || ""}
+                                    onInput={(e) => updateStep(index(), "serverAddress", e.currentTarget.value)}
+                                  />
+                                </div>
+                              </Show>
+                              <div>
+                                <label class="mb-1 block text-xs text-[#8b8b9e]">Headers / Metadata JSON (e.g. x-space-token)</label>
+                                <input
+                                  type="text"
+                                  class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2.5 text-xs text-emerald-300 font-mono focus:border-emerald-500 focus:outline-none"
+                                  placeholder='{ "x-space-token": "my-secret-token" }'
+                                  value={step.headersTemplate || "{}"}
+                                  onInput={(e) => updateStep(index(), "headersTemplate", e.currentTarget.value)}
+                                />
+                              </div>
+                            </div>
+                          </Show>
+
+                          {/* Quick-insert $user variable bar */}
+                          <div class="p-2.5 rounded-xl bg-[#101518] border border-emerald-500/20 flex flex-wrap items-center gap-1.5">
+                            <span class="text-[10px] font-bold text-emerald-400 uppercase tracking-wider mr-1">
+                              👤 Quick Insert $user:
+                            </span>
+                            <For
+                              each={[
+                                "{{ $user.username }}",
+                                "{{ $user.sub }}",
+                                "{{ $user.email }}",
+                                "{{ $user.oidc.claims }}",
+                                "{{ $user.userdata }}",
+                                "{{ $user.userdata.platformRole }}",
+                                "{{ $user.userdata.groups }}",
+                                "{{ $user.userdata.activeGrants }}",
+                              ]}
+                            >
+                              {(token) => (
+                                <button
+                                  type="button"
+                                  onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    const ok = insertTextAtCursor(token);
+                                    if (!ok && !isServer && navigator?.clipboard?.writeText) {
+                                      navigator.clipboard.writeText(token);
+                                    }
+                                  }}
+                                  class="px-2 py-0.5 rounded bg-emerald-500/10 hover:bg-emerald-500/25 border border-emerald-500/30 text-[10px] font-mono text-emerald-300 transition-colors"
+                                  title="Click to insert into focused field (or copy)"
+                                >
+                                  {token}
+                                </button>
+                              )}
+                            </For>
+                          </div>
+
+                          {/* SARC Fields: Space, Subject, Action, Resource, Context */}
+                          <div class="rounded-xl border border-[#2a2a3a] bg-[#12121c] p-4 space-y-4">
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                              <div>
+                                <label class="mb-1 block text-xs font-semibold text-[#8b8b9e]">
+                                  Space / Tenant ID <span class="text-[10px] text-[#5b5b6e]">(RRM / AuthZEN)</span>
+                                </label>
+                                <input
+                                  type="text"
+                                  class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2 text-xs text-white font-mono focus:border-emerald-500 focus:outline-none"
+                                  placeholder="default"
+                                  value={step.authzSpaceId ?? "default"}
+                                  onInput={(e) => updateStep(index(), "authzSpaceId", e.currentTarget.value)}
+                                />
+                              </div>
+                              <div>
+                                <label class="mb-1 block text-xs font-semibold text-[#8b8b9e]">
+                                  Subject Type
+                                </label>
+                                <input
+                                  type="text"
+                                  class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2 text-xs text-white font-mono focus:border-emerald-500 focus:outline-none"
+                                  placeholder="user"
+                                  value={step.authzSubjectType ?? "user"}
+                                  onInput={(e) => updateStep(index(), "authzSubjectType", e.currentTarget.value)}
+                                />
+                              </div>
+                              <div>
+                                <label class="mb-1 block text-xs font-semibold text-emerald-300">
+                                  Subject ID <span class="text-[10px] text-[#5b5b6e]">(Principal)</span>
+                                </label>
+                                <input
+                                  type="text"
+                                  class="w-full rounded-lg border border-emerald-500/30 bg-[#1a1a26] p-2 text-xs text-emerald-200 font-mono focus:border-emerald-500 focus:outline-none"
+                                  placeholder="{{ $user.username }}"
+                                  value={step.authzSubjectId ?? "{{ $user.username }}"}
+                                  onInput={(e) => updateStep(index(), "authzSubjectId", e.currentTarget.value)}
+                                />
+                              </div>
+                            </div>
+
+                            <div>
+                              <div class="flex items-center justify-between mb-1">
+                                <label class="text-xs font-semibold text-emerald-300">
+                                  Subject Properties JSON <span class="text-[10px] text-[#8b8b9e] font-normal">(OIDC claims &amp; SolidFlow userdata sent to PDP)</span>
+                                </label>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    updateStep(
+                                      index(),
+                                      "authzSubjectProperties",
+                                      JSON.stringify(
+                                        {
+                                          oidc_claims: "{{ $user.oidc.claims }}",
+                                          userdata: "{{ $user.userdata }}",
+                                          roles: "{{ $user.userdata.groups }}",
+                                          platform_role: "{{ $user.userdata.platformRole }}",
+                                        },
+                                        null,
+                                        2
+                                      )
+                                    )
+                                  }
+                                  class="text-[10px] text-emerald-400 hover:text-emerald-300 underline"
+                                >
+                                  Reset to $user default
+                                </button>
+                              </div>
+                              <textarea
+                                class="w-full h-28 rounded-lg border border-[#2a2a3a] bg-[#0a0a0f] p-2.5 text-xs font-mono text-emerald-300 focus:border-emerald-500 outline-none custom-scrollbar"
+                                value={
+                                  step.authzSubjectProperties ??
+                                  JSON.stringify(
+                                    {
+                                      oidc_claims: "{{ $user.oidc.claims }}",
+                                      userdata: "{{ $user.userdata }}",
+                                      roles: "{{ $user.userdata.groups }}",
+                                      platform_role: "{{ $user.userdata.platformRole }}",
+                                    },
+                                    null,
+                                    2
+                                  )
+                                }
+                                onInput={(e) => updateStep(index(), "authzSubjectProperties", e.currentTarget.value)}
+                              />
+                            </div>
+
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                              <div>
+                                <label class="mb-1 block text-xs font-semibold text-[#8b8b9e]">
+                                  Action Name
+                                </label>
+                                <input
+                                  type="text"
+                                  class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2 text-xs text-white font-mono focus:border-emerald-500 focus:outline-none"
+                                  placeholder="e.g. execute, read, write, delete"
+                                  value={step.authzActionName ?? "access"}
+                                  onInput={(e) => updateStep(index(), "authzActionName", e.currentTarget.value)}
+                                />
+                              </div>
+                              <div>
+                                <label class="mb-1 block text-xs font-semibold text-[#8b8b9e]">
+                                  Resource Type
+                                </label>
+                                <input
+                                  type="text"
+                                  class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2 text-xs text-white font-mono focus:border-emerald-500 focus:outline-none"
+                                  placeholder="e.g. workflow, document, account"
+                                  value={step.authzResourceType ?? "workflow"}
+                                  onInput={(e) => updateStep(index(), "authzResourceType", e.currentTarget.value)}
+                                />
+                              </div>
+                              <div>
+                                <label class="mb-1 block text-xs font-semibold text-[#8b8b9e]">
+                                  Resource ID
+                                </label>
+                                <input
+                                  type="text"
+                                  class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2 text-xs text-white font-mono focus:border-emerald-500 focus:outline-none"
+                                  placeholder="e.g. default or {{ form.resource_id }}"
+                                  value={step.authzResourceId ?? "default"}
+                                  onInput={(e) => updateStep(index(), "authzResourceId", e.currentTarget.value)}
+                                />
+                              </div>
+                            </div>
+
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                              <div>
+                                <label class="mb-1 block text-xs font-semibold text-[#8b8b9e]">
+                                  Resource Properties JSON <span class="text-[10px] text-[#5b5b6e]">(optional)</span>
+                                </label>
+                                <textarea
+                                  class="w-full h-20 rounded-lg border border-[#2a2a3a] bg-[#0a0a0f] p-2 text-xs font-mono text-cyan-300 focus:border-emerald-500 outline-none custom-scrollbar"
+                                  placeholder='{ "owner": "{{ $user.sub }}" }'
+                                  value={step.authzResourceProperties ?? "{}"}
+                                  onInput={(e) => updateStep(index(), "authzResourceProperties", e.currentTarget.value)}
+                                />
+                              </div>
+                              <div>
+                                <label class="mb-1 block text-xs font-semibold text-[#8b8b9e]">
+                                  Evaluation Context JSON <span class="text-[10px] text-[#5b5b6e]">(optional)</span>
+                                </label>
+                                <textarea
+                                  class="w-full h-20 rounded-lg border border-[#2a2a3a] bg-[#0a0a0f] p-2 text-xs font-mono text-purple-300 focus:border-emerald-500 outline-none custom-scrollbar"
+                                  placeholder='{ "department": "{{ $user.userdata.namespace }}" }'
+                                  value={step.authzContext ?? "{}"}
+                                  onInput={(e) => updateStep(index(), "authzContext", e.currentTarget.value)}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </Show>
                   
                   {/* Visualization Data Mapping */}
                   <Show when={step.type === "table" || step.type === "chart"}>
@@ -4316,7 +4807,7 @@ export default function WorkflowBuilder() {
                                   </Show>
                                 </div>
                                 
-                                <Show when={!step.type || step.type === "grpc" || step.type === "rest" || step.type === "database" || step.type === "transform" || step.type === "text_transform" || step.type === "s3"}>
+                                <Show when={!step.type || step.type === "grpc" || step.type === "rest" || step.type === "database" || step.type === "transform" || step.type === "text_transform" || step.type === "s3" || step.type === "authz"}>
                                   <div class="flex p-0.5 bg-[#12121a] border border-[#2a2a3a] rounded-lg shadow-sm">
                                     <button
                                       type="button"
@@ -4347,7 +4838,7 @@ export default function WorkflowBuilder() {
                               </div>
                               
                               <div class="flex-1 flex flex-col justify-start overflow-hidden">
-                                <Show when={!step.type || step.type === "grpc" || step.type === "rest" || step.type === "database" || step.type === "transform" || step.type === "text_transform" || step.type === "s3"}>
+                                <Show when={!step.type || step.type === "grpc" || step.type === "rest" || step.type === "database" || step.type === "transform" || step.type === "text_transform" || step.type === "s3" || step.type === "authz"}>
                                   <Show when={resultTab() === "payload"}>
                                     <pre class="text-[11px] text-blue-300 font-mono overflow-auto max-h-[140px] bg-[#0a0a0f] p-2.5 rounded-lg border border-[#2a2a3a]/40 custom-scrollbar whitespace-pre-wrap break-all flex-1">
                                       {typeof log()!.request === "string" ? log()!.request : JSON.stringify(log()!.request, null, 2)}

@@ -1,4 +1,4 @@
-import { onMount, onCleanup, For, Show, JSX, createEffect } from "solid-js";
+import { onCleanup, For, Show, JSX, createEffect } from "solid-js";
 import { isServer } from "solid-js/web";
 import type { GridStack as GridStackType } from "gridstack";
 
@@ -37,11 +37,14 @@ export interface DashboardGridProps {
 export default function DashboardGrid(props: DashboardGridProps) {
   let containerRef!: HTMLDivElement;
   let gridInstance: any = null;
+  let initTimer: ReturnType<typeof setTimeout> | undefined;
+  let initVersion = 0;
 
-  const initGrid = async () => {
+  const initGrid = async (version: number) => {
     if (isServer || !containerRef) return;
     const { GridStack } = await import("gridstack");
-    if (!containerRef) return;
+    // Props may change while GridStack is loading. Ignore stale initializations.
+    if (!containerRef || version !== initVersion) return;
     if (gridInstance) {
       try {
         gridInstance.destroy(false);
@@ -97,23 +100,27 @@ export default function DashboardGrid(props: DashboardGridProps) {
     }
   };
 
-  onMount(() => {
-    initGrid();
-  });
-
-  // Reinitialize if static mode changes
+  // Initialize once per dashboard/layout mode, after Solid has updated the grid items.
   createEffect(() => {
     const _static = props.isStatic;
     const _dashId = props.dashboardId;
-    if (!isServer && containerRef) {
-      // Small timeout to allow Solid's DOM reconciliation before GridStack indexes items
-      setTimeout(() => {
-        initGrid();
-      }, 20);
-    }
+    if (isServer || !containerRef) return;
+
+    const version = ++initVersion;
+    if (initTimer) clearTimeout(initTimer);
+    // Small timeout to allow Solid's DOM reconciliation before GridStack indexes items.
+    initTimer = setTimeout(() => {
+      initTimer = undefined;
+      void initGrid(version);
+    }, 20);
   });
 
   onCleanup(() => {
+    ++initVersion;
+    if (initTimer) {
+      clearTimeout(initTimer);
+      initTimer = undefined;
+    }
     if (gridInstance) {
       try {
         gridInstance.destroy(false);

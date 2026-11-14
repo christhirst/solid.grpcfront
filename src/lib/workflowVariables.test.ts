@@ -463,6 +463,70 @@ describe("Literal Variable Exclusion & Pass-Through", () => {
   });
 });
 
+describe("$user runtime variables and authz step detection", () => {
+  it("categorizes {{ $user }} and {{ $user.* }} tokens as 'up' and excludes them from required dashboard form inputs", () => {
+    const tokens = parseBracketTokens(
+      "sub={{ $user.sub }} claims={{ $user.oidc.claims }} userdata={{ $user.userdata }} groups={{ $user.userdata.groups }} root={{ $user }} form={{ target_id }}"
+    );
+    const userSub = tokens.find((t) => t.name === "$user.sub");
+    const userClaims = tokens.find((t) => t.name === "$user.oidc.claims");
+    const userData = tokens.find((t) => t.name === "$user.userdata");
+    const userGroups = tokens.find((t) => t.name === "$user.userdata.groups");
+    const userRoot = tokens.find((t) => t.name === "$user");
+    const targetId = tokens.find((t) => t.name === "target_id");
+
+    expect(userSub?.direction).toBe("up");
+    expect(userClaims?.direction).toBe("up");
+    expect(userData?.direction).toBe("up");
+    expect(userGroups?.direction).toBe("up");
+    expect(userRoot?.direction).toBe("up");
+    expect(targetId?.direction).toBe("down");
+
+    const workflow = {
+      steps: [
+        {
+          id: "s_authz",
+          type: "authz",
+          authzSubjectId: "{{ $user.sub }}",
+          authzSubjectProperties: "{{ $user.oidc.claims }}",
+          authzResourceId: "{{ target_id }}",
+          authzContext: '{"userdata": {{ $user.userdata }}}',
+        },
+      ],
+    };
+
+    const formVars = extractFormVariables(workflow);
+    expect(formVars).toEqual(["target_id"]);
+  });
+
+  it("detectStepVariables scans all authz step fields", () => {
+    const step: WorkflowStep = {
+      id: "step_authz_1",
+      type: "authz",
+      authzSpaceId: "{{ space_name }}",
+      authzSubjectType: "user",
+      authzSubjectId: "{{ $user.sub }}",
+      authzSubjectProperties: "{{ $user.oidc.claims }}",
+      authzActionName: "{{ action_verb }}",
+      authzResourceType: "document",
+      authzResourceId: "{{ doc_id }}",
+      authzResourceProperties: '{"owner": "{{ doc_owner }}"}',
+      authzContext: '{"userdata": {{ $user.userdata }}}',
+    };
+
+    const detected = detectStepVariables(step);
+    const names = detected.map((v) => v.name);
+    expect(names).toContain("space_name");
+    expect(names).toContain("$user.sub");
+    expect(names).toContain("$user.oidc.claims");
+    expect(names).toContain("action_verb");
+    expect(names).toContain("doc_id");
+    expect(names).toContain("doc_owner");
+    expect(names).toContain("$user.userdata");
+  });
+});
+
+
 
 
 

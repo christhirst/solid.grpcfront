@@ -52,7 +52,7 @@ export interface StepVariable {
 
 export interface WorkflowStep {
   id: string;
-  type?: "grpc" | "table" | "chart" | "database" | "rest" | "grpc_stream" | "rest_stream" | "surreal_live" | "infographic" | "transform" | "text_transform" | "s3" | "oauth_token";
+  type?: "grpc" | "table" | "chart" | "database" | "rest" | "grpc_stream" | "rest_stream" | "surreal_live" | "infographic" | "transform" | "text_transform" | "s3" | "oauth_token" | "authz";
   category?: StepCategory;
   /** Data flow direction: "read" fetches data FROM the source, "write" sends data TO the source. */
   direction?: "read" | "write";
@@ -117,4 +117,18 @@ export interface WorkflowStep {
   s3ForcePathStyle?: boolean;
   s3MaxKeys?: number;
   s3OutputFormat?: "uri" | "key" | "filename";
+  // Authorization (AuthZEN / RRM / Cerbos) PDP step fields
+  authzProvider?: "authzen_grpc" | "authzen_rest" | "rrm_grpc" | "cerbos_rest";
+  authzOnDeny?: "enforce" | "continue";
+  authzSpaceId?: string;
+  authzSubjectType?: string;
+  authzSubjectId?: string;
+  authzSubjectProperties?: string;
+  authzActionName?: string;
+  authzActionProperties?: string;
+  authzResourceType?: string;
+  authzResourceId?: string;
+  authzResourceProperties?: string;
+  authzContext?: string;
+  authzCustomPayload?: boolean;
 }

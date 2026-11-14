@@ -1303,3 +1303,96 @@ export function decodeJwtPayloadSafe(jwtString?: string): Record<string, any> | 
     return null;
   }
 }
+
+export interface WorkflowUserContext {
+  sub: string;
+  id: string;
+  username: string;
+  name: string;
+  email: string;
+  image?: string;
+  authenticated: boolean;
+  role: PlatformRole;
+  idpRole: PlatformRole;
+  platformRole: PlatformRole;
+  groups: string[];
+  activeGrants: string[];
+  namespace: string;
+  oidc: {
+    claims: Record<string, any>;
+    header: Record<string, any>;
+    groups: string[];
+  };
+  userdata: {
+    sub: string;
+    username: string;
+    name: string;
+    email: string;
+    image?: string;
+    namespace: string;
+    namespaces: string[];
+    idpRole: PlatformRole;
+    platformRole: PlatformRole;
+    simulatedRole: PlatformRole | null;
+    isAdmin: boolean;
+    hasAdminClaim: boolean;
+    isSimulating: boolean;
+    groups: string[];
+    allGroups: string[];
+    activeGrants: string[];
+    allGrants: string[];
+    grants: EffectiveGroupGrant[];
+    disabledGroups: string[];
+    disableOwnerBypass: boolean;
+    capabilities: PlatformCapabilities;
+  };
+}
+
+/**
+ * Create a default anonymous WorkflowUserContext for unauthenticated or cron-triggered runs.
+ */
+export function createDefaultWorkflowUserContext(): WorkflowUserContext {
+  const defaultRole: PlatformRole = "viewer";
+  const capabilities = getPlatformCapabilities(defaultRole);
+  return {
+    sub: "anonymous",
+    id: "anonymous",
+    username: "anonymous",
+    name: "Anonymous",
+    email: "",
+    authenticated: false,
+    role: defaultRole,
+    idpRole: defaultRole,
+    platformRole: defaultRole,
+    groups: [],
+    activeGrants: [],
+    namespace: "",
+    oidc: {
+      claims: { sub: "anonymous" },
+      header: {},
+      groups: [],
+    },
+    userdata: {
+      sub: "anonymous",
+      username: "anonymous",
+      name: "Anonymous",
+      email: "",
+      namespace: "",
+      namespaces: [],
+      idpRole: defaultRole,
+      platformRole: defaultRole,
+      simulatedRole: null,
+      isAdmin: false,
+      hasAdminClaim: false,
+      isSimulating: false,
+      groups: [],
+      allGroups: [],
+      activeGrants: [],
+      allGrants: [],
+      grants: [],
+      disabledGroups: [],
+      disableOwnerBypass: false,
+      capabilities,
+    },
+  };
+}

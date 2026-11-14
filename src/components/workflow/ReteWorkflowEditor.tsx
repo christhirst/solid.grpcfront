@@ -153,6 +153,16 @@ export function getStepDisplayInfo(type: string, category?: StepCategory) {
         text: cat === "transform" ? "text-purple-400" : "text-amber-400",
         bg: cat === "transform" ? "bg-purple-500/10" : "bg-amber-500/10"
       };
+    case "authz":
+      return {
+        category: cat,
+        label: cat === "transform" ? "Authorization Gate (PDP)" : "Authorization Check (PDP)",
+        icon: "🛡️",
+        color: cat === "transform" ? "purple" : "emerald",
+        border: cat === "transform" ? "border-purple-500" : "border-emerald-500",
+        text: cat === "transform" ? "text-purple-400" : "text-emerald-400",
+        bg: cat === "transform" ? "bg-purple-500/10" : "bg-emerald-500/10"
+      };
     case "grpc_stream":
     case "rest_stream":
     case "surreal_live":
@@ -537,6 +547,31 @@ export default function ReteWorkflowEditor(props: ReteWorkflowEditorProps) {
       textPipelineMode: "pipeline",
       textPipelineCommand: `sed 's/\\\\n/\\n/g; s/["[],]//g' | grep -v '^[[:space:]]*$'`,
       textOutputFormat: "string",
+      ...(type === "authz"
+        ? {
+            authzProvider: "authzen_grpc" as const,
+            authzOnDeny: "enforce" as const,
+            authzSpaceId: "default",
+            authzSubjectType: "user",
+            authzSubjectId: "{{ $user.username }}",
+            authzSubjectProperties: JSON.stringify(
+              {
+                oidc_claims: "{{ $user.oidc.claims }}",
+                userdata: "{{ $user.userdata }}",
+                roles: "{{ $user.userdata.groups }}",
+                platform_role: "{{ $user.userdata.platformRole }}",
+              },
+              null,
+              2
+            ),
+            authzActionName: "access",
+            authzActionProperties: "{}",
+            authzResourceType: "workflow",
+            authzResourceId: "default",
+            authzResourceProperties: "{}",
+            authzContext: "{}",
+          }
+        : {}),
     };
 
     const node = new StepNode(newStep);
@@ -731,6 +766,12 @@ export default function ReteWorkflowEditor(props: ReteWorkflowEditorProps) {
                   >
                     <span>🪣</span> <span>S3 Storage (Filenames / URIs)</span>
                   </button>
+                  <button
+                    onClick={() => handleAddNode("authz", "source")}
+                    class="w-full text-left px-3 py-1.5 hover:bg-[#222234] text-xs text-emerald-300 rounded-lg flex items-center gap-2"
+                  >
+                    <span>🛡️</span> <span>Authorization (AuthZEN / Cerbos)</span>
+                  </button>
                 </div>
 
                 {/* 2. TRANSFORMS & SERVICE CALLS */}
@@ -774,6 +815,12 @@ export default function ReteWorkflowEditor(props: ReteWorkflowEditorProps) {
                     class="w-full text-left px-3 py-1.5 hover:bg-[#222234] text-xs text-amber-300 rounded-lg flex items-center gap-2"
                   >
                     <span>🪣</span> <span>S3 File Selector (Transform)</span>
+                  </button>
+                  <button
+                    onClick={() => handleAddNode("authz", "transform")}
+                    class="w-full text-left px-3 py-1.5 hover:bg-[#222234] text-xs text-emerald-300 rounded-lg flex items-center gap-2"
+                  >
+                    <span>🛡️</span> <span>Authorization Gate (AuthZEN / Cerbos)</span>
                   </button>
                 </div>
 

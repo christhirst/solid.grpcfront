@@ -147,6 +147,18 @@ export function generateSkeleton(
       case "bytes":
         value = "";
         break;
+      case "google.protobuf.Struct":
+      case ".google.protobuf.Struct":
+        value = {};
+        break;
+      case "google.protobuf.ListValue":
+      case ".google.protobuf.ListValue":
+        value = [];
+        break;
+      case "google.protobuf.Value":
+      case ".google.protobuf.Value":
+        value = null;
+        break;
       default:
         // Nested message type — recurse (but guard against recursion)
         if (messageTypes[field.type]) {

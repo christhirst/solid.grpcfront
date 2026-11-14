@@ -1,5 +1,6 @@
 import { RecordId } from "surrealdb";
 import defaultData from "./defaultData.json";
+import { AUTHZEN_PROTO_CONTENT } from "~/lib/authzenProto";
 
 /**
  * Ensures that if SurrealDB is empty (e.g. fresh in-memory or newly created database),
@@ -7,6 +8,28 @@ import defaultData from "./defaultData.json";
  */
 export async function bootstrapDefaultData(db: any): Promise<void> {
   try {
+    // Always ensure built-in OpenID AuthZEN 1.0 proto schema is present in proto_file registry
+    try {
+      const authzenProtoId = new RecordId("proto_file", "authzen");
+      const existingProto = await db.select(authzenProtoId).catch(() => null);
+      const protoRecord = Array.isArray(existingProto) ? existingProto[0] : existingProto;
+      if (!protoRecord) {
+        const now = new Date().toISOString();
+        await db.query("UPSERT $id CONTENT $data;", {
+          id: authzenProtoId,
+          data: {
+            name: "authzen.proto",
+            content: AUTHZEN_PROTO_CONTENT,
+            owner: "anonymous",
+            visibility: "public",
+            tags: ["public", "authzen"],
+            created_at: now,
+            updated_at: now,
+          },
+        });
+      }
+    } catch {}
+
     const wfRes = await db.query("SELECT count() FROM workflow;");
     const wfCount = Array.isArray(wfRes) && wfRes[0] && wfRes[0][0] ? wfRes[0][0].count : 0;
 

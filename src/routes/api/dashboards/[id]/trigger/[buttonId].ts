@@ -13,6 +13,7 @@ import {
   allowedWorkflowIds,
 } from "~/lib/dashboard/triggerHelpers";
 import { readJsonBody } from "~/lib/requestUtils";
+import { buildWorkflowUserContext } from "~/lib/auth";
 
 function jsonResponse(payload: { success: boolean; error?: string; runId?: string }, status = 200): Response {
   return new Response(JSON.stringify(payload), {
@@ -93,7 +94,8 @@ export async function POST(event: APIEvent) {
   }
 
   const runId = `run:${uuidv4()}`;
-  runWorkflowBackground(workflow, runId, { form: formPayload, dashboard_form: formPayload }).catch((err) => {
+  const $user = await buildWorkflowUserContext(event.request, db);
+  runWorkflowBackground(workflow, runId, { form: formPayload, dashboard_form: formPayload, $user }).catch((err) => {
     console.error(`Failed to run background workflow ${(workflow as any).id} for run ${runId}`, err);
   });
 

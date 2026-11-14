@@ -27,7 +27,9 @@ export function parseBracketTokens(text?: string): StepVariable[] {
       raw.startsWith("connections.") ||
       raw.startsWith("connection.") ||
       raw === "access_token" ||
-      raw === "token";
+      raw === "token" ||
+      raw === "$user" ||
+      raw.startsWith("$user.");
     const isCalculation = /\b(SELECT|FROM|WHERE|count\(|LET|RETURN|IF)\b/i.test(raw) || /[><=+\-*/]/.test(raw);
     const isExplicitForm = raw.startsWith("form.") || raw.startsWith("dashboard_form.");
     
@@ -148,6 +150,16 @@ export function detectStepVariables(step: any): StepVariable[] {
     step.s3Bucket,
     step.s3Prefix,
     step.s3Pattern,
+    step.authzSpaceId,
+    step.authzSubjectType,
+    step.authzSubjectId,
+    step.authzSubjectProperties,
+    step.authzActionName,
+    step.authzActionProperties,
+    step.authzResourceType,
+    step.authzResourceId,
+    step.authzResourceProperties,
+    step.authzContext,
   ].filter(Boolean) as string[];
 
   const detectedTokens: StepVariable[] = [];

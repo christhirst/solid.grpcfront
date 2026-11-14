@@ -4,13 +4,16 @@ import { authOpts } from "~/routes/api/auth/[...solidauth]";
 import { createDynamicRequest } from "~/lib/authUrl";
 import {
   buildAccessContext,
+  createDefaultWorkflowUserContext,
   extractPlatformRoleFromClaims,
   formatGroupClaim,
   normalizeGroupName,
   normalizePlatformRole,
   type EffectiveAccessContext,
   type PlatformRole,
+  type WorkflowUserContext,
 } from "~/lib/groupAuth";
+export { createDefaultWorkflowUserContext, type WorkflowUserContext };
 
 export interface AuthUser {
   sub: string;
@@ -262,4 +265,114 @@ async function resolveEffectiveAccessContextInternal(
     disabledGroups,
     disableOwnerBypass,
   });
+}
+
+/**
+ * Build the complete `$user` runtime context (`{{ $user.* }}`) for workflow & dashboard executions.
+ * Includes both `oidc.claims` (JWT claims from OIDC login) and `userdata` (SolidFlow user profile, groups, grants, roles).
+ */
+export async function buildWorkflowUserContext(
+  request: Request,
+  db?: any
+): Promise<WorkflowUserContext> {
+  try {
+    const [user, ctx] = await Promise.all([
+      getAuthUser(request),
+      getEffectiveAccessContext(request, db),
+    ]);
+
+    const sub = user?.sub || ctx.sub || "anonymous";
+    if (!sub || sub === "anonymous") {
+      return createDefaultWorkflowUserContext();
+    }
+
+    let profileRecord: any = null;
+    if (db) {
+      try {
+        const res = await db.select(new RecordId("user_profile", sub));
+        profileRecord = Array.isArray(res) ? res[0] : res;
+      } catch {}
+    }
+
+    const username = user?.username || profileRecord?.username || ctx.username || user?.name || sub;
+    const name = user?.name || profileRecord?.name || username;
+    const email = user?.email || profileRecord?.email || ctx.email || "";
+    const image = user?.image || profileRecord?.image || undefined;
+    const namespace = typeof profileRecord?.namespace === "string" ? profileRecord.namespace : "";
+
+    const rawClaims: Record<string, any> = {
+      ...(profileRecord?.lastJwtClaims && typeof profileRecord.lastJwtClaims === "object"
+        ? profileRecord.lastJwtClaims
+        : {}),
+      ...(user?.jwtClaims && typeof user.jwtClaims === "object" ? user.jwtClaims : {}),
+    };
+    if (!rawClaims.sub) rawClaims.sub = sub;
+    if (!rawClaims.preferred_username && username) rawClaims.preferred_username = username;
+    if (!rawClaims.name && name) rawClaims.name = name;
+    if (!rawClaims.email && email) rawClaims.email = email;
+
+    const rawHeader: Record<string, any> = {
+      ...(profileRecord?.lastJwtHeader && typeof profileRecord.lastJwtHeader === "object"
+        ? profileRecord.lastJwtHeader
+        : {}),
+      ...(user?.jwtHeader && typeof user.jwtHeader === "object" ? user.jwtHeader : {}),
+    };
+
+    const activeGroups = ctx.activeGrants.map((g) => g.group);
+    const allGroups = ctx.allGrants.map((g) => g.group);
+    const activeGrantsRaw = ctx.activeGrants.map((g) => g.raw);
+    const allGrantsRaw = ctx.allGrants.map((g) => g.raw);
+    const namespaces = Array.from(new Set([namespace, ...activeGroups].filter(Boolean)));
+    const oidcGroups = Array.isArray(user?.idpGroups)
+      ? user.idpGroups
+      : Array.isArray(rawClaims.groups)
+        ? rawClaims.groups.map(String)
+        : [];
+
+    return {
+      sub,
+      id: sub,
+      username,
+      name,
+      email,
+      image,
+      authenticated: true,
+      role: ctx.platformRole,
+      idpRole: ctx.idpRole,
+      platformRole: ctx.platformRole,
+      groups: activeGroups,
+      activeGrants: activeGrantsRaw,
+      namespace,
+      oidc: {
+        claims: rawClaims,
+        header: rawHeader,
+        groups: oidcGroups,
+      },
+      userdata: {
+        sub,
+        username,
+        name,
+        email,
+        image,
+        namespace,
+        namespaces,
+        idpRole: ctx.idpRole,
+        platformRole: ctx.platformRole,
+        simulatedRole: ctx.simulatedRole,
+        isAdmin: ctx.isAdmin,
+        hasAdminClaim: ctx.hasAdminClaim,
+        isSimulating: ctx.isSimulating,
+        groups: activeGroups,
+        allGroups,
+        activeGrants: activeGrantsRaw,
+        allGrants: allGrantsRaw,
+        grants: ctx.activeGrants,
+        disabledGroups: ctx.disabledGroups,
+        disableOwnerBypass: ctx.disableOwnerBypass,
+        capabilities: ctx.capabilities,
+      },
+    };
+  } catch {
+    return createDefaultWorkflowUserContext();
+  }
 }
