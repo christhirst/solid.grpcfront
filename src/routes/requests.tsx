@@ -1,4 +1,5 @@
-import { createSignal, createEffect, Show, For, Index, onMount, createResource } from "solid-js";
+import { createSignal, createEffect, Show, For, Index, onMount } from "solid-js";
+import { createClientResource } from "~/lib/clientResource";
 import { isServer } from "solid-js/web";
 import { parseProtoContent, generateSkeleton, type ParsedProto, type ProtoMethod } from "~/lib/protoParser";
 import { Line } from "solid-chartjs";
@@ -277,7 +278,7 @@ export default function RequestsClient() {
   });
 
   // Fetch saved protos
-  const [savedProtos] = createResource(
+  const [savedProtos] = createClientResource(
     () => (isServer ? false : true),
     async (shouldFetch) => {
       if (!shouldFetch) return [];

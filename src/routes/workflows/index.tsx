@@ -1,6 +1,7 @@
-import { createSignal, createResource, createMemo, onMount, onCleanup, For, Show } from "solid-js";
+import { createSignal, createMemo, onMount, onCleanup, For, Show } from "solid-js";
 import { isServer } from "solid-js/web";
 import { A } from "@solidjs/router";
+import { createClientResource } from "~/lib/clientResource";
 
 import { checkWorkflowConfiguredInDashboards, getWorkflowDashboardUsage } from "~/lib/workflowVariableChecker";
 import { GroupTagPicker } from "~/components/GroupTagPicker";
@@ -15,7 +16,7 @@ export default function Workflows() {
   const [noAccess, setNoAccess] = createSignal<string | null>(null);
   let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 
-  const [dashboards, { refetch: refetchDashboards }] = createResource(
+  const [dashboards, { refetch: refetchDashboards }] = createClientResource(
     () => (isServer ? false : true),
     async (shouldFetch) => {
       if (!shouldFetch) return [];
@@ -56,7 +57,7 @@ export default function Workflows() {
     }
   };
 
-  const [workflows, { refetch, mutate }] = createResource(
+  const [workflows, { refetch, mutate }] = createClientResource(
     () => (isServer ? false : searchQuery()),
     fetchWorkflows
   );

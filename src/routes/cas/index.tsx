@@ -1,5 +1,6 @@
-import { createSignal, createResource, onMount, onCleanup, For, Show } from "solid-js";
+import { createSignal, onMount, onCleanup, For, Show } from "solid-js";
 import { isServer } from "solid-js/web";
+import { createClientResource } from "~/lib/clientResource";
 import { ResourceTagEditor } from "~/components/ResourceTagEditor";
 
 export interface CaCert {
@@ -29,7 +30,7 @@ const fetchCerts = async (shouldFetch?: boolean) => {
 };
 
 export default function CaCerts() {
-  const [certs, { refetch }] = createResource(() => (isServer ? false : true), fetchCerts);
+  const [certs, { refetch }] = createClientResource(() => (isServer ? false : true), fetchCerts);
   const [editing, setEditing] = createSignal<Partial<CaCert> | null>(null);
   const [isSaving, setIsSaving] = createSignal(false);
   const [errorMsg, setErrorMsg] = createSignal<string | null>(null);

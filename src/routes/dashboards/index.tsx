@@ -1,4 +1,5 @@
-import { createMemo, createResource, createSignal, onMount, onCleanup, For, Show, Suspense } from "solid-js";
+import { createMemo, createSignal, onMount, onCleanup, For, Show, Suspense } from "solid-js";
+import { createClientResource } from "~/lib/clientResource";
 import { useNavigate } from "@solidjs/router";
 import { isServer } from "solid-js/web";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "~/components/ui/card";
@@ -29,7 +30,7 @@ export default function Dashboards() {
   const [error, setError] = createSignal("");
   let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 
-  const [dashboards, { refetch, mutate }] = createResource<DashboardSummary[], string | false>(
+  const [dashboards, { refetch, mutate }] = createClientResource<DashboardSummary[], string | false>(
     () => (isServer ? false : query()),
     async (q) => {
       if (q === false) return [];

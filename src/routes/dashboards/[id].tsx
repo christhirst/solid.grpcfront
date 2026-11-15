@@ -1,4 +1,5 @@
-import { createSignal, createResource, For, Show, onMount, onCleanup, createMemo, createEffect, Index, lazy, Suspense } from "solid-js";
+import { createSignal, For, Show, onMount, onCleanup, createMemo, createEffect, Index, lazy, Suspense } from "solid-js";
+import { createClientResource } from "~/lib/clientResource";
 import { createStore, reconcile } from "solid-js/store";
 import { useParams, useNavigate, A } from "@solidjs/router";
 import { isServer } from "solid-js/web";
@@ -112,7 +113,7 @@ export default function DashboardBuilder() {
   };
 
   // Fetch all workflows for dropdowns
-  const [workflows, { refetch: refetchWorkflows }] = createResource(
+  const [workflows, { refetch: refetchWorkflows }] = createClientResource(
     () => (isServer ? false : true),
     async (shouldFetch) => {
       if (!shouldFetch) return [];
@@ -123,7 +124,8 @@ export default function DashboardBuilder() {
       } catch {
         return [];
       }
-    }
+    },
+    { initialValue: [] }
   );
 
   const fetchDashboard = async () => {

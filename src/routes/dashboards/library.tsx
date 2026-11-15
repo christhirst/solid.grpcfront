@@ -1,4 +1,5 @@
-import { createSignal, createMemo, createResource, createEffect, on, For, Show, Suspense, onMount, onCleanup } from "solid-js";
+import { createSignal, createMemo, createEffect, on, For, Show, Suspense, onMount, onCleanup } from "solid-js";
+import { createClientResource } from "~/lib/clientResource";
 import { isServer } from "solid-js/web";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "~/components/ui/card";
 import { Badge } from "~/components/ui/badge";
@@ -24,7 +25,7 @@ export default function DashboardLibrary() {
   const [selectedGroupTags, setSelectedGroupTags] = createSignal<string[]>([]);
   const [selectedContentTags, setSelectedContentTags] = createSignal<string[]>([]);
 
-  const [dashboards, { refetch }] = createResource<DashboardSummary[], boolean>(
+  const [dashboards, { refetch }] = createClientResource<DashboardSummary[], boolean>(
     () => (isServer ? false : true),
     async (shouldFetch) => {
       if (!shouldFetch) return [];

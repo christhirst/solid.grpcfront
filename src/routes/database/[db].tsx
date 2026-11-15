@@ -1,4 +1,5 @@
-import { createSignal, createResource, Show, For } from "solid-js";
+import { createSignal, Show, For } from "solid-js";
+import { createClientResource } from "~/lib/clientResource";
 import { useParams, A } from "@solidjs/router";
 import { isServer } from "solid-js/web";
 import { createSolidTable, getCoreRowModel, flexRender } from "@tanstack/solid-table";
@@ -70,7 +71,7 @@ export default function DatabaseViewer() {
     }
   };
 
-  const [tables] = createResource(() => (isServer ? false : true), fetchTables);
+  const [tables] = createClientResource(() => (isServer ? false : true), fetchTables);
 
   const fetchRecords = async (table: string | false) => {
     if (isServer || !table) return [];
@@ -84,7 +85,7 @@ export default function DatabaseViewer() {
   };
 
   // We use createResource with a signal source so it refetches when selectedTable changes
-  const [records, { refetch: refetchRecords }] = createResource(
+  const [records, { refetch: refetchRecords }] = createClientResource(
     () => (isServer ? false : selectedTable()),
     fetchRecords
   );

@@ -1,4 +1,5 @@
-import { For, Show, createResource, onMount } from "solid-js";
+import { For, Show, onMount } from "solid-js";
+import { createClientResource } from "~/lib/clientResource";
 import { Badge } from "~/components/ui/badge";
 import { Card } from "~/components/ui/card";
 import PublicDashboardView, { loadWorkflowMap } from "~/components/dashboard/PublicDashboardView";
@@ -7,7 +8,7 @@ import { publicDashboardPath } from "~/lib/dashboard/publicUrl";
 
 /** Live, read-only render of a board's widgets (charts/tables evaluated like the public view). */
 export function BoardLive(props: { dash: DashboardSummary }) {
-  const [workflowMap] = createResource(
+  const [workflowMap] = createClientResource(
     () => props.dash.id,
     () => loadWorkflowMap(props.dash.buttons || [], dashboardId(props.dash.id))
   );

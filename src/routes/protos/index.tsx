@@ -1,5 +1,6 @@
-import { createSignal, createResource, onMount, onCleanup, For, Show } from "solid-js";
+import { createSignal, onMount, onCleanup, For, Show } from "solid-js";
 import { isServer } from "solid-js/web";
+import { createClientResource } from "~/lib/clientResource";
 import { ResourceTagEditor } from "~/components/ResourceTagEditor";
 
 export interface ProtoFile {
@@ -42,7 +43,7 @@ export default function Protos() {
     debounceTimer = setTimeout(() => setSearchQuery(value), 300);
   };
 
-  const [protos, { refetch }] = createResource(
+  const [protos, { refetch }] = createClientResource(
     () => (isServer ? false : searchQuery()),
     fetchProtos
   );

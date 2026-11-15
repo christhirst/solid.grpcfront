@@ -1,5 +1,6 @@
-import { createSignal, createResource, createMemo, onMount, onCleanup, For, Show } from "solid-js";
+import { createSignal, createMemo, onMount, onCleanup, For, Show } from "solid-js";
 import { isServer } from "solid-js/web";
+import { createClientResource } from "~/lib/clientResource";
 import { type ConnectionType, type AuthType, type SurrealAuthLevel } from "~/lib/connections";
 import { isOAuthProvider } from "~/lib/stepCategories";
 import { isVaultSecretRef } from "~/lib/vaultRef";
@@ -70,10 +71,10 @@ function getMethodStreamBadge(kind: string): { bg: string; text: string; border:
 }
 
 export default function Connections() {
-  const [connections, { refetch }] = createResource(() => (isServer ? false : true), fetchConnections);
-  const [cas, { refetch: refetchCas }] = createResource(() => (isServer ? false : true), fetchCas);
-  const [protos, { refetch: refetchProtos }] = createResource(() => (isServer ? false : true), fetchProtos);
-  const [vaultStatus, { refetch: refetchVault }] = createResource(() => (isServer ? false : true), fetchVaultStatus);
+  const [connections, { refetch }] = createClientResource(() => (isServer ? false : true), fetchConnections);
+  const [cas, { refetch: refetchCas }] = createClientResource(() => (isServer ? false : true), fetchCas);
+  const [protos, { refetch: refetchProtos }] = createClientResource(() => (isServer ? false : true), fetchProtos);
+  const [vaultStatus, { refetch: refetchVault }] = createClientResource(() => (isServer ? false : true), fetchVaultStatus);
 
   onMount(() => {
     refetch();
@@ -87,10 +88,8 @@ export default function Connections() {
       refetchVault();
     };
     window.addEventListener("user-groups-changed", reload);
-    window.addEventListener("focus", reload);
     onCleanup(() => {
       window.removeEventListener("user-groups-changed", reload);
-      window.removeEventListener("focus", reload);
     });
   });
 

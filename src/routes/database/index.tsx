@@ -1,5 +1,6 @@
-import { createSignal, createResource, onMount, onCleanup, For, Show } from "solid-js";
+import { createSignal, onMount, onCleanup, For, Show } from "solid-js";
 import { isServer } from "solid-js/web";
+import { createClientResource } from "~/lib/clientResource";
 import { ResourceTagEditor } from "~/components/ResourceTagEditor";
 
 interface DatabaseInfo {
@@ -41,7 +42,7 @@ export default function DatabaseOverview() {
     }
   };
 
-  const [dbInfo, { refetch }] = createResource(() => (isServer ? false : true), fetchDatabases);
+  const [dbInfo, { refetch }] = createClientResource(() => (isServer ? false : true), fetchDatabases);
   const databases = () => dbInfo()?.names || [];
   const getDbMeta = (dbName: string) => dbInfo()?.meta?.find((m) => m.name === dbName);
 

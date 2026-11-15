@@ -4,7 +4,8 @@ import GrpcMethodPicker, { type ReflectionResult } from "~/components/workflow/G
 import S3FilePicker from "~/components/workflow/S3FilePicker";
 
 const ReteWorkflowEditor = clientOnly(() => import("~/components/workflow/ReteWorkflowEditor"));
-import { createSignal, createEffect, onMount, onCleanup, For, Show, createResource, createMemo, Index, useTransition } from "solid-js";
+import { createSignal, createEffect, onMount, onCleanup, For, Show, createMemo, Index, useTransition } from "solid-js";
+import { createClientResource } from "~/lib/clientResource";
 import { extractFormVariables, checkWorkflowConfiguredInDashboards, detectStepVariables, type VariableConfigStatus } from "~/lib/workflowVariableChecker";
 import { collectFieldNames, type FieldInfo } from "~/lib/dashboard/chartSeries";
 import { executeTextTransform, type TextTransformOperation, type TextTransformOpType } from "~/lib/textProcessor";
@@ -685,7 +686,7 @@ export default function WorkflowBuilder() {
   };
   
   // Fetch dashboards for checking variable configuration status
-  const [dashboards, { refetch: refetchDashboards }] = createResource(
+  const [dashboards, { refetch: refetchDashboards }] = createClientResource(
     () => (isServer ? false : true),
     async (shouldFetch) => {
       if (!shouldFetch) return [];
@@ -701,7 +702,7 @@ export default function WorkflowBuilder() {
   );
 
   // Fetch saved CAs from Registry
-  const [savedCas, { refetch: refetchCas }] = createResource(
+  const [savedCas, { refetch: refetchCas }] = createClientResource(
     () => (isServer ? false : true),
     async (shouldFetch) => {
       if (!shouldFetch) return [];
@@ -717,7 +718,7 @@ export default function WorkflowBuilder() {
   );
 
   // Fetch saved protos from Registry
-  const [savedProtos, { refetch: refetchProtos }] = createResource(
+  const [savedProtos, { refetch: refetchProtos }] = createClientResource(
     () => (isServer ? false : true),
     async (shouldFetch) => {
       if (!shouldFetch) return [];
@@ -760,7 +761,7 @@ export default function WorkflowBuilder() {
   
   const [connectionId, setConnectionId] = createSignal<string>("");
   const [showSettings, setShowSettings] = createSignal(false);
-  const [connections, { refetch: refetchConnections }] = createResource(
+  const [connections, { refetch: refetchConnections }] = createClientResource(
     () => (isServer ? false : true),
     async (shouldFetch) => {
       if (!shouldFetch) return [];
@@ -959,7 +960,7 @@ export default function WorkflowBuilder() {
     return null;
   };
 
-  const [workflow, { refetch: refetchWorkflow }] = createResource(
+  const [workflow, { refetch: refetchWorkflow }] = createClientResource(
     () => (isServer ? false : params.id),
     fetchWorkflow
   );
