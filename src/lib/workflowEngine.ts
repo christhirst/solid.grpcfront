@@ -1173,16 +1173,20 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
         let targetDbAuthLevel = step.databaseAuthLevel || undefined;
         let targetDbTimeout: number | undefined = undefined;
 
+        let savedLiveConn: any = null;
         if (step.connectionId) {
           try {
-            const connDbId = step.connectionId.includes(":") ? step.connectionId.split(":")[1] : step.connectionId;
+            const connDbId = (step.connectionId || "").replace(/^connection:/, "").replace(/[⟨⟩]/g, "").trim();
             const connRecord = await db.select(new RecordId("connection", connDbId));
             const rawConn = Array.isArray(connRecord) ? connRecord[0] : connRecord;
             if (rawConn) {
               const conn = (await resolveObjectSecrets(normalizeConnection(rawConn) as any)) as any;
+              savedLiveConn = conn;
+              const isLegacySeedUserOverride =
+                targetDbUser === "ai" && conn.username && conn.username !== "ai";
               if (conn.url && !targetDbUrl) targetDbUrl = conn.url;
-              if (conn.username && !targetDbUser) targetDbUser = conn.username;
-              if (conn.password && !targetDbPass) targetDbPass = conn.password;
+              if (conn.username && (!targetDbUser || isLegacySeedUserOverride)) targetDbUser = conn.username;
+              if (conn.password && (!targetDbPass || isLegacySeedUserOverride)) targetDbPass = conn.password;
               if (conn.namespace && !targetDbNs) targetDbNs = conn.namespace;
               if (conn.database && !targetDbName) targetDbName = conn.database;
               if (conn.authLevel && !targetDbAuthLevel) targetDbAuthLevel = conn.authLevel;
@@ -1198,15 +1202,41 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
 
         try {
           const { getCustomDb } = await import("~/lib/db");
-          const ddb = await getCustomDb({
-            url: targetDbUrl,
-            user: targetDbUser,
-            pass: targetDbPass,
-            namespace: targetDbNs,
-            database: targetDbName,
-            authLevel: targetDbAuthLevel,
-            timeoutMs: targetDbTimeout,
-          });
+          let ddb;
+          try {
+            ddb = await getCustomDb({
+              url: targetDbUrl,
+              user: targetDbUser,
+              pass: targetDbPass,
+              namespace: targetDbNs,
+              database: targetDbName,
+              authLevel: targetDbAuthLevel,
+              timeoutMs: targetDbTimeout,
+            });
+          } catch (firstErr: any) {
+            if (
+              savedLiveConn &&
+              (targetDbUser !== savedLiveConn.username ||
+                targetDbPass !== savedLiveConn.password ||
+                targetDbNs !== savedLiveConn.namespace ||
+                targetDbName !== savedLiveConn.database)
+            ) {
+              console.warn(
+                `[WORKFLOW] Step ${step.id} DB auth failed with step overrides; retrying with saved connection '${savedLiveConn.name}' credentials...`,
+              );
+              ddb = await getCustomDb({
+                url: savedLiveConn.url || targetDbUrl,
+                user: savedLiveConn.username,
+                pass: savedLiveConn.password,
+                namespace: savedLiveConn.namespace || targetDbNs,
+                database: savedLiveConn.database || targetDbName,
+                authLevel: savedLiveConn.authLevel || targetDbAuthLevel,
+                timeoutMs: savedLiveConn.timeoutMs || targetDbTimeout,
+              });
+            } else {
+              throw firstErr;
+            }
+          }
 
           const liveUuid = await ddb.live(targetTable, (action: string, result: any) => {
             const eventData = { action, result, timestamp: new Date().toISOString() };
@@ -1573,16 +1603,20 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
           let targetDbAuthLevel = step.databaseAuthLevel || undefined;
           let targetDbTimeout: number | undefined = undefined;
 
+          let savedDbConn: any = null;
           if (step.connectionId) {
             try {
-              const connDbId = step.connectionId.includes(":") ? step.connectionId.split(":")[1] : step.connectionId;
+              const connDbId = (step.connectionId || "").replace(/^connection:/, "").replace(/[⟨⟩]/g, "").trim();
               const connRecord = await db.select(new RecordId("connection", connDbId));
               const rawConn = Array.isArray(connRecord) ? connRecord[0] : connRecord;
               if (rawConn) {
                 const conn = (await resolveObjectSecrets(normalizeConnection(rawConn) as any)) as any;
+                savedDbConn = conn;
+                const isLegacySeedUserOverride =
+                  targetDbUser === "ai" && conn.username && conn.username !== "ai";
                 if (conn.url && !targetDbUrl) targetDbUrl = conn.url;
-                if (conn.username && !targetDbUser) targetDbUser = conn.username;
-                if (conn.password && !targetDbPass) targetDbPass = conn.password;
+                if (conn.username && (!targetDbUser || isLegacySeedUserOverride)) targetDbUser = conn.username;
+                if (conn.password && (!targetDbPass || isLegacySeedUserOverride)) targetDbPass = conn.password;
                 if (conn.namespace && !targetDbNs) targetDbNs = conn.namespace;
                 if (conn.database && !targetDbName) targetDbName = conn.database;
                 if (conn.authLevel && !targetDbAuthLevel) targetDbAuthLevel = conn.authLevel;
@@ -1595,15 +1629,41 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
           
           // Import here to avoid circular dependency if one existed, but it's fine at top-level
           const { getCustomDb } = await import("~/lib/db");
-          const ddb = await getCustomDb({
-            url: targetDbUrl,
-            user: targetDbUser,
-            pass: targetDbPass,
-            namespace: targetDbNs,
-            database: targetDbName,
-            authLevel: targetDbAuthLevel,
-            timeoutMs: targetDbTimeout,
-          });
+          let ddb;
+          try {
+            ddb = await getCustomDb({
+              url: targetDbUrl,
+              user: targetDbUser,
+              pass: targetDbPass,
+              namespace: targetDbNs,
+              database: targetDbName,
+              authLevel: targetDbAuthLevel,
+              timeoutMs: targetDbTimeout,
+            });
+          } catch (firstErr: any) {
+            if (
+              savedDbConn &&
+              (targetDbUser !== savedDbConn.username ||
+                targetDbPass !== savedDbConn.password ||
+                targetDbNs !== savedDbConn.namespace ||
+                targetDbName !== savedDbConn.database)
+            ) {
+              console.warn(
+                `[WORKFLOW] Step ${step.id} DB auth failed with step overrides; retrying with saved connection '${savedDbConn.name}' credentials...`,
+              );
+              ddb = await getCustomDb({
+                url: savedDbConn.url || targetDbUrl,
+                user: savedDbConn.username,
+                pass: savedDbConn.password,
+                namespace: savedDbConn.namespace || targetDbNs,
+                database: savedDbConn.database || targetDbName,
+                authLevel: savedDbConn.authLevel || targetDbAuthLevel,
+                timeoutMs: savedDbConn.timeoutMs || targetDbTimeout,
+              });
+            } else {
+              throw firstErr;
+            }
+          }
           
           const surrealResult = await ddb.query(queryPayload);
           latencyMs = Date.now() - startTimeMs;

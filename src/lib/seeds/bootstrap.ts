@@ -37,6 +37,37 @@ export async function bootstrapDefaultData(db: any): Promise<void> {
     const dashCount = Array.isArray(dashRes) && dashRes[0] && dashRes[0][0] ? dashRes[0][0].count : 0;
 
     if (wfCount > 0 || dashCount > 0) {
+      // Heal legacy seeded incident_source_from_DB workflow if it still has stale step-level
+      // databaseUser="ai" / databasePass="T#0g#0sh#1G#1nza" overrides masking the saved connection
+      try {
+        const incidentWfId = new RecordId("workflow", "92a5d7b0-a4f7-47f5-ad6a-525c481f16b5");
+        const existingIncidentWf = await db.select(incidentWfId).catch(() => null);
+        const incidentWf = Array.isArray(existingIncidentWf) ? existingIncidentWf[0] : existingIncidentWf;
+        if (incidentWf && Array.isArray(incidentWf.steps)) {
+          let stepsChanged = false;
+          const cleanedSteps = incidentWf.steps.map((s: any) => {
+            if (
+              s &&
+              s.type === "database" &&
+              (s.connectionMode === "saved" || s.connectionId) &&
+              s.databaseUser === "ai" &&
+              (s.databasePass === "T#0g#0sh#1G#1nza" || !s.databasePass || String(s.databasePass).startsWith("bao:"))
+            ) {
+              stepsChanged = true;
+              const { databaseUser: _u, databasePass: _p, ...rest } = s;
+              return rest;
+            }
+            return s;
+          });
+          if (stepsChanged) {
+            await db.query("UPDATE $id MERGE { steps: $steps };", {
+              id: incidentWfId,
+              steps: cleanedSteps,
+            });
+            console.log("[DB] [BOOTSTRAP] Cleaned legacy step-level credential overrides on incident_source_from_DB.");
+          }
+        }
+      } catch {}
       return; // Already has data, no bootstrap needed
     }
 

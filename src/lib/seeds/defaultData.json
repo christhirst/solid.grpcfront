@@ -44,8 +44,6 @@
           "category": "source",
           "connectionId": "connection:47349d35-5b16-4acc-b527-e980b81339f4",
           "connectionMode": "saved",
-          "databasePass": "T#0g#0sh#1G#1nza",
-          "databaseUser": "ai",
           "headersTemplate": "{}",
           "id": "step_90dv9b5xb",
           "requestBodyTemplate": "SELECT \n    time::format(incident_date, \"%Y-%m\") AS month,\n    count() AS total\nFROM incident_source\nGROUP BY month\nORDER BY month ASC;",

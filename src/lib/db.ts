@@ -456,7 +456,9 @@ async function createConnectedClient(
             try {
                 await client.close();
             } catch {}
-            console.warn(`[DB] Auth attempt failed (${Object.keys(auth).join(", ")}): ${err?.message || err}`);
+            console.warn(
+                `[DB] Auth attempt failed (${Object.keys(auth).join(", ")}) [ns=${auth.namespace || "-"}, db=${auth.database || "-"}, user=${auth.username || "-"}]: ${err?.message || err}`,
+            );
         }
     }
     throw lastError;
@@ -672,7 +674,7 @@ export async function getCustomDb(opts: CustomDbOpts): Promise<TracedDb> {
             connectSpan.setAttribute("db.namespace", namespace);
 
             console.log(
-                `[DB] [CUSTOM] Connecting to custom database '${database}' at ${url} (scope: ${authLevel})...`,
+                `[DB] [CUSTOM] Connecting to custom database '${database}' (ns: '${namespace}', user: '${user}', scope: ${authLevel}) at ${url}...`,
             );
             try {
                 const s = await createConnectedClient(url, user, pass, namespace, database, connectTimeoutMs, authLevel);

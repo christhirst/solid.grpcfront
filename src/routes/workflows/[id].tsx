@@ -3758,6 +3758,8 @@ export default function WorkflowBuilder() {
                                 type="button"
                                 onClick={() => {
                                   updateStep(index(), "connectionMode", "saved");
+                                  updateStep(index(), "databaseUser", undefined);
+                                  updateStep(index(), "databasePass", undefined);
                                   if (!step.connectionId) {
                                     const first = (connections() || []).find((c: any) => c.type === "surrealdb");
                                     if (first) updateStep(index(), "connectionId", first.id);
@@ -3799,7 +3801,11 @@ export default function WorkflowBuilder() {
                                   <select
                                     class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-red-500 focus:outline-none"
                                     value={step.connectionId || ""}
-                                    onChange={(e) => updateStep(index(), "connectionId", e.currentTarget.value)}
+                                    onChange={(e) => {
+                                      updateStep(index(), "connectionId", e.currentTarget.value);
+                                      updateStep(index(), "databaseUser", undefined);
+                                      updateStep(index(), "databasePass", undefined);
+                                    }}
                                   >
                                     <option value="" disabled={Boolean(step.connectionId)}>Choose a saved connection...</option>
                                     <For each={(connections() || []).filter((c: any) => c.type === "surrealdb")}>
@@ -3842,13 +3848,66 @@ export default function WorkflowBuilder() {
                               </Show>
 
                               {/* Collapsible Advanced Overrides */}
-                              <details class="group rounded-xl border border-[#2a2a3a]/60 bg-[#12121c] p-3 text-xs">
+                              <details
+                                open={Boolean(
+                                  step.databaseUrl ||
+                                    step.databaseNs ||
+                                    step.databaseName ||
+                                    step.databaseAuthLevel ||
+                                    step.databaseUser ||
+                                    step.databasePass
+                                )}
+                                class="group rounded-xl border border-[#2a2a3a]/60 bg-[#12121c] p-3 text-xs"
+                              >
                                 <summary class="cursor-pointer font-medium text-[#8b8b9e] hover:text-white flex items-center justify-between list-none select-none">
                                   <span class="flex items-center gap-1.5">
                                     <span class="text-[10px] group-open:rotate-90 transition-transform">▶</span>
                                     <span>Advanced Connection Overrides (Optional)</span>
+                                    <Show
+                                      when={Boolean(
+                                        step.databaseUrl ||
+                                          step.databaseNs ||
+                                          step.databaseName ||
+                                          step.databaseAuthLevel ||
+                                          step.databaseUser ||
+                                          step.databasePass
+                                      )}
+                                    >
+                                      <span class="px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-500/30 text-[10px] text-amber-300 font-semibold">
+                                        ⚠️ Overrides Active
+                                      </span>
+                                    </Show>
                                   </span>
-                                  <span class="text-[10px] text-[#5b5b6e]">Leave blank to use connection defaults</span>
+                                  <span class="flex items-center gap-2">
+                                    <Show
+                                      when={Boolean(
+                                        step.databaseUrl ||
+                                          step.databaseNs ||
+                                          step.databaseName ||
+                                          step.databaseAuthLevel ||
+                                          step.databaseUser ||
+                                          step.databasePass
+                                      )}
+                                    >
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.preventDefault();
+                                          e.stopPropagation();
+                                          updateStep(index(), "databaseUrl", undefined);
+                                          updateStep(index(), "databaseNs", undefined);
+                                          updateStep(index(), "databaseName", undefined);
+                                          updateStep(index(), "databaseAuthLevel", undefined);
+                                          updateStep(index(), "databaseUser", undefined);
+                                          updateStep(index(), "databasePass", undefined);
+                                        }}
+                                        class="px-2 py-0.5 rounded bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 text-[10px] text-red-300 font-semibold"
+                                      >
+                                        Clear Overrides
+                                      </button>
+                                    </Show>
+                                    <span class="text-[10px] text-[#5b5b6e]">Leave blank to use connection defaults</span>
+                                  </span>
                                 </summary>
                                 <div class="mt-3 pt-3 border-t border-[#2a2a3a] space-y-3">
                                   <div class="grid grid-cols-3 gap-3">
