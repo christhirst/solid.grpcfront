@@ -1,9 +1,13 @@
 import jsonata from "jsonata";
 import get from "lodash.get";
 import { getDb } from "~/lib/db";
+import { installConsoleTimestamps } from "~/lib/logger";
 import { executeGrpcCall, executeGrpcStreamCall } from "~/lib/grpcExecutor";
 import { executeHttpStreamCall } from "~/lib/httpExecutor";
 import { parseProtoContent } from "~/lib/protoParser";
+import { parseListFieldValue } from "~/lib/dashboard/widgetTypes";
+
+installConsoleTimestamps();
 import { RecordId } from "surrealdb";
 import * as Sentry from "@sentry/node";
 import { EventEmitter } from "events";
@@ -272,6 +276,7 @@ export interface WorkflowRunLog {
   response?: any;
   error?: string;
   latencyMs?: number;
+  timestamp?: string;
 
   meta?: any;
 }
@@ -286,11 +291,62 @@ export interface WorkflowRun {
   logs: WorkflowRunLog[];
 }
 
+export function repairJsonTemplate(raw: string): string {
+  let text = (raw || "{}").replace(/(^|[^\\])\\\{\{/g, "$1\\\\{{");
+  // 1. Quote unquoted {{ ... }} placeholders used as JSON values or array elements
+  text = text.replace(
+    /(:\s*|^\s*\[\s*|,\s*)(\{\{\s*[^{}]+?\s*\}\})(?=\s*[,\]}])/gm,
+    '$1"$2"'
+  );
+  // 2. Auto-close a missing trailing quote at end-of-line inside an array/object before ] or } or next key
+  text = text.replace(
+    /^(\s*"[^"\r\n\\]*(?:\\.[^"\r\n\\]*)*)(?=\r?\n\s*(?:[\]}]|"[^"]*"\s*:))/gm,
+    '$1"'
+  );
+  // 3. Remove trailing commas before ] or }
+  text = text.replace(/,(\s*[\]}])/g, "$1");
+  // 4. Escape raw unescaped newlines/tabs inside JSON string literals
+  let out = "";
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+        out += ch;
+      } else if (ch === "\\") {
+        escaped = true;
+        out += ch;
+      } else if (ch === '"') {
+        inString = false;
+        out += ch;
+      } else if (ch === "\n") {
+        out += "\\n";
+      } else if (ch === "\r") {
+        // skip raw CR inside string literal
+      } else if (ch === "\t") {
+        out += "\\t";
+      } else {
+        out += ch;
+      }
+    } else {
+      if (ch === '"') inString = true;
+      out += ch;
+    }
+  }
+  return out;
+}
+
 export function safeJsonParseWithEscapes(raw: string): any {
   // If the raw text contains unescaped \{{ inside JSON (which is an invalid JSON escape sequence),
   // fix it to \\{{ so JSON.parse succeeds without error.
   const normalized = (raw || "{}").replace(/(^|[^\\])\\\{\{/g, "$1\\\\{{");
-  return JSON.parse(normalized);
+  try {
+    return JSON.parse(normalized);
+  } catch {
+    return JSON.parse(repairJsonTemplate(raw));
+  }
 }
 
 /**
@@ -347,11 +403,19 @@ export function interpolateTemplate(template: string, context: Record<string, an
   });
 }
 
+const REPEATED_LIST_KEYS = new Set([
+  "fallback_models",
+  "backup_models",
+  "omit_fields",
+  "file_names",
+  "record_ids",
+]);
+
 /**
  * Recursively evaluate templates in an object or string.
  * Resolves exact-match placeholders to raw data structures and mixed strings via interpolateTemplate.
  */
-function evaluatePayload(templateObj: any, context: Record<string, any>): any {
+export function evaluatePayload(templateObj: any, context: Record<string, any>): any {
   if (typeof templateObj === "string") {
     // Check if the entire string is an escaped template e.g. "\{{ steps.foo.response }}"
     const escapedMatch = templateObj.match(/^\\\{\{\s*([^{}]+?)\s*\}\}$/);
@@ -386,13 +450,43 @@ function evaluatePayload(templateObj: any, context: Record<string, any>): any {
   }
 
   if (Array.isArray(templateObj)) {
-    return templateObj.map((item) => evaluatePayload(item, context));
+    const result: any[] = [];
+    for (const item of templateObj) {
+      const evaluatedItem = evaluatePayload(item, context);
+      if (typeof item === "string" && /^\{\{\s*[^{}]+?\s*\}\}$/.test(item.trim())) {
+        if (Array.isArray(evaluatedItem)) {
+          result.push(...evaluatedItem);
+          continue;
+        }
+        if (
+          typeof evaluatedItem === "string" &&
+          evaluatedItem !== item &&
+          (/[\r\n,]/.test(evaluatedItem) || /^\[.*\]$/s.test(evaluatedItem.trim()))
+        ) {
+          result.push(...parseListFieldValue(evaluatedItem));
+          continue;
+        }
+      }
+      result.push(evaluatedItem);
+    }
+    return result;
   }
 
   if (templateObj !== null && typeof templateObj === "object") {
     const result: any = {};
     for (const key of Object.keys(templateObj)) {
-      result[key] = evaluatePayload(templateObj[key], context);
+      const evaluated = evaluatePayload(templateObj[key], context);
+      if (
+        REPEATED_LIST_KEYS.has(key) &&
+        typeof evaluated === "string" &&
+        typeof templateObj[key] === "string" &&
+        templateObj[key].includes("{{") &&
+        !/^\s*\{\{[^{}]+\}\}\s*$/.test(evaluated)
+      ) {
+        result[key] = parseListFieldValue(evaluated);
+      } else {
+        result[key] = evaluated;
+      }
     }
     return result;
   }
@@ -572,6 +666,9 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
     startTime: new Date().toISOString(),
     context: sanitizeContextForStorage(context),
     logs: [],
+  };
+  const pushStepLog = (entry: WorkflowRunLog) => {
+    Array.prototype.push.call(runRecord.logs, { timestamp: new Date().toISOString(), ...entry });
   };
 
   // Create initial run record in DB
@@ -957,6 +1054,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
         const chunks: any[] = [];
         let streamError: string | undefined = undefined;
         let stepProtoContent = step.protoContent || protoContent;
+        let connTimeoutMs: number | undefined;
 
         // Resolve gRPC connection details from saved connection
         if (step.connectionId) {
@@ -970,6 +1068,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
               if (conn.caId && !step.caId) step.caId = conn.caId;
               if (!step.caId) step.useTls = step.useTls ?? conn.useTls;
               step.acceptInvalidCert = step.acceptInvalidCert ?? conn.acceptInvalidCert;
+              if (conn.timeoutMs) connTimeoutMs = Number(conn.timeoutMs);
               if (!stepProtoContent && conn.protoId) {
                 try {
                   const protoDbId = (conn.protoId || "").replace(/^proto_file:/, "").replace(/[⟨⟩]/g, "").trim();
@@ -996,6 +1095,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
 
         const stepCaId = step.caId ?? defaultCaId;
         const stepCaCert = await resolveCaCert(stepCaId);
+        const grpcStreamTimeoutMs = Number((step as any).timeoutMs) > 0 ? Number((step as any).timeoutMs) : connTimeoutMs;
         await new Promise<void>((resolve) => {
           executeGrpcStreamCall(
             {
@@ -1008,6 +1108,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
               serviceName: step.serviceName || "",
               methodName: step.methodName || "",
               requestBody: requestPayload,
+              timeoutMs: grpcStreamTimeoutMs,
             },
 
             (chunk) => {
@@ -1032,7 +1133,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
           error: streamError,
         };
 
-        runRecord.logs.push({
+        pushStepLog({
           stepId: step.id,
           stepType: "grpc_stream",
           status: success ? "success" : "error",
@@ -1065,6 +1166,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
 
         const chunks: any[] = [];
         let streamError: string | undefined = undefined;
+        let connTimeoutMs: number | undefined;
 
         // Resolve HTTP connection details from saved connection BEFORE applying local URL fallback
         if (step.connectionId) {
@@ -1080,6 +1182,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
                 evaluatedUrl = conn.url;
               }
               if (conn.caId && !step.caId) step.caId = conn.caId;
+              if (conn.timeoutMs) connTimeoutMs = Number(conn.timeoutMs);
             }
           } catch (e) {
             console.error("[WORKFLOW] Could not resolve HTTP connection for stream step:", e);
@@ -1090,6 +1193,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
 
         const stepCaId = step.caId ?? defaultCaId;
         const stepCaCert = await resolveCaCert(stepCaId);
+        const restStreamTimeoutMs = Number((step as any).timeoutMs) > 0 ? Number((step as any).timeoutMs) : connTimeoutMs;
         const streamHeaders: Record<string, string> = {};
         if (stepAuthHeader) {
           streamHeaders["Authorization"] = stepAuthHeader;
@@ -1118,6 +1222,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
               tls: stepCaId
                 ? { ca: stepCaCert, rejectUnauthorized: stepCaId !== ACCEPT_ALL_CA }
                 : undefined,
+              timeoutMs: restStreamTimeoutMs,
             },
             (chunk) => {
               chunks.push(chunk);
@@ -1141,7 +1246,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
           error: streamError,
         };
 
-        runRecord.logs.push({
+        pushStepLog({
           stepId: step.id,
           stepType: "rest_stream",
           status: success ? "success" : "error",
@@ -1171,7 +1276,8 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
         let targetDbPass = interpolateTemplate(step.databasePass || "", context) || undefined;
         let targetDbNs = interpolateTemplate(step.databaseNs || "", context) || undefined;
         let targetDbAuthLevel = step.databaseAuthLevel || undefined;
-        let targetDbTimeout: number | undefined = undefined;
+        let targetDbTimeout: number | undefined =
+          Number((step as any).timeoutMs) > 0 ? Number((step as any).timeoutMs) : undefined;
 
         let savedLiveConn: any = null;
         if (step.connectionId) {
@@ -1190,7 +1296,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
               if (conn.namespace && !targetDbNs) targetDbNs = conn.namespace;
               if (conn.database && !targetDbName) targetDbName = conn.database;
               if (conn.authLevel && !targetDbAuthLevel) targetDbAuthLevel = conn.authLevel;
-              if (conn.timeoutMs) targetDbTimeout = conn.timeoutMs;
+              if (conn.timeoutMs && !targetDbTimeout) targetDbTimeout = Number(conn.timeoutMs);
             }
           } catch (e) {
             console.error("[WORKFLOW] Could not resolve SurrealDB connection for live step:", e);
@@ -1260,7 +1366,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
           error: streamError,
         };
 
-        runRecord.logs.push({
+        pushStepLog({
           stepId: step.id,
           stepType: "surreal_live",
           status: success ? "success" : "error",
@@ -1328,7 +1434,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
           error: transformError,
         };
 
-        runRecord.logs.push({
+        pushStepLog({
           stepId: step.id,
           stepType: "transform",
           status: success ? "success" : "error",
@@ -1430,7 +1536,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
           error: transformError,
         };
 
-        runRecord.logs.push({
+        pushStepLog({
           stepId: step.id,
           stepType: "text_transform",
           status: success ? "success" : "error",
@@ -1529,7 +1635,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
 
         context.steps[step.id] = { request: step.requestBodyTemplate, response: visData };
         
-        runRecord.logs.push({
+        pushStepLog({
           stepId: step.id,
           stepType: step.type,
           status: "success",
@@ -1601,7 +1707,8 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
           let targetDbPass = interpolateTemplate(step.databasePass || "", context) || undefined;
           let targetDbNs = interpolateTemplate(step.databaseNs || "", context) || undefined;
           let targetDbAuthLevel = step.databaseAuthLevel || undefined;
-          let targetDbTimeout: number | undefined = undefined;
+          let targetDbTimeout: number | undefined =
+            Number((step as any).timeoutMs) > 0 ? Number((step as any).timeoutMs) : undefined;
 
           let savedDbConn: any = null;
           if (step.connectionId) {
@@ -1620,7 +1727,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
                 if (conn.namespace && !targetDbNs) targetDbNs = conn.namespace;
                 if (conn.database && !targetDbName) targetDbName = conn.database;
                 if (conn.authLevel && !targetDbAuthLevel) targetDbAuthLevel = conn.authLevel;
-                if (conn.timeoutMs) targetDbTimeout = conn.timeoutMs;
+                if (conn.timeoutMs && !targetDbTimeout) targetDbTimeout = Number(conn.timeoutMs);
               }
             } catch (e) {
               console.error("[WORKFLOW] Could not resolve SurrealDB connection for database step:", e);
@@ -1693,7 +1800,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
           error: execResult.error,
           latencyMs,
         };
-        runRecord.logs.push(logRecord);
+        pushStepLog(logRecord);
 
         if (!execResult.success) {
           emitWorkflowEvent(runId, workflow.id || "", "step_failed", {
@@ -1852,7 +1959,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
           error: finalResult.error,
           latencyMs: finalResult.latencyMs,
         };
-        runRecord.logs.push(logRecord);
+        pushStepLog(logRecord);
 
         if (!finalResult.success) {
           emitWorkflowEvent(runId, workflow.id || "", "step_failed", {
@@ -1983,7 +2090,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
         }
 
         const maskedToken = tokenVal ? (tokenVal.length > 20 ? `${tokenVal.slice(0, 10)}...${tokenVal.slice(-6)}` : "***") : undefined;
-        runRecord.logs.push({
+        pushStepLog({
           stepId: step.id,
           stepType: "oauth_token" as any,
           status: finalResult.success ? "success" : "error",
@@ -2241,6 +2348,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
             methodName: effectiveMethod,
             requestBody: requestPayload,
             metadata,
+            timeoutMs: Number((step as any).timeoutMs) > 0 ? Number((step as any).timeoutMs) : connTimeoutMs,
           });
           execSuccess = grpcRes.success;
           rawResponse = grpcRes.data;
@@ -2331,7 +2439,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
             response: undefined,
             error: execError,
           };
-          runRecord.logs.push({
+          pushStepLog({
             stepId: step.id,
             stepType: "authz",
             status: "error",
@@ -2365,7 +2473,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
           error: denyErrorMsg,
         };
 
-        runRecord.logs.push({
+        pushStepLog({
           stepId: step.id,
           stepType: "authz",
           status: deniedAndEnforced ? "error" : "success",
@@ -2584,7 +2692,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
            error: execResult.error,
            latencyMs: execResult.latencyMs,
         };
-        runRecord.logs.push(logRecord);
+        pushStepLog(logRecord);
 
         if (!execResult.success) {
            emitWorkflowEvent(runId, workflow.id || "", "step_failed", {
@@ -2635,6 +2743,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
       // Evaluate headers if present
       let metadata: Record<string, string> = {};
       let stepProtoContent = step.protoContent || protoContent;
+      let connTimeoutMs: number | undefined;
       
       // Resolve gRPC connection details from saved connection
       if (step.connectionId) {
@@ -2648,6 +2757,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
             if (conn.caId && !step.caId) step.caId = conn.caId;
             if (!step.caId) step.useTls = step.useTls ?? conn.useTls;
             step.acceptInvalidCert = step.acceptInvalidCert ?? conn.acceptInvalidCert;
+            if (conn.timeoutMs) connTimeoutMs = Number(conn.timeoutMs);
             if (!stepProtoContent && conn.protoId) {
               try {
                 const protoDbId = (conn.protoId || "").replace(/^proto_file:/, "").replace(/[⟨⟩]/g, "").trim();
@@ -2717,6 +2827,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
         methodName: step.methodName || "",
         requestBody: requestPayload,
         metadata,
+        timeoutMs: Number((step as any).timeoutMs) > 0 ? Number((step as any).timeoutMs) : connTimeoutMs,
       });
 
 
@@ -2737,7 +2848,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
         error: execResult.error,
         latencyMs: execResult.latencyMs,
       };
-      runRecord.logs.push(logRecord);
+      pushStepLog(logRecord);
 
       // Stop workflow on failure
       if (!execResult.success) {
@@ -2814,7 +2925,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
     Sentry.captureException(error);
     runRecord.status = "failed";
     runRecord.endTime = new Date().toISOString();
-    runRecord.logs.push({
+    pushStepLog({
       stepId: "SYSTEM",
       status: "error",
       request: null,

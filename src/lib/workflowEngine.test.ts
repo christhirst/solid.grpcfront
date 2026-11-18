@@ -1,5 +1,10 @@
 import { describe, expect, it } from "bun:test";
-import { runWorkflowBackground, type WorkflowDefinition } from "./workflowEngine";
+import {
+  evaluatePayload,
+  runWorkflowBackground,
+  safeJsonParseWithEscapes,
+  type WorkflowDefinition,
+} from "./workflowEngine";
 
 function createMockDb() {
   const queries: Array<{ sql: string; vars?: Record<string, any> }> = [];
@@ -382,6 +387,111 @@ describe("runWorkflowBackground", () => {
         wasAllowed: false,
         subjectId: "user-guest",
       });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("repairs 7+ fallback_models templates with missing quote, trailing comma, or unquoted placeholders and expands list variables", async () => {
+    // 1. Unclosed trailing quote + trailing commas (matching the 7-model snippet from TODO.md)
+    const rawWithBrokenQuote = `{
+      "model": "qwen3.8-flash",
+      "fallback_models": [
+        "qwen3.5-flash-2026-02-23",
+        "qwen3.5-omni-flash",
+        "qwen3-omni-flash-2025-12-01",
+        "qwen3.5-omni-flash-2026-03-15",
+        "qwen3.5-flash",
+        "qwen3.6-flash-2026-04-16",
+        "qwen3.6-flash
+      ],
+    }`;
+    const parsedBroken = safeJsonParseWithEscapes(rawWithBrokenQuote);
+    expect(parsedBroken.fallback_models).toHaveLength(7);
+    expect(parsedBroken.fallback_models[6]).toBe("qwen3.6-flash");
+
+    // 2. Unquoted placeholder and bracketed list expansion
+    const unquotedTemplate = `{
+      "model": "{{ model }}",
+      "fallback_models": {{ fallback_models }}
+    }`;
+    const parsedUnquoted = safeJsonParseWithEscapes(unquotedTemplate);
+    const models = ["m1", "m2", "m3", "m4", "m5", "m6", "m7"];
+    expect(
+      evaluatePayload(parsedUnquoted, {
+        form: { model: "primary-m", fallback_models: models },
+      })
+    ).toEqual({
+      model: "primary-m",
+      fallback_models: models,
+    });
+
+    // 3. Array wrapper ["{{ fallback_models }}"] with list array or comma string
+    const wrappedTemplate = {
+      fallback_models: ["{{ fallback_models }}"],
+    };
+    expect(
+      evaluatePayload(wrappedTemplate, {
+        form: { fallback_models: models },
+      })
+    ).toEqual({ fallback_models: models });
+
+    expect(
+      evaluatePayload(wrappedTemplate, {
+        form: { fallback_models: "m1, m2, m3, m4, m5" },
+      })
+    ).toEqual({ fallback_models: ["m1", "m2", "m3", "m4", "m5"] });
+  });
+
+  it("propagates step timeoutMs to REST requests and attaches ISO timestamps to run logs", async () => {
+    const originalFetch = globalThis.fetch;
+    let observedSignal: AbortSignal | undefined;
+    let observedBody: any;
+    try {
+      globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+        observedSignal = init?.signal ?? undefined;
+        observedBody = init?.body ? JSON.parse(String(init.body)) : undefined;
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }) as typeof fetch;
+
+      const mockDb = createMockDb();
+      const workflow: WorkflowDefinition = {
+        id: "workflow:test-timeout-list",
+        name: "Timeout & List Step",
+        direction: "read",
+        protoContent: "",
+        serverAddress: "localhost:50051",
+        useTls: false,
+        steps: [
+          {
+            id: "rest_step",
+            type: "rest",
+            restMethod: "POST",
+            restUrl: "http://example.local/api",
+            timeoutMs: 120000,
+            requestBodyTemplate: JSON.stringify({
+              fallback_models: ["{{ fallback_models }}"],
+            }),
+          } as any,
+        ],
+      };
+
+      await runWorkflowBackground(
+        workflow,
+        "workflow_run:run-timeout-list",
+        { form: { fallback_models: ["m1", "m2", "m3", "m4", "m5"] } },
+        mockDb
+      );
+
+      const finalData = mockDb.queries.find((q) => q.sql.startsWith("UPDATE $id CONTENT $data"))?.vars?.data;
+      expect(finalData.status).toBe("completed");
+      expect(observedSignal).toBeDefined();
+      expect(observedBody).toEqual({ fallback_models: ["m1", "m2", "m3", "m4", "m5"] });
+      expect(typeof finalData.logs[0].timestamp).toBe("string");
+      expect(Number.isNaN(Date.parse(finalData.logs[0].timestamp))).toBe(false);
     } finally {
       globalThis.fetch = originalFetch;
     }

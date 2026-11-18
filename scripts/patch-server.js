@@ -352,6 +352,23 @@ globalThis.fetch = function(input, init) {
 // Safeguard against strict varlock throw behavior in unmanaged container runtime
 globalThis.__varlockThrowOnMissingKeys = false;
 
+// Prefix all server stdout/stderr console logs with ISO-8601 UTC timestamps
+if (!globalThis.__solidConsoleTimestampPatched) {
+  globalThis.__solidConsoleTimestampPatched = true;
+  const _tsRe = /^\\[\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}/;
+  for (const _m of ['log', 'info', 'warn', 'error', 'debug', 'trace']) {
+    const _orig = console[_m]?.bind(console);
+    if (_orig) {
+      console[_m] = (...args) => {
+        if (args.length > 0 && typeof args[0] === 'string' && _tsRe.test(args[0])) {
+          return _orig(...args);
+        }
+        return _orig('[' + new Date().toISOString() + ']', ...args);
+      };
+    }
+  }
+}
+
 if (typeof process !== 'undefined' && process.on) {
   process.on('unhandledRejection', (err) => {
     if (err && (

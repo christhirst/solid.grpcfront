@@ -4,7 +4,7 @@ import GrpcMethodPicker, { type ReflectionResult } from "~/components/workflow/G
 import S3FilePicker from "~/components/workflow/S3FilePicker";
 
 const ReteWorkflowEditor = clientOnly(() => import("~/components/workflow/ReteWorkflowEditor"));
-import { createSignal, createEffect, onMount, onCleanup, For, Show, createMemo, Index, useTransition } from "solid-js";
+import { createSignal, createEffect, on, untrack, onMount, onCleanup, For, Show, createMemo, Index, useTransition } from "solid-js";
 import { createClientResource } from "~/lib/clientResource";
 import { extractFormVariables, checkWorkflowConfiguredInDashboards, detectStepVariables, type VariableConfigStatus } from "~/lib/workflowVariableChecker";
 import { collectFieldNames, type FieldInfo } from "~/lib/dashboard/chartSeries";
@@ -960,7 +960,7 @@ export default function WorkflowBuilder() {
     return null;
   };
 
-  const [workflow, { refetch: refetchWorkflow }] = createClientResource(
+  const [workflow, { refetch: refetchWorkflow, mutate: mutateWorkflow }] = createClientResource(
     () => (isServer ? false : params.id),
     fetchWorkflow
   );
@@ -982,9 +982,9 @@ export default function WorkflowBuilder() {
   });
 
   // Sync resource data to local mutable state safely on the client
-  createEffect(() => {
-    const data = workflow();
-    if (data) {
+  createEffect(on(() => workflow(), (data) => {
+    if (!data) return;
+    if ((data as any).__fromSave) return;
       setName(data.name || "Untitled");
       setTags(Array.isArray(data.tags) ? data.tags : []);
       setDirection((data.direction as "read" | "write") || "read");
@@ -1051,19 +1051,18 @@ export default function WorkflowBuilder() {
       
       setSteps(reconcile(normalizedSteps));
 
-      if (!isServer && !isNew() && !runData()) {
+      if (!isServer && !isNew() && !untrack(() => runData())) {
         const cleanId = String(data.id || params.id).replace(/[⟨⟩]/g, "").replace(/^workflow:/, "");
         fetch(`/api/workflows/${cleanId}/run`)
           .then((res) => res.json())
           .then((json) => {
-            if (json.success && Array.isArray(json.data) && json.data.length > 0 && !runData()) {
+            if (json.success && Array.isArray(json.data) && json.data.length > 0 && !untrack(() => runData())) {
               setRunData(json.data[0]);
             }
           })
           .catch((err) => console.error("Error hydrating last workflow run:", err));
       }
-    }
-  });
+  }));
 
   createEffect(() => {
     const id = protoId();
@@ -1130,6 +1129,14 @@ export default function WorkflowBuilder() {
       
       const json = await res.json();
       if (json.success) {
+        mutateWorkflow((prev: any) => ({
+          ...(prev || {}),
+          ...payload,
+          ...(json.data || {}),
+          steps: payload.steps,
+          graph: payload.graph,
+          __fromSave: true,
+        }));
         window.dispatchEvent(new CustomEvent("user-groups-changed", { detail: { source: "workflow-save" } }));
         const rawSavedId = String(json.data?.id || params.id || "");
         const cleanId = rawSavedId.includes(":")
@@ -1818,6 +1825,11 @@ export default function WorkflowBuilder() {
                       <span class="text-xs font-bold uppercase tracking-wider">
                         Workflow Run Status: {runData().status}
                       </span>
+                      <Show when={runData().startTime}>
+                        <span class="text-[10px] text-[#8b8b9e] font-mono" title={`Started: ${runData().startTime}${runData().endTime ? ` | Ended: ${runData().endTime}` : ""}`}>
+                          {formatTraceTimestamp(runData().startTime)}
+                        </span>
+                      </Show>
                       <Show when={runData().endTime}>
                         <span class="text-[10px] text-[#5b5b6e]">
                           (Finished in {Math.max(0, new Date(runData().endTime!).getTime() - new Date(runData().startTime).getTime())}ms)
@@ -2402,16 +2414,24 @@ export default function WorkflowBuilder() {
                               </Show>
 
                               {/* Collapsible Overrides */}
-                              <details class="group rounded-xl border border-[#2a2a3a]/60 bg-[#12121c] p-3 text-xs">
+                              <details
+                                open={Boolean(step.serverAddress || step.caId || step.timeoutMs)}
+                                class="group rounded-xl border border-[#2a2a3a]/60 bg-[#12121c] p-3 text-xs"
+                              >
                                 <summary class="cursor-pointer font-medium text-[#8b8b9e] hover:text-white flex items-center justify-between list-none select-none">
                                   <span class="flex items-center gap-1.5">
                                     <span class="text-[10px] group-open:rotate-90 transition-transform">▶</span>
                                     <span>Advanced Connection Overrides (Optional)</span>
+                                    <Show when={Boolean(step.serverAddress || step.caId || step.timeoutMs)}>
+                                      <span class="px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-500/30 text-[10px] text-amber-300 font-semibold">
+                                        ⚠️ Overrides Active
+                                      </span>
+                                    </Show>
                                   </span>
                                   <span class="text-[10px] text-[#5b5b6e]">Leave blank to use connection defaults</span>
                                 </summary>
                                 <div class="mt-3 pt-3 border-t border-[#2a2a3a] space-y-3">
-                                  <div class="grid grid-cols-2 gap-3">
+                                  <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
                                     <div>
                                       <label class="mb-1 block text-[11px] text-[#8b8b9e]">Override Server Address</label>
                                       <input
@@ -2434,6 +2454,12 @@ export default function WorkflowBuilder() {
                                         <For each={savedCas()}>{(ca) => <option value={ca.id}>{ca.name}</option>}</For>
                                       </select>
                                     </div>
+                                    <TimeoutOverrideField
+                                      label="Override Timeout (ms)"
+                                      placeholder="Default (15000ms)"
+                                      value={step.timeoutMs}
+                                      onChange={(ms) => updateStep(index(), "timeoutMs", ms)}
+                                    />
                                   </div>
                                   <div>
                                     <label class="mb-1 block text-[11px] text-[#8b8b9e]">Headers (Metadata) Overrides Template</label>
@@ -2452,7 +2478,7 @@ export default function WorkflowBuilder() {
                           {/* Custom Manual Configuration View */}
                           <Show when={isCustom()}>
                             <div class="space-y-4">
-                              <div class="grid grid-cols-2 gap-4">
+                              <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                                 <div>
                                   <label class="mb-1 block text-xs font-semibold text-[#8b8b9e]">Server Address</label>
                                   <input
@@ -2475,6 +2501,12 @@ export default function WorkflowBuilder() {
                                     <For each={savedCas()}>{(ca) => <option value={ca.id}>{ca.name}</option>}</For>
                                   </select>
                                 </div>
+                                <TimeoutOverrideField
+                                  label="Timeout (ms)"
+                                  placeholder="Default (15000ms)"
+                                  value={step.timeoutMs}
+                                  onChange={(ms) => updateStep(index(), "timeoutMs", ms)}
+                                />
                               </div>
 
                               <StepAuthSettings
@@ -2715,26 +2747,42 @@ export default function WorkflowBuilder() {
                               </div>
 
                               {/* Collapsible Overrides */}
-                              <details class="group rounded-xl border border-[#2a2a3a]/60 bg-[#12121c] p-3 text-xs">
+                              <details
+                                open={Boolean(step.caId || step.timeoutMs)}
+                                class="group rounded-xl border border-[#2a2a3a]/60 bg-[#12121c] p-3 text-xs"
+                              >
                                 <summary class="cursor-pointer font-medium text-[#8b8b9e] hover:text-white flex items-center justify-between list-none select-none">
                                   <span class="flex items-center gap-1.5">
                                     <span class="text-[10px] group-open:rotate-90 transition-transform">▶</span>
                                     <span>Advanced Connection Overrides (Optional)</span>
+                                    <Show when={Boolean(step.caId || step.timeoutMs)}>
+                                      <span class="px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-500/30 text-[10px] text-amber-300 font-semibold">
+                                        ⚠️ Overrides Active
+                                      </span>
+                                    </Show>
                                   </span>
-                                  <span class="text-[10px] text-[#5b5b6e]">Headers and TLS overrides</span>
+                                  <span class="text-[10px] text-[#5b5b6e]">Headers, TLS, and timeout overrides</span>
                                 </summary>
                                 <div class="mt-3 pt-3 border-t border-[#2a2a3a] space-y-3">
-                                  <div>
-                                    <label class="mb-1 block text-[11px] text-[#8b8b9e]">Override TLS Trust</label>
-                                    <select
-                                      class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2 text-xs text-white focus:border-emerald-500 focus:outline-none"
-                                      value={step.caId ?? ""}
-                                      onChange={(e) => updateStep(index(), "caId", e.currentTarget.value)}
-                                    >
-                                      <option value="">Inherit from Connection</option>
-                                      <option value={ACCEPT_ALL_CA}>Accept All</option>
-                                      <For each={savedCas()}>{(ca) => <option value={ca.id}>{ca.name}</option>}</For>
-                                    </select>
+                                  <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    <div>
+                                      <label class="mb-1 block text-[11px] text-[#8b8b9e]">Override TLS Trust</label>
+                                      <select
+                                        class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2 text-xs text-white focus:border-emerald-500 focus:outline-none"
+                                        value={step.caId ?? ""}
+                                        onChange={(e) => updateStep(index(), "caId", e.currentTarget.value)}
+                                      >
+                                        <option value="">Inherit from Connection</option>
+                                        <option value={ACCEPT_ALL_CA}>Accept All</option>
+                                        <For each={savedCas()}>{(ca) => <option value={ca.id}>{ca.name}</option>}</For>
+                                      </select>
+                                    </div>
+                                    <TimeoutOverrideField
+                                      label="Override Timeout (ms)"
+                                      placeholder="Inherited / 15000ms"
+                                      value={step.timeoutMs}
+                                      onChange={(ms) => updateStep(index(), "timeoutMs", ms)}
+                                    />
                                   </div>
                                   <div>
                                     <label class="mb-1 block text-[11px] text-[#8b8b9e]">Additional Headers Template (JSON)</label>
@@ -2763,7 +2811,7 @@ export default function WorkflowBuilder() {
                                   onInput={(e) => updateStep(index(), "restUrl", e.currentTarget.value)}
                                 />
                               </div>
-                              <div class="grid grid-cols-2 gap-4">
+                              <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                                 <div>
                                   <label class="mb-1 block text-xs font-semibold text-[#8b8b9e]">HTTP Method</label>
                                   <select
@@ -2790,6 +2838,12 @@ export default function WorkflowBuilder() {
                                     <For each={savedCas()}>{(ca) => <option value={ca.id}>{ca.name}</option>}</For>
                                   </select>
                                 </div>
+                                <TimeoutOverrideField
+                                  label="Timeout (ms)"
+                                  placeholder="Default (15000ms)"
+                                  value={step.timeoutMs}
+                                  onChange={(ms) => updateStep(index(), "timeoutMs", ms)}
+                                />
                               </div>
 
                               <StepAuthSettings
@@ -3856,7 +3910,8 @@ export default function WorkflowBuilder() {
                                     step.databaseName ||
                                     step.databaseAuthLevel ||
                                     step.databaseUser ||
-                                    step.databasePass
+                                    step.databasePass ||
+                                    step.timeoutMs
                                 )}
                                 class="group rounded-xl border border-[#2a2a3a]/60 bg-[#12121c] p-3 text-xs"
                               >
@@ -3871,7 +3926,8 @@ export default function WorkflowBuilder() {
                                           step.databaseName ||
                                           step.databaseAuthLevel ||
                                           step.databaseUser ||
-                                          step.databasePass
+                                          step.databasePass ||
+                                          step.timeoutMs
                                       )}
                                     >
                                       <span class="px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-500/30 text-[10px] text-amber-300 font-semibold">
@@ -3887,7 +3943,8 @@ export default function WorkflowBuilder() {
                                           step.databaseName ||
                                           step.databaseAuthLevel ||
                                           step.databaseUser ||
-                                          step.databasePass
+                                          step.databasePass ||
+                                          step.timeoutMs
                                       )}
                                     >
                                       <button
@@ -3901,6 +3958,7 @@ export default function WorkflowBuilder() {
                                           updateStep(index(), "databaseAuthLevel", undefined);
                                           updateStep(index(), "databaseUser", undefined);
                                           updateStep(index(), "databasePass", undefined);
+                                          updateStep(index(), "timeoutMs", undefined);
                                         }}
                                         class="px-2 py-0.5 rounded bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 text-[10px] text-red-300 font-semibold"
                                       >
@@ -3953,7 +4011,7 @@ export default function WorkflowBuilder() {
                                       </select>
                                     </div>
                                   </div>
-                                  <div class="grid grid-cols-3 gap-3">
+                                  <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
                                     <div>
                                       <label class="mb-1 block text-[11px] text-[#8b8b9e]">Override Database</label>
                                       <input
@@ -3984,6 +4042,12 @@ export default function WorkflowBuilder() {
                                         onInput={(e) => updateStep(index(), "databasePass", e.currentTarget.value)}
                                       />
                                     </div>
+                                    <TimeoutOverrideField
+                                      label="Override Timeout (ms)"
+                                      placeholder="Inherited / 8000ms"
+                                      value={step.timeoutMs}
+                                      onChange={(ms) => updateStep(index(), "timeoutMs", ms)}
+                                    />
                                   </div>
                                 </div>
                               </details>
@@ -4031,7 +4095,7 @@ export default function WorkflowBuilder() {
                                 </div>
                               </div>
 
-                              <div class="grid grid-cols-3 gap-4">
+                              <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
                                 <div>
                                   <label class="mb-1 block text-xs text-[#8b8b9e]">Database Name <span class="text-[10px] text-[#5b5b6e]">(supports {'{{ variables }}'})</span></label>
                                   <input
@@ -4064,6 +4128,12 @@ export default function WorkflowBuilder() {
                                     onInput={(e) => updateStep(index(), "databasePass", e.currentTarget.value)}
                                   />
                                 </div>
+                                <TimeoutOverrideField
+                                  label="Timeout (ms)"
+                                  placeholder="Default (8000ms)"
+                                  value={step.timeoutMs}
+                                  onChange={(ms) => updateStep(index(), "timeoutMs", ms)}
+                                />
                               </div>
                             </div>
                           </Show>
@@ -4902,6 +4972,11 @@ export default function WorkflowBuilder() {
                                   <Show when={log()!.latencyMs}>
                                     <span class="text-[10px] text-[#5b5b6e] font-mono">{log()!.latencyMs}ms</span>
                                   </Show>
+                                  <Show when={log()!.timestamp || runData()?.endTime || runData()?.startTime}>
+                                    <span class="text-[10px] text-[#7a7a8e] font-mono">
+                                      {formatTraceTimestamp(log()!.timestamp || runData()?.endTime || runData()?.startTime)}
+                                    </span>
+                                  </Show>
                                 </div>
                                 
                                 <Show when={!step.type || step.type === "grpc" || step.type === "rest" || step.type === "database" || step.type === "transform" || step.type === "text_transform" || step.type === "s3" || step.type === "authz"}>
@@ -5626,6 +5701,64 @@ function StepAuthSettings(props: {
           </Show>
         </div>
       </Show>
+    </div>
+  );
+}
+
+function formatTraceTimestamp(ts?: string): string {
+  if (!ts) return "";
+  const d = new Date(ts);
+  return Number.isNaN(d.getTime()) ? String(ts) : d.toISOString();
+}
+
+const TIMEOUT_PRESETS: Array<{ label: string; ms: number }> = [
+  { label: "15s", ms: 15000 },
+  { label: "60s", ms: 60000 },
+  { label: "5m", ms: 300000 },
+  { label: "15m", ms: 900000 },
+];
+
+function TimeoutOverrideField(props: {
+  label?: string;
+  placeholder?: string;
+  value?: number;
+  onChange: (ms: number | undefined) => void;
+}) {
+  return (
+    <div>
+      <div class="mb-1 flex items-center justify-between gap-1">
+        <label class="block text-[11px] text-[#8b8b9e]">{props.label || "Override Timeout (ms)"}</label>
+        <div class="flex items-center gap-1">
+          <For each={TIMEOUT_PRESETS}>
+            {(preset) => (
+              <button
+                type="button"
+                onClick={() => props.onChange(preset.ms)}
+                class={`px-1.5 py-0.2 rounded text-[9px] font-mono border transition-colors ${
+                  Number(props.value) === preset.ms
+                    ? "bg-blue-500/25 border-blue-400/50 text-blue-200"
+                    : "bg-[#1a1a26] border-[#2a2a3a] text-[#8b8b9e] hover:text-white"
+                }`}
+              >
+                {preset.label}
+              </button>
+            )}
+          </For>
+        </div>
+      </div>
+      <input
+        type="number"
+        min="100"
+        step="1000"
+        class="w-full rounded-lg border border-[#2a2a3a] bg-[#1a1a26] p-2 text-xs text-white font-mono focus:border-blue-500 focus:outline-none"
+        placeholder={props.placeholder || "Inherited / Default"}
+        value={props.value ?? ""}
+        onInput={(e) => {
+          const raw = e.currentTarget.value.trim();
+          const parsed = raw ? Number(raw) : NaN;
+          props.onChange(Number.isFinite(parsed) && parsed > 0 ? parsed : undefined);
+        }}
+      />
     </div>
   );
 }

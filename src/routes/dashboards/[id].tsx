@@ -310,6 +310,13 @@ export default function DashboardBuilder() {
         [field]: value
       }
     }));
+    const bIdx = buttons.findIndex((b: any) => b.id === btnId);
+    if (bIdx !== -1 && Array.isArray(buttons[bIdx]?.formConfig)) {
+      const fIdx = buttons[bIdx].formConfig.findIndex((f: any) => f.name === field);
+      if (fIdx !== -1) {
+        setButtons(bIdx, "formConfig", fIdx, (f: any) => ({ ...f, value, defaultValue: value }));
+      }
+    }
   };
 
   const triggerButton = async (btn: any, effectiveWorkflowId?: string) => {
@@ -1341,7 +1348,9 @@ export default function DashboardBuilder() {
                                       </div>
                                       <div class="flex-1">
                                         <label class="text-xs text-[#5b5b6e] block mb-0.5">Saved Value</label>
-                                        <input class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-1 text-xs text-emerald-300 font-mono focus:outline-none focus:border-purple-500" value={field.value ?? field.defaultValue ?? ""} placeholder="Default value"
+                                        <input class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-1 text-xs text-emerald-300 font-mono focus:outline-none focus:border-purple-500"
+                                          value={Array.isArray(field.value ?? field.defaultValue) ? (field.value ?? field.defaultValue).join(", ") : (field.value ?? field.defaultValue ?? "")}
+                                          placeholder={field.type === "list" ? "e.g. item1, item2, item3" : "Default value"}
                                           onInput={(e) => { updateButton(index(),"formConfig", fIdx(), (f: any) => ({ ...f, value: e.currentTarget.value, defaultValue: e.currentTarget.value })); }} />
                                       </div>
                                       <div class="w-20">
@@ -1352,6 +1361,7 @@ export default function DashboardBuilder() {
                                           <option value="number">Number</option>
                                           <option value="boolean">Boolean</option>
                                           <option value="select">Select</option>
+                                          <option value="list">List</option>
                                         </select>
                                       </div>
                                       <button onClick={() => { const c=btn.formConfig.filter((_:any,i:number)=>i!==fIdx()); updateButton(index(),"formConfig",c); }} class="text-[#5b5b6e] hover:text-red-400 mt-3 shrink-0">

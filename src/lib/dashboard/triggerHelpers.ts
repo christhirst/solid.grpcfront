@@ -1,4 +1,5 @@
 import { RecordId } from "surrealdb";
+import { parseListFieldValue } from "~/lib/dashboard/widgetTypes";
 
 export interface TriggerPayload {
   form?: Record<string, unknown>;
@@ -12,7 +13,7 @@ export interface DashboardButton {
   conditionWorkflowId?: string;
   conditionRules?: Array<{ action?: string; targetValue?: string; elseAction?: string; elseTargetValue?: string }>;
   chartSeries?: Array<{ workflowId?: string }>;
-  formConfig?: Array<{ name: string; value?: unknown; defaultValue?: unknown }>;
+  formConfig?: Array<{ name: string; type?: string; value?: unknown; defaultValue?: unknown }>;
 }
 
 export interface DashboardRecord {
@@ -74,10 +75,14 @@ export function mergeFormPayload(
 
   for (const field of formConfig) {
     if (!field.name) continue;
-    if (merged[field.name] !== undefined && merged[field.name] !== "") continue;
-    const savedVal = field.value ?? field.defaultValue;
-    if (savedVal !== undefined && savedVal !== "") {
-      merged[field.name] = savedVal;
+    if (merged[field.name] === undefined || merged[field.name] === "") {
+      const savedVal = field.value ?? field.defaultValue;
+      if (savedVal !== undefined && savedVal !== "") {
+        merged[field.name] = savedVal;
+      }
+    }
+    if (field.type === "list" && merged[field.name] !== undefined) {
+      merged[field.name] = parseListFieldValue(merged[field.name]);
     }
   }
   return merged;

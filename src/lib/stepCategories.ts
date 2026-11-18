@@ -45,7 +45,7 @@ export interface StepVariable {
   alias?: string; // Human-friendly alias, e.g. "has_incidents" or "target_table"
   direction: "up" | "down"; // "up" = green (upload/output), "down" = red (download/input)
   isLiteral?: boolean; // When true: excluded from dashboard form requirements, sent literally as {{ name }}
-  type?: "string" | "number" | "boolean" | "query" | "any";
+  type?: "string" | "number" | "boolean" | "list" | "query" | "any";
   description?: string;
   value?: any; // Last evaluated value
 }
@@ -93,6 +93,7 @@ export interface WorkflowStep {
   useTls?: boolean;
   acceptInvalidCert?: boolean;
   caId?: string;
+  timeoutMs?: number;
   dataPath?: string;
   xKey?: string;
   yKey?: string;

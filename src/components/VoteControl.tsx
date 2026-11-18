@@ -100,36 +100,36 @@ export default function VoteControl(props: VoteControlProps) {
           isMd() ? "h-9 px-1 gap-1 border-zinc-700/80 bg-zinc-900/90 text-sm shadow-md" : "h-7 px-0.5 gap-0.5 border-zinc-800/80 bg-zinc-950/80 text-xs"
         }`}
       >
-        {/* Upvote Button */}
-        <button
-          type="button"
-          disabled={busy()}
-          onClick={(e) => handleVote(e, 1)}
-          aria-label="Upvote"
-          aria-pressed={isUpvoted()}
-          title={canVote() ? (isUpvoted() ? "Remove upvote" : "Upvote") : "Log in to vote"}
-          class={`flex items-center justify-center rounded transition-all duration-150 min-h-[44px] min-w-[28px] sm:min-h-0 sm:min-w-0 ${
-            isMd() ? "h-7 w-7" : "h-6 w-6"
-          } ${
-            isUpvoted()
-              ? "bg-emerald-500/20 text-emerald-400 font-bold border border-emerald-500/40 shadow-sm"
-              : canVote()
-                ? "text-zinc-400 hover:text-emerald-400 hover:bg-emerald-500/10 active:scale-95"
-                : "text-zinc-600 hover:text-zinc-500 cursor-not-allowed opacity-60"
-          }`}
-        >
-          <svg
-            class={isMd() ? "w-3.5 h-3.5" : "w-3 h-3"}
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width={isUpvoted() ? "3" : "2.5"}
-            stroke-linecap="round"
-            stroke-linejoin="round"
+        {/* Upvote Button (only visible when logged in) */}
+        <Show when={canVote()}>
+          <button
+            type="button"
+            disabled={busy()}
+            onClick={(e) => handleVote(e, 1)}
+            aria-label="Upvote"
+            aria-pressed={isUpvoted()}
+            title={isUpvoted() ? "Remove upvote" : "Upvote"}
+            class={`flex items-center justify-center rounded transition-all duration-150 min-h-[44px] min-w-[28px] sm:min-h-0 sm:min-w-0 ${
+              isMd() ? "h-7 w-7" : "h-6 w-6"
+            } ${
+              isUpvoted()
+                ? "bg-emerald-500/20 text-emerald-400 font-bold border border-emerald-500/40 shadow-sm"
+                : "text-zinc-400 hover:text-emerald-400 hover:bg-emerald-500/10 active:scale-95"
+            }`}
           >
-            <polyline points="18 15 12 9 6 15" />
-          </svg>
-        </button>
+            <svg
+              class={isMd() ? "w-3.5 h-3.5" : "w-3 h-3"}
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width={isUpvoted() ? "3" : "2.5"}
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <polyline points="18 15 12 9 6 15" />
+            </svg>
+          </button>
+        </Show>
 
         {/* Score Display */}
         <span
@@ -147,36 +147,36 @@ export default function VoteControl(props: VoteControlProps) {
           {state().score > 0 ? `+${state().score}` : state().score}
         </span>
 
-        {/* Downvote Button */}
-        <button
-          type="button"
-          disabled={busy()}
-          onClick={(e) => handleVote(e, -1)}
-          aria-label="Downvote"
-          aria-pressed={isDownvoted()}
-          title={canVote() ? (isDownvoted() ? "Remove downvote" : "Downvote") : "Log in to vote"}
-          class={`flex items-center justify-center rounded transition-all duration-150 min-h-[44px] min-w-[28px] sm:min-h-0 sm:min-w-0 ${
-            isMd() ? "h-7 w-7" : "h-6 w-6"
-          } ${
-            isDownvoted()
-              ? "bg-red-500/20 text-red-400 font-bold border border-red-500/40 shadow-sm"
-              : canVote()
-                ? "text-zinc-400 hover:text-red-400 hover:bg-red-500/10 active:scale-95"
-                : "text-zinc-600 hover:text-zinc-500 cursor-not-allowed opacity-60"
-          }`}
-        >
-          <svg
-            class={isMd() ? "w-3.5 h-3.5" : "w-3 h-3"}
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width={isDownvoted() ? "3" : "2.5"}
-            stroke-linecap="round"
-            stroke-linejoin="round"
+        {/* Downvote Button (only visible when logged in) */}
+        <Show when={canVote()}>
+          <button
+            type="button"
+            disabled={busy()}
+            onClick={(e) => handleVote(e, -1)}
+            aria-label="Downvote"
+            aria-pressed={isDownvoted()}
+            title={isDownvoted() ? "Remove downvote" : "Downvote"}
+            class={`flex items-center justify-center rounded transition-all duration-150 min-h-[44px] min-w-[28px] sm:min-h-0 sm:min-w-0 ${
+              isMd() ? "h-7 w-7" : "h-6 w-6"
+            } ${
+              isDownvoted()
+                ? "bg-red-500/20 text-red-400 font-bold border border-red-500/40 shadow-sm"
+                : "text-zinc-400 hover:text-red-400 hover:bg-red-500/10 active:scale-95"
+            }`}
           >
-            <polyline points="6 9 12 15 18 9" />
-          </svg>
-        </button>
+            <svg
+              class={isMd() ? "w-3.5 h-3.5" : "w-3 h-3"}
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width={isDownvoted() ? "3" : "2.5"}
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </button>
+        </Show>
       </div>
 
       {/* Floating Error / Login Prompt Tooltip */}

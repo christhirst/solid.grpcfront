@@ -19,6 +19,8 @@ export interface GrpcCallParams {
   /** Use TLS but do not validate the peer certificate. Intended for development only. */
   acceptInvalidCert?: boolean;
   metadata?: Record<string, string>;
+  /** Optional call deadline timeout in milliseconds (defaults to 15000ms for unary, 60000ms for streams). */
+  timeoutMs?: number;
 }
 
 export interface GrpcCallResult {
@@ -129,7 +131,8 @@ export async function executeGrpcCall(params: GrpcCallParams): Promise<GrpcCallR
       }
 
 
-      const deadline = new Date(Date.now() + 15000); // 15s timeout
+      const effectiveTimeoutMs = Number(params.timeoutMs) > 0 ? Number(params.timeoutMs) : 15000;
+      const deadline = new Date(Date.now() + effectiveTimeoutMs);
 
       // Create gRPC metadata if provided
       const grpcMetadata = new grpc.Metadata();
@@ -304,7 +307,8 @@ export async function executeGrpcStreamCall(
     const isRequestStream = methodDef?.requestStream ?? false;
     const isResponseStream = methodDef?.responseStream ?? true; // Default to streaming response if requested
 
-    const deadline = new Date(Date.now() + 60000); // 60s timeout for stream
+    const effectiveTimeoutMs = Number(params.timeoutMs) > 0 ? Number(params.timeoutMs) : 60000;
+    const deadline = new Date(Date.now() + effectiveTimeoutMs);
 
     if (isRequestStream && !isResponseStream) {
       // Client streaming

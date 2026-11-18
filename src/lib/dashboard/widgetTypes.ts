@@ -50,11 +50,58 @@ export interface ConditionRule {
 export interface FormField {
   name: string;
   label: string;
-  type: "string" | "number" | "boolean" | "select" | "textarea";
+  type: "string" | "number" | "boolean" | "select" | "list" | "textarea";
   required?: boolean;
   defaultValue?: unknown;
   value?: unknown;
   options?: string;
+}
+
+/**
+ * Parses a list form field value (array, JSON array string, or comma/newline-separated
+ * string with optional quotes) into a clean array of non-empty strings.
+ */
+export function parseListFieldValue(raw: unknown): string[] {
+  if (raw === undefined || raw === null) return [];
+  if (Array.isArray(raw)) {
+    return raw.flatMap((item) => parseListFieldValue(item));
+  }
+  if (typeof raw !== "string") {
+    const str = String(raw).trim();
+    return str ? [str] : [];
+  }
+  const trimmed = raw.trim();
+  if (!trimmed) return [];
+  if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        return parsed.flatMap((item) => parseListFieldValue(item));
+      }
+    } catch {
+      // Fall through to lenient splitting
+    }
+  }
+  const unwrapped = trimmed.replace(/^\[+|\]+$/g, "");
+  return unwrapped
+    .split(/[\r\n,]+/)
+    .map((part) =>
+      part
+        .trim()
+        .replace(/^\[+|\]+$/g, "")
+        .trim()
+        .replace(/^["']+|["']+$/g, "")
+        .trim()
+    )
+    .filter((item) => item.length > 0);
+}
+
+/**
+ * Formats a list form field value for editing in a text/textarea input.
+ */
+export function formatListFieldValue(raw: unknown): string {
+  if (typeof raw === "string") return raw;
+  return parseListFieldValue(raw).join(", ");
 }
 
 export interface OutputField {

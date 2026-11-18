@@ -3,6 +3,7 @@ import { buildUpdatedButtons, findButton, mergeFormPayload, normalizeId } from "
 import type { DashboardButton, DashboardRecord } from "./triggerHelpers";
 
 import { dashboardId } from "./boardTypes";
+import { parseListFieldValue } from "./widgetTypes";
 
 describe("normalizeId", () => {
   it("returns the raw id from a SurrealDB-style id", () => {
@@ -60,6 +61,39 @@ describe("mergeFormPayload", () => {
     const merged = mergeFormPayload({}, fields);
     expect(merged.email).toBe("saved@example.com");
     expect(merged.empty).toBe("fallback");
+  });
+
+  it("normalizes 'list' fields from comma/newline/quoted strings into string arrays", () => {
+    const listFields: DashboardButton["formConfig"] = [
+      {
+        name: "fallback_models",
+        type: "list",
+        defaultValue: `"qwen3.5-flash-2026-02-23",\n"qwen3.5-omni-flash",\n"qwen3-omni-flash-2025-12-01",\n"qwen3.5-omni-flash-2026-03-15",\n"qwen3.5-flash",\n"qwen3.6-flash-2026-04-16",\n"qwen3.6-flash`,
+      },
+    ];
+    const mergedFromDefault = mergeFormPayload({}, listFields);
+    expect(mergedFromDefault.fallback_models).toEqual([
+      "qwen3.5-flash-2026-02-23",
+      "qwen3.5-omni-flash",
+      "qwen3-omni-flash-2025-12-01",
+      "qwen3.5-omni-flash-2026-03-15",
+      "qwen3.5-flash",
+      "qwen3.6-flash-2026-04-16",
+      "qwen3.6-flash",
+    ]);
+
+    const mergedFromSubmit = mergeFormPayload(
+      { fallback_models: "model-a, model-b, model-c, model-d" },
+      listFields
+    );
+    expect(mergedFromSubmit.fallback_models).toEqual([
+      "model-a",
+      "model-b",
+      "model-c",
+      "model-d",
+    ]);
+
+    expect(parseListFieldValue('["m1", "m2", "m3", "m4"]')).toEqual(["m1", "m2", "m3", "m4"]);
   });
 });
 

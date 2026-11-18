@@ -1,5 +1,11 @@
-import { For, Show, Switch, Match, createSignal } from "solid-js";
-import type { EffectiveWidgetConfig, FormField, WidgetConfig } from "~/lib/dashboard/widgetTypes";
+import { For, Show, Switch, Match, createSignal, createEffect } from "solid-js";
+import {
+  formatListFieldValue,
+  parseListFieldValue,
+  type EffectiveWidgetConfig,
+  type FormField,
+  type WidgetConfig,
+} from "~/lib/dashboard/widgetTypes";
 import { getWidgetTheme } from "~/lib/dashboard/widgetThemes";
 import { getValueAtPath } from "~/lib/dashboard/widgetConditions";
 
@@ -78,6 +84,64 @@ function FormFieldInput(props: {
             {(opt) => <option value={opt}>{opt}</option>}
           </For>
         </select>
+      </Match>
+      <Match when={props.field.type === "list"}>
+        {(() => {
+          const [rawText, setRawText] = createSignal(formatListFieldValue(props.value));
+          const items = () => parseListFieldValue(props.value);
+
+          createEffect(() => {
+            const nextFormatted = formatListFieldValue(props.value);
+            const currentParsed = parseListFieldValue(rawText()).join("\n");
+            const nextParsed = parseListFieldValue(props.value).join("\n");
+            if (currentParsed !== nextParsed) {
+              setRawText(nextFormatted);
+            }
+          });
+
+          const removeItem = (idx: number) => {
+            const next = items().filter((_, i) => i !== idx);
+            setRawText(next.join(", "));
+            props.onChange(next);
+          };
+
+          return (
+            <div class="space-y-2">
+              <textarea
+                rows={3}
+                required={props.field.required}
+                class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500/50 transition-all font-mono"
+                value={rawText()}
+                onInput={(e) => {
+                  const text = e.currentTarget.value;
+                  setRawText(text);
+                  props.onChange(parseListFieldValue(text));
+                }}
+                placeholder={`Comma or newline separated values for ${props.field.label}...`}
+              />
+              <div class="flex flex-wrap items-center gap-1.5">
+                <span class="text-[10px] font-mono text-[#8b8b9e]">
+                  {items().length} {items().length === 1 ? "item" : "items"}
+                </span>
+                <For each={items()}>
+                  {(item, i) => (
+                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-purple-500/15 border border-purple-500/30 text-[11px] font-mono text-purple-200">
+                      <span class="truncate max-w-[180px]">{item}</span>
+                      <button
+                        type="button"
+                        onClick={() => removeItem(i())}
+                        class="text-purple-300/70 hover:text-red-400 font-bold leading-none"
+                        title="Remove item"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  )}
+                </For>
+              </div>
+            </div>
+          );
+        })()}
       </Match>
       <Match when={props.field.type === "textarea"}>
         <textarea

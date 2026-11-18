@@ -5,6 +5,8 @@ export interface HttpStreamCallParams {
   body?: any;
   /** TLS configuration supported by Bun's fetch implementation. */
   tls?: { ca?: string; rejectUnauthorized?: boolean };
+  /** Optional stream timeout in milliseconds. */
+  timeoutMs?: number;
 }
 
 /**
@@ -17,13 +19,21 @@ export async function executeHttpStreamCall(
   onEnd: () => void
 ): Promise<{ cancel: () => void }> {
   const controller = new AbortController();
-  const { url, method = "GET", headers = {}, body, tls } = params;
+  const { url, method = "GET", headers = {}, body, tls, timeoutMs } = params;
 
   let requestUrl = url;
   if (requestUrl && !requestUrl.startsWith("http://") && !requestUrl.startsWith("https://")) {
     const separator = requestUrl.startsWith("/") ? "" : "/";
     const port = process.env.PORT || 3000;
     requestUrl = `http://127.0.0.1:${port}${separator}${requestUrl}`;
+  }
+
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const effectiveTimeoutMs = Number(timeoutMs);
+  if (effectiveTimeoutMs > 0) {
+    timeoutId = setTimeout(() => {
+      controller.abort(new Error(`HTTP stream timed out after ${effectiveTimeoutMs}ms`));
+    }, effectiveTimeoutMs);
   }
 
   (async () => {
@@ -115,11 +125,18 @@ export async function executeHttpStreamCall(
     } catch (err: any) {
       if (err.name !== "AbortError") {
         onError(err);
+      } else if (timeoutId && controller.signal.reason instanceof Error) {
+        onError(controller.signal.reason);
       }
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
     }
   })();
 
   return {
-    cancel: () => controller.abort(),
+    cancel: () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      controller.abort();
+    },
   };
 }
