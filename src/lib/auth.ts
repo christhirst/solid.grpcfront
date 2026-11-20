@@ -27,10 +27,23 @@ export interface AuthUser {
   jwtHeader?: Record<string, any> | null;
 }
 
+const authUserMemo = new WeakMap<Request, Promise<AuthUser | null>>();
+
 /**
  * Extract the authenticated user from a request, or return null if not logged in.
+ * Memoized per Request object so the session JWE is decoded at most once per request,
+ * even when several helpers (access context, user context, owner) are called.
  */
-export async function getAuthUser(request: Request): Promise<AuthUser | null> {
+export function getAuthUser(request: Request): Promise<AuthUser | null> {
+  if (!request || typeof request !== "object") return resolveAuthUser(request);
+  const cached = authUserMemo.get(request);
+  if (cached) return cached;
+  const promise = resolveAuthUser(request);
+  authUserMemo.set(request, promise);
+  return promise;
+}
+
+async function resolveAuthUser(request: Request): Promise<AuthUser | null> {
   try {
     const { request: dynamicReq } = createDynamicRequest(request, false);
     const session = await getSession(dynamicReq, authOpts);
@@ -61,12 +74,26 @@ export async function getOwnerFromRequest(request: Request): Promise<string> {
   return user?.sub || "anonymous";
 }
 
-const ACCESS_CTX_TTL_MS = 1500;
+const ACCESS_CTX_TTL_MS = 15_000;
+const ACCESS_CTX_SWEEP_THRESHOLD = 256;
+const ACCESS_CTX_MAX_ENTRIES = 5000;
+
+interface ResolvedAccess {
+  ctx: EffectiveAccessContext;
+  /** Raw `user_profile` record (as read during resolution), or null. */
+  profile: any | null;
+}
+
 const accessContextCache = new Map<
   string,
-  { expiresAt: number; promise: Promise<EffectiveAccessContext> }
+  { expiresAt: number; promise: Promise<ResolvedAccess> }
 >();
 
+/**
+ * Drop cached access contexts. Call after any mutation of group membership,
+ * group namespaces, user_profile (roles, grants, simulation, namespace).
+ * Without `sub` the whole cache is cleared (e.g. group-wide changes).
+ */
 export function invalidateAccessContextCache(sub?: string) {
   if (!sub) {
     accessContextCache.clear();
@@ -79,18 +106,30 @@ export function invalidateAccessContextCache(sub?: string) {
   }
 }
 
-/**
- * Resolve the user's full EffectiveAccessContext:
- * - Platform role (admin, creator, user, viewer) comes from FerrisKey OIDC claims (or admin override in SurrealDB).
- * - Spaces/groups and fine-grained rights (view, use, write, delete, manager) come from SurrealDB.
- */
-export async function getEffectiveAccessContext(
-  request: Request,
-  db?: any
-): Promise<EffectiveAccessContext> {
+function sweepAccessContextCache(now: number) {
+  if (accessContextCache.size < ACCESS_CTX_SWEEP_THRESHOLD) return;
+  for (const [key, entry] of accessContextCache) {
+    if (entry.expiresAt <= now) accessContextCache.delete(key);
+  }
+  // Hard cap: evict oldest insertions (Map preserves insertion order).
+  if (accessContextCache.size > ACCESS_CTX_MAX_ENTRIES) {
+    let excess = accessContextCache.size - ACCESS_CTX_MAX_ENTRIES;
+    for (const key of accessContextCache.keys()) {
+      if (excess-- <= 0) break;
+      accessContextCache.delete(key);
+    }
+  }
+}
+
+const ANONYMOUS_ACCESS: () => ResolvedAccess = () => ({
+  ctx: buildAccessContext({ sub: "anonymous", idpRole: "viewer" }),
+  profile: null,
+});
+
+async function getResolvedAccess(request: Request, db?: any): Promise<ResolvedAccess> {
   const user = await getAuthUser(request);
   if (!user || !user.sub || user.sub === "anonymous") {
-    return buildAccessContext({ sub: "anonymous", idpRole: "viewer" });
+    return ANONYMOUS_ACCESS();
   }
 
   const cacheKey = `${user.sub}:${user.sessionId || "default"}:${Boolean(db)}`;
@@ -105,6 +144,7 @@ export async function getEffectiveAccessContext(
     throw err;
   });
 
+  sweepAccessContextCache(now);
   accessContextCache.set(cacheKey, {
     expiresAt: now + ACCESS_CTX_TTL_MS,
     promise,
@@ -113,10 +153,23 @@ export async function getEffectiveAccessContext(
   return promise;
 }
 
+/**
+ * Resolve the user's full EffectiveAccessContext:
+ * - Platform role (admin, creator, user, viewer) comes from FerrisKey OIDC claims (or admin override in SurrealDB).
+ * - Spaces/groups and fine-grained rights (view, use, write, delete, manager) come from SurrealDB.
+ */
+export async function getEffectiveAccessContext(
+  request: Request,
+  db?: any
+): Promise<EffectiveAccessContext> {
+  return (await getResolvedAccess(request, db)).ctx;
+}
+
 async function resolveEffectiveAccessContextInternal(
   user: AuthUser,
   db?: any
-): Promise<EffectiveAccessContext> {
+): Promise<ResolvedAccess> {
+  let profileRecord: any | null = null;
   let idpRole: PlatformRole = extractPlatformRoleFromClaims(user.idpGroups, "viewer");
   let simulatedRole: PlatformRole | null = null;
   let disabledGroups: string[] = [];
@@ -129,22 +182,20 @@ async function resolveEffectiveAccessContextInternal(
     const usernameLower = (user.username || user.name || "").trim().toLowerCase();
     const emailLower = (user.email || "").trim().toLowerCase();
     const subLower = user.sub.trim().toLowerCase();
+    // Empty names are dropped so rows without a username never match.
+    const names = Array.from(new Set([usernameLower, emailLower, subLower].filter(Boolean)));
 
     // Run all 3 SurrealDB lookups concurrently instead of sequentially
     const [profileRes, memberRes, ownedRes] = await Promise.all([
       db.select(profileId).catch(() => null),
       db
         .query(
-          `SELECT * FROM group_member WHERE
-            userSub = $sub
-            OR string::lowercase(username ?? '') = $usernameLower
-            OR ($emailLower != '' AND string::lowercase(username ?? '') = $emailLower)
-            OR string::lowercase(username ?? '') = $subLower;`,
+          // `username_lc` is an indexed computed field; also match `username IN $names`
+          // so reads prior to background backfill still use indexes without a table scan.
+          `SELECT * FROM group_member WHERE userSub = $sub OR username_lc IN $names OR username IN $names;`,
           {
             sub: user.sub,
-            usernameLower,
-            emailLower,
-            subLower,
+            names,
           }
         )
         .catch(() => null),
@@ -157,6 +208,7 @@ async function resolveEffectiveAccessContextInternal(
 
     try {
       const profile = Array.isArray(profileRes) ? profileRes[0] : profileRes;
+      profileRecord = profile || null;
       if (profile) {
         if (Array.isArray(profile.disabledGroups)) {
           disabledGroups = profile.disabledGroups;
@@ -254,7 +306,7 @@ async function resolveEffectiveAccessContextInternal(
     } catch {}
   }
 
-  return buildAccessContext({
+  const ctx = buildAccessContext({
     sub: user.sub,
     username: user.username || user.name || user.sub,
     email: user.email,
@@ -265,6 +317,7 @@ async function resolveEffectiveAccessContextInternal(
     disabledGroups,
     disableOwnerBypass,
   });
+  return { ctx, profile: profileRecord };
 }
 
 /**
@@ -276,23 +329,19 @@ export async function buildWorkflowUserContext(
   db?: any
 ): Promise<WorkflowUserContext> {
   try {
-    const [user, ctx] = await Promise.all([
+    const [user, resolved] = await Promise.all([
       getAuthUser(request),
-      getEffectiveAccessContext(request, db),
+      getResolvedAccess(request, db),
     ]);
+    const ctx = resolved.ctx;
 
     const sub = user?.sub || ctx.sub || "anonymous";
     if (!sub || sub === "anonymous") {
       return createDefaultWorkflowUserContext();
     }
 
-    let profileRecord: any = null;
-    if (db) {
-      try {
-        const res = await db.select(new RecordId("user_profile", sub));
-        profileRecord = Array.isArray(res) ? res[0] : res;
-      } catch {}
-    }
+    // Reuse the user_profile record already read by the access-context resolver.
+    const profileRecord: any = db ? resolved.profile : null;
 
     const username = user?.username || profileRecord?.username || ctx.username || user?.name || sub;
     const name = user?.name || profileRecord?.name || username;

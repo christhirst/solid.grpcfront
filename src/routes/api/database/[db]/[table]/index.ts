@@ -2,7 +2,7 @@ import { APIEvent } from "@solidjs/start/server";
 import { getDynamicDb } from "~/lib/db";
 import { readJsonBody } from "~/lib/requestUtils";
 
-export async function GET({ params }: APIEvent) {
+export async function GET({ params, request }: APIEvent) {
   try {
     const dbName = params.db;
     const tableName = params.table;
@@ -11,10 +11,16 @@ export async function GET({ params }: APIEvent) {
       return new Response(JSON.stringify({ success: false, error: "Invalid database or table name" }), { status: 400 });
     }
 
+    const url = new URL(request.url);
+    const parsedLimit = Number.parseInt(url.searchParams.get("limit") || "500", 10);
+    const parsedStart = Number.parseInt(url.searchParams.get("start") || "0", 10);
+    const limit = Number.isFinite(parsedLimit) ? Math.min(5000, Math.max(1, parsedLimit)) : 500;
+    const start = Number.isFinite(parsedStart) ? Math.max(0, parsedStart) : 0;
+
     const db = await getDynamicDb(dbName);
     
-    // Select all records from the table
-    const records = await db.query(`SELECT * FROM ${tableName}`);
+    // Select paginated records from the table
+    const records = await db.query(`SELECT * FROM ${tableName} LIMIT $limit START $start`, { limit, start });
     
     return new Response(JSON.stringify({ success: true, data: records }), {
       headers: { "content-type": "application/json" },

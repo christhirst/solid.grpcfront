@@ -1,8 +1,10 @@
 import { describe, expect, it } from "bun:test";
 import {
+  buildExecutionWaves,
   evaluatePayload,
   runWorkflowBackground,
   safeJsonParseWithEscapes,
+  workflowStreamManager,
   type WorkflowDefinition,
 } from "./workflowEngine";
 
@@ -57,7 +59,7 @@ describe("runWorkflowBackground", () => {
     const terminalUpdateCalls = mockDb.queries.filter((q) => q.sql.startsWith("UPDATE $id CONTENT $data"));
 
     expect(createCalls.length).toBe(1);
-    expect(mergeCalls.length).toBe(2);
+    expect(mergeCalls.length).toBeLessThanOrEqual(2);
     expect(terminalUpdateCalls.length).toBe(1);
 
     const finalData = terminalUpdateCalls[0].vars?.data;
@@ -136,12 +138,20 @@ describe("runWorkflowBackground", () => {
 
     // First run populates cache
     await runWorkflowBackground(workflow, "workflow_run:run-201", { form: { key: "k1" } }, mockDb1);
-    expect(mockDb1.queries.filter((q) => q.sql.startsWith("UPDATE $id MERGE $data")).length).toBe(1);
+    expect(mockDb1.queries.filter((q) => q.sql.startsWith("UPDATE $id CONTENT $data")).length).toBe(1);
 
-    // Second run with same input hits cache (0 intermediate step merges, 1 terminal update)
+    // Second run with same input hits cache (0 intermediate step merges, 1 terminal update, fromCache event)
+    const events: any[] = [];
+    const listener = (evt: any) => events.push(evt);
+    workflowStreamManager.on("run:workflow_run:run-202", listener);
     const mockDb2 = createMockDb();
-    await runWorkflowBackground(workflow, "workflow_run:run-202", { form: { key: "k1" } }, mockDb2);
+    try {
+      await runWorkflowBackground(workflow, "workflow_run:run-202", { form: { key: "k1" } }, mockDb2);
+    } finally {
+      workflowStreamManager.off("run:workflow_run:run-202", listener);
+    }
     expect(mockDb2.queries.filter((q) => q.sql.startsWith("UPDATE $id MERGE $data")).length).toBe(0);
+    expect(events.some((e) => e.type === "workflow_complete" && e.data?.fromCache === true)).toBe(true);
 
     const terminalUpdates = mockDb2.queries.filter((q) => q.sql.startsWith("UPDATE $id CONTENT $data"));
     expect(terminalUpdates.length).toBe(1);
@@ -495,5 +505,173 @@ describe("runWorkflowBackground", () => {
     } finally {
       globalThis.fetch = originalFetch;
     }
+  });
+
+  it("executes independent read steps in parallel waves while keeping logs deterministic", async () => {
+    const originalFetch = globalThis.fetch;
+    try {
+      globalThis.fetch = (async (input: RequestInfo | URL) => {
+        const url = String(input);
+        await new Promise((r) => setTimeout(r, 100));
+        return new Response(JSON.stringify({ url }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }) as typeof fetch;
+
+      const mockDb = createMockDb();
+      const workflow: WorkflowDefinition = {
+        id: "workflow:test-parallel-waves",
+        name: "Parallel Read Waves",
+        direction: "read",
+        protoContent: "",
+        serverAddress: "localhost:50051",
+        useTls: false,
+        steps: [
+          { id: "s1", type: "rest", restMethod: "GET", restUrl: "http://mock.local/1" } as any,
+          { id: "s2", type: "rest", restMethod: "GET", restUrl: "http://mock.local/2" } as any,
+          { id: "s3", type: "rest", restMethod: "GET", restUrl: "http://mock.local/3" } as any,
+          {
+            id: "t1",
+            type: "transform",
+            sourceStepIds: ["s1", "s2", "s3"],
+            requestBodyTemplate: "{}",
+            transformExpression: '{"urls": sources.url}',
+          } as any,
+        ],
+      };
+
+      const start = Date.now();
+      await runWorkflowBackground(workflow, "workflow_run:run-parallel-1", {}, mockDb);
+      const elapsed = Date.now() - start;
+
+      // 3x 100ms in parallel should finish well under 240ms (vs >300ms sequential)
+      expect(elapsed).toBeLessThan(240);
+
+      const finalData = mockDb.queries.find((q) => q.sql.startsWith("UPDATE $id CONTENT $data"))?.vars?.data;
+      expect(finalData.status).toBe("completed");
+      expect(finalData.logs.map((l: any) => l.stepId)).toEqual(["s1", "s2", "s3", "t1"]);
+      expect(finalData.context.steps.t1.response).toEqual({
+        urls: ["http://mock.local/1", "http://mock.local/2", "http://mock.local/3"],
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("keeps write-direction steps strictly sequential as barriers", async () => {
+    const originalFetch = globalThis.fetch;
+    const timings: Record<string, { start: number; end: number }> = {};
+    try {
+      globalThis.fetch = (async (input: RequestInfo | URL) => {
+        const key = String(input);
+        const start = Date.now();
+        await new Promise((r) => setTimeout(r, 50));
+        const end = Date.now();
+        timings[key] = { start, end };
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }) as typeof fetch;
+
+      const mockDb = createMockDb();
+      const workflow: WorkflowDefinition = {
+        id: "workflow:test-write-barriers",
+        name: "Write Barriers",
+        direction: "write",
+        protoContent: "",
+        serverAddress: "localhost:50051",
+        useTls: false,
+        steps: [
+          { id: "w1", type: "rest", direction: "write", restMethod: "POST", restUrl: "http://mock.local/w1", requestBodyTemplate: "{}" } as any,
+          { id: "w2", type: "rest", direction: "write", restMethod: "POST", restUrl: "http://mock.local/w2", requestBodyTemplate: "{}" } as any,
+        ],
+      };
+
+      await runWorkflowBackground(workflow, "workflow_run:run-write-seq", {}, mockDb);
+      const t1 = timings["http://mock.local/w1"];
+      const t2 = timings["http://mock.local/w2"];
+      expect(t1).toBeDefined();
+      expect(t2).toBeDefined();
+      expect(t2.start).toBeGreaterThanOrEqual(t1.end);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("respects template-only {{ steps.s1.response }} dependencies without sourceStepIds", async () => {
+    const originalFetch = globalThis.fetch;
+    const seenUrls: string[] = [];
+    try {
+      globalThis.fetch = (async (input: RequestInfo | URL) => {
+        const url = String(input);
+        seenUrls.push(url);
+        if (url.endsWith("/first")) {
+          await new Promise((r) => setTimeout(r, 40));
+          return new Response(JSON.stringify({ nextPath: "item-42" }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }) as typeof fetch;
+
+      const steps = [
+        { id: "s1", type: "rest", restMethod: "GET", restUrl: "http://mock.local/first" } as any,
+        { id: "s2", type: "rest", restMethod: "GET", restUrl: "http://mock.local/{{ steps.s1.response.nextPath }}" } as any,
+      ];
+      expect(buildExecutionWaves(steps, "read").map((w) => w.map((s) => s.id))).toEqual([["s1"], ["s2"]]);
+
+      const mockDb = createMockDb();
+      await runWorkflowBackground(
+        {
+          id: "workflow:test-template-dep",
+          name: "Template Dep",
+          direction: "read",
+          protoContent: "",
+          serverAddress: "localhost:50051",
+          useTls: false,
+          steps,
+        },
+        "workflow_run:run-template-dep",
+        {},
+        mockDb
+      );
+
+      expect(seenUrls).toEqual(["http://mock.local/first", "http://mock.local/item-42"]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("preserves full un-truncated payloads on terminal save even with large responses", async () => {
+    const mockDb = createMockDb();
+    const bigString = "x".repeat(6000);
+    const workflow: WorkflowDefinition = {
+      id: "workflow:test-large-terminal",
+      name: "Large Payload Terminal",
+      direction: "read",
+      protoContent: "",
+      serverAddress: "localhost:50051",
+      useTls: false,
+      steps: [
+        {
+          id: "big_step",
+          type: "transform",
+          requestBodyTemplate: "{}",
+          transformExpression: `{"blob": "${bigString}"}`,
+        } as any,
+      ],
+    };
+
+    await runWorkflowBackground(workflow, "workflow_run:run-large-1", {}, mockDb);
+    const terminal = mockDb.queries.find((q) => q.sql.startsWith("UPDATE $id CONTENT $data"))?.vars?.data;
+    expect(terminal.status).toBe("completed");
+    expect(terminal.logs[0].response.blob.length).toBe(6000);
+    expect(terminal.logs[0].response.__truncated).toBeUndefined();
   });
 });

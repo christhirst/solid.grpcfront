@@ -1,10 +1,12 @@
-import { createSignal, createMemo, createEffect, onMount, onCleanup, Show, For } from "solid-js";
+import { createSignal, createMemo, createEffect, onMount, onCleanup, Show, For, lazy, Suspense } from "solid-js";
 import { isServer } from "solid-js/web";
 import { signIn, signOut } from "@auth/solid-start/client";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { applyTheme, readStoredTheme, type ThemeMode } from "~/lib/theme";
-import UserProfileModal, { type UserProfileData } from "~/components/UserProfileModal";
+import type { UserProfileData } from "~/components/UserProfileModal";
+
+const UserProfileModal = lazy(() => import("~/components/UserProfileModal"));
 
 const fetchSession = async () => {
   try {
@@ -79,6 +81,18 @@ export default function Nav() {
     return Boolean(p.capabilities?.canUseRequests);
   });
 
+  const isPrivileged = createMemo(() => {
+    const p = profileData();
+    if (!p) return false;
+    return Boolean(
+      p.capabilities?.canManageWorkflows ||
+        p.capabilities?.canManageDatabase ||
+        p.capabilities?.canManageConnections ||
+        p.platformRole === "admin" ||
+        p.platformRole === "creator"
+    );
+  });
+
   const visibleConfigLinks = createMemo(() => {
     const p = profileData();
     if (!p || !p.capabilities) return [];
@@ -126,11 +140,15 @@ export default function Nav() {
     } catch {}
   };
 
+  let disposed = false;
+  let healthInterval: ReturnType<typeof setInterval> | undefined;
+
   const checkDbHealth = async () => {
-    if (isServer) return;
+    if (isServer || disposed || document.hidden || !isPrivileged()) return;
     try {
       const res = await fetch("/api/health");
       const json = await res.json().catch(() => ({}));
+      if (disposed) return;
       if (res.ok && json.status === "ok") {
         setDbStatus("connected");
         setDbError(null);
@@ -139,6 +157,7 @@ export default function Nav() {
         setDbError(json.error || json.message || "Database unreachable");
       }
     } catch (err: any) {
+      if (disposed) return;
       setDbStatus("disconnected");
       setDbError(err?.message || "Health check failed");
     }
@@ -151,7 +170,11 @@ export default function Nav() {
     applyTheme(savedTheme, false);
     const onPopState = () => setCurrentPath(window.location.pathname);
     window.addEventListener("popstate", onPopState);
-    onCleanup(() => window.removeEventListener("popstate", onPopState));
+    onCleanup(() => {
+      disposed = true;
+      if (healthInterval) clearInterval(healthInterval);
+      window.removeEventListener("popstate", onPopState);
+    });
 
     const onDocClick = (e: MouseEvent) => {
       if (configDropdownRef && !configDropdownRef.contains(e.target as Node)) {
@@ -172,20 +195,27 @@ export default function Nav() {
 
     const openSettings = () => { if (session()) setSettingsOpen(true); };
     const onGroupsChanged = () => { refreshProfile(); };
+    const onVisibilityChange = () => {
+      if (!document.hidden && isPrivileged()) checkDbHealth();
+    };
     window.addEventListener("open-user-settings", openSettings);
     window.addEventListener("user-groups-changed", onGroupsChanged);
+    document.addEventListener("visibilitychange", onVisibilityChange);
     onCleanup(() => {
       window.removeEventListener("open-user-settings", openSettings);
       window.removeEventListener("user-groups-changed", onGroupsChanged);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     });
 
     setSession(await fetchSession());
+    if (disposed) return;
     if (session()) {
       await refreshProfile();
     }
-    checkDbHealth();
-    const interval = setInterval(checkDbHealth, 30000);
-    onCleanup(() => clearInterval(interval));
+    if (!disposed && isPrivileged()) {
+      checkDbHealth();
+      healthInterval = setInterval(checkDbHealth, 30000);
+    }
   });
 
   const toggleTheme = () => {
@@ -362,6 +392,7 @@ export default function Nav() {
             </Show>
             <span class="hidden sm:inline text-xs font-medium">{theme() === "dark" ? "Light" : "Dark"}</span>
           </button>
+          <Show when={isPrivileged()}>
           <Show
             when={dbStatus() === "connected"}
             fallback={
@@ -395,6 +426,7 @@ export default function Nav() {
               </span>
               <span>Live</span>
             </Badge>
+          </Show>
           </Show>
 
           <div class="hidden sm:block">
@@ -666,13 +698,15 @@ export default function Nav() {
       </Show>
     </nav>
       <Show when={settingsOpen()}>
-        <UserProfileModal
-          onClose={() => setSettingsOpen(false)}
-          onUpdated={(next) => {
-            setProfileData(next);
-            setNamespace(next.namespace || "");
-          }}
-        />
+        <Suspense>
+          <UserProfileModal
+            onClose={() => setSettingsOpen(false)}
+            onUpdated={(next) => {
+              setProfileData(next);
+              setNamespace(next.namespace || "");
+            }}
+          />
+        </Suspense>
       </Show>
       {/* Mobile bottom navigation - smartphones only */}
       <div class="fixed bottom-0 left-0 right-0 z-50 bg-zinc-950/95 backdrop-blur-xl border-t border-zinc-800/80 sm:hidden">

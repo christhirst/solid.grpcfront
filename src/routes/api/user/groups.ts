@@ -217,6 +217,7 @@ export async function POST(event: APIEvent) {
         data: {
           group: groupName,
           username: creatorUsername.toLowerCase(),
+          username_lc: creatorUsername.toLowerCase(),
           displayName: creatorUsername,
           userSub: user.sub,
           rights: allRights,
@@ -327,6 +328,7 @@ export async function POST(event: APIEvent) {
       const memberData = {
         group: groupName,
         username: canonicalUsername,
+        username_lc: canonicalUsername,
         displayName,
         userSub: resolvedSub,
         role: memberRole,

@@ -1,9 +1,191 @@
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
+import { createHash } from "node:crypto";
 import { writeFileSync, rmSync, mkdtempSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { toAuthzenGrpcRequest, fromAuthzenGrpcResponse } from "~/lib/authzenProto";
+
+const LOADER_OPTIONS: protoLoader.Options = {
+  keepCase: true,
+  longs: String,
+  enums: String,
+  defaults: true,
+  oneofs: true,
+};
+
+const MAX_PROTO_CACHE = 50;
+const MAX_CLIENT_CACHE = 64;
+const CLIENT_IDLE_TTL_MS = 5 * 60 * 1000;
+
+const grpcObjectCache = new Map<string, Promise<any>>();
+const grpcClientCache = new Map<string, { client: any; lastUsed: number }>();
+let protoHits = 0;
+let protoMisses = 0;
+
+function sha1(text: string): string {
+  return createHash("sha1").update(text).digest("hex");
+}
+
+const grpcSweepTimer = setInterval(() => {
+  const cutoff = Date.now() - CLIENT_IDLE_TTL_MS;
+  for (const [k, entry] of grpcClientCache) {
+    if (entry.lastUsed < cutoff) {
+      grpcClientCache.delete(k);
+      try {
+        entry.client?.close?.();
+      } catch {}
+    }
+  }
+}, 60_000);
+if (typeof (grpcSweepTimer as any).unref === "function") {
+  (grpcSweepTimer as any).unref();
+}
+
+export function getGrpcCacheStats() {
+  return {
+    protoHits,
+    protoMisses,
+    protoSize: grpcObjectCache.size,
+    clientSize: grpcClientCache.size,
+  };
+}
+
+export function _clearGrpcCachesForTest(): void {
+  grpcObjectCache.clear();
+  for (const entry of grpcClientCache.values()) {
+    try {
+      entry.client?.close?.();
+    } catch {}
+  }
+  grpcClientCache.clear();
+  protoHits = 0;
+  protoMisses = 0;
+}
+
+async function getOrLoadGrpcObject(
+  protoContent: string,
+  descriptorSet?: string
+): Promise<{ grpcObject: any; protoHash: string }> {
+  const protoHash = sha1(descriptorSet ? `desc:${descriptorSet}` : `proto:${protoContent || ""}`);
+  const existing = grpcObjectCache.get(protoHash);
+  if (existing) {
+    protoHits++;
+    grpcObjectCache.delete(protoHash);
+    grpcObjectCache.set(protoHash, existing);
+    return { grpcObject: await existing, protoHash };
+  }
+
+  protoMisses++;
+  while (grpcObjectCache.size >= MAX_PROTO_CACHE) {
+    const oldestKey = grpcObjectCache.keys().next().value;
+    if (oldestKey === undefined) break;
+    grpcObjectCache.delete(oldestKey);
+  }
+
+  const loadPromise = (async () => {
+    let packageDefinition: protoLoader.PackageDefinition;
+    if (descriptorSet) {
+      packageDefinition = protoLoader.loadFileDescriptorSetFromBuffer(
+        Buffer.from(descriptorSet, "base64"),
+        LOADER_OPTIONS
+      );
+    } else {
+      const tempDir = mkdtempSync(join(tmpdir(), "grpc-exec-"));
+      try {
+        const protoPath = join(tempDir, "service.proto");
+        writeFileSync(protoPath, protoContent, "utf-8");
+        packageDefinition = await protoLoader.load(protoPath, LOADER_OPTIONS);
+      } finally {
+        try {
+          rmSync(tempDir, { recursive: true, force: true });
+        } catch {}
+      }
+    }
+    return grpc.loadPackageDefinition(packageDefinition);
+  })().catch((err) => {
+    if (grpcObjectCache.get(protoHash) === loadPromise) {
+      grpcObjectCache.delete(protoHash);
+    }
+    throw err;
+  });
+
+  grpcObjectCache.set(protoHash, loadPromise);
+  return { grpcObject: await loadPromise, protoHash };
+}
+
+function findServiceRecursively(obj: any, target: string): any {
+  if (typeof obj === "function" && (obj.name === target || obj.service)) {
+    return obj;
+  }
+  if (obj && typeof obj === "object") {
+    for (const key of Object.keys(obj)) {
+      const found = findServiceRecursively(obj[key], target);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+function findServiceConstructor(grpcObject: any, serviceName: string): any {
+  const parts = serviceName.split(".");
+  let current: any = grpcObject;
+  for (const part of parts) {
+    if (current && current[part]) {
+      current = current[part];
+    } else {
+      current = null;
+      break;
+    }
+  }
+  if (typeof current === "function") return current;
+
+  const shortName = parts[parts.length - 1];
+  if (typeof grpcObject[shortName] === "function") {
+    return grpcObject[shortName];
+  }
+  return findServiceRecursively(grpcObject, shortName);
+}
+
+function getOrCreateGrpcClient(
+  ServiceConstructor: any,
+  protoHash: string,
+  params: Pick<GrpcCallParams, "serverAddress" | "serviceName" | "useTls" | "caCert" | "acceptInvalidCert">
+): any {
+  const caHash = params.caCert ? sha1(params.caCert) : "";
+  const clientKey = `${params.serverAddress}|${params.useTls ? 1 : 0}|${caHash}|${params.acceptInvalidCert ? 1 : 0}|${protoHash}|${params.serviceName}`;
+
+  const existing = grpcClientCache.get(clientKey);
+  if (existing) {
+    existing.lastUsed = Date.now();
+    grpcClientCache.delete(clientKey);
+    grpcClientCache.set(clientKey, existing);
+    return existing.client;
+  }
+
+  while (grpcClientCache.size >= MAX_CLIENT_CACHE) {
+    const oldestKey = grpcClientCache.keys().next().value;
+    if (oldestKey === undefined) break;
+    const oldest = grpcClientCache.get(oldestKey);
+    grpcClientCache.delete(oldestKey);
+    try {
+      oldest?.client?.close?.();
+    } catch {}
+  }
+
+  const credentials = params.useTls
+    ? grpc.credentials.createSsl(
+        params.caCert ? Buffer.from(params.caCert) : null,
+        undefined,
+        undefined,
+        params.acceptInvalidCert ? { rejectUnauthorized: false, checkServerIdentity: () => undefined } : undefined
+      )
+    : grpc.credentials.createInsecure();
+
+  const client = new ServiceConstructor(params.serverAddress, credentials);
+  grpcClientCache.set(clientKey, { client, lastUsed: Date.now() });
+  return client;
+}
 
 export interface GrpcCallParams {
   protoContent: string;
@@ -37,90 +219,17 @@ export interface GrpcCallResult {
  * Common utility to execute a dynamic unary gRPC call from proto content.
  */
 export async function executeGrpcCall(params: GrpcCallParams): Promise<GrpcCallResult> {
-  const { protoContent, serverAddress, serviceName, methodName, requestBody, useTls, metadata } = params;
-  let tempDir: string | null = null;
-  let client: any = null;
+  const { protoContent, serverAddress, serviceName, methodName, requestBody, metadata } = params;
 
   try {
-    const loaderOptions = {
-      keepCase: true,
-      longs: String,
-      enums: String,
-      defaults: true,
-      oneofs: true,
-    };
-    let packageDefinition: protoLoader.PackageDefinition;
-    if (params.descriptorSet) {
-      packageDefinition = protoLoader.loadFileDescriptorSetFromBuffer(Buffer.from(params.descriptorSet, "base64"), loaderOptions);
-    } else {
-      tempDir = mkdtempSync(join(tmpdir(), "grpc-exec-"));
-      const protoPath = join(tempDir, "service.proto");
-      writeFileSync(protoPath, protoContent, "utf-8");
-      packageDefinition = await protoLoader.load(protoPath, loaderOptions);
-    }
-
-    const grpcObject = grpc.loadPackageDefinition(packageDefinition);
-
-    let ServiceConstructor: any = null;
-    
-    // Helper to find service recursively in the gRPC object
-    function findService(obj: any, target: string): any {
-      if (typeof obj === "function" && (obj.name === target || obj.service)) {
-        return obj;
-      }
-      if (obj && typeof obj === "object") {
-        for (const key of Object.keys(obj)) {
-          const found = findService(obj[key], target);
-          if (found) return found;
-        }
-      }
-      return null;
-    }
-
-    // 1. Try direct path lookup (e.g. "mynamespace.MyService")
-    const parts = serviceName.split(".");
-    let current: any = grpcObject;
-    for (const part of parts) {
-      if (current && current[part]) {
-        current = current[part];
-      } else {
-        current = null;
-        break;
-      }
-    }
-
-    if (typeof current === "function") {
-      ServiceConstructor = current;
-    }
-
-    // 2. Fallback: Search for the short name at root (e.g. if passed "MyService" but it's at root)
-    if (!ServiceConstructor) {
-      const shortName = parts[parts.length - 1];
-      if (typeof grpcObject[shortName] === "function") {
-        ServiceConstructor = grpcObject[shortName];
-      }
-    }
-
-    // 3. Last Resort: Recursive search for the short name anywhere in the object
-    if (!ServiceConstructor) {
-      const shortName = parts[parts.length - 1];
-      ServiceConstructor = findService(grpcObject, shortName);
-    }
+    const { grpcObject, protoHash } = await getOrLoadGrpcObject(protoContent, params.descriptorSet);
+    const ServiceConstructor = findServiceConstructor(grpcObject, serviceName);
 
     if (!ServiceConstructor) {
       throw new Error(`Service "${serviceName}" not found in proto definition. Available keys: ${Object.keys(grpcObject).join(", ")}`);
     }
 
-    const credentials = useTls
-      ? grpc.credentials.createSsl(
-          params.caCert ? Buffer.from(params.caCert) : null,
-          undefined,
-          undefined,
-          params.acceptInvalidCert ? { rejectUnauthorized: false, checkServerIdentity: () => undefined } : undefined,
-        )
-      : grpc.credentials.createInsecure();
-
-    client = new ServiceConstructor(serverAddress, credentials);
+    const client = getOrCreateGrpcClient(ServiceConstructor, protoHash, params);
 
     const startTime = Date.now();
 
@@ -174,15 +283,6 @@ export async function executeGrpcCall(params: GrpcCallParams): Promise<GrpcCallR
       grpcStatus: isGrpcError ? err.details : undefined,
       metadata: isGrpcError ? err.metadata?.toJSON?.() || {} : undefined,
     };
-  } finally {
-    client?.close();
-    if (tempDir) {
-      try {
-        rmSync(tempDir, { recursive: true, force: true });
-      } catch {
-        // ignore
-      }
-    }
   }
 }
 
@@ -200,96 +300,27 @@ export async function executeGrpcStreamCall(
   onError: (error: any) => void,
   onEnd: () => void
 ): Promise<{ cancel: () => void }> {
-  const { protoContent, serverAddress, serviceName, methodName, requestBody, useTls, metadata, streamInputs } = params;
-  let tempDir: string | null = null;
-  let client: any = null;
+  const { protoContent, serviceName, methodName, requestBody, metadata, streamInputs } = params;
   let callStream: any = null;
+  let cleaned = false;
 
   const cleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
     if (callStream && typeof callStream.cancel === "function") {
       try { callStream.cancel(); } catch {}
-    }
-    if (client && typeof client.close === "function") {
-      try { client.close(); } catch {}
-    }
-    if (tempDir) {
-      try {
-        rmSync(tempDir, { recursive: true, force: true });
-      } catch {}
     }
   };
 
   try {
-    const loaderOptions = {
-      keepCase: true,
-      longs: String,
-      enums: String,
-      defaults: true,
-      oneofs: true,
-    };
-    let packageDefinition: protoLoader.PackageDefinition;
-    if (params.descriptorSet) {
-      packageDefinition = protoLoader.loadFileDescriptorSetFromBuffer(Buffer.from(params.descriptorSet, "base64"), loaderOptions);
-    } else {
-      tempDir = mkdtempSync(join(tmpdir(), "grpc-stream-"));
-      const protoPath = join(tempDir, "service.proto");
-      writeFileSync(protoPath, protoContent, "utf-8");
-      packageDefinition = await protoLoader.load(protoPath, loaderOptions);
-    }
-
-    const grpcObject = grpc.loadPackageDefinition(packageDefinition);
-
-    function findService(obj: any, target: string): any {
-      if (typeof obj === "function" && (obj.name === target || obj.service)) {
-        return obj;
-      }
-      if (obj && typeof obj === "object") {
-        for (const key of Object.keys(obj)) {
-          const found = findService(obj[key], target);
-          if (found) return found;
-        }
-      }
-      return null;
-    }
-
-    const parts = serviceName.split(".");
-    let current: any = grpcObject;
-    for (const part of parts) {
-      if (current && current[part]) {
-        current = current[part];
-      } else {
-        current = null;
-        break;
-      }
-    }
-
-    let ServiceConstructor: any = typeof current === "function" ? current : null;
-    if (!ServiceConstructor) {
-      const shortName = parts[parts.length - 1];
-      if (typeof grpcObject[shortName] === "function") {
-        ServiceConstructor = grpcObject[shortName];
-      }
-    }
-    if (!ServiceConstructor) {
-      const shortName = parts[parts.length - 1];
-      ServiceConstructor = findService(grpcObject, shortName);
-    }
+    const { grpcObject, protoHash } = await getOrLoadGrpcObject(protoContent, params.descriptorSet);
+    const ServiceConstructor = findServiceConstructor(grpcObject, serviceName);
 
     if (!ServiceConstructor) {
       throw new Error(`Service "${serviceName}" not found in proto definition.`);
     }
 
-    const credentials = useTls
-      ? grpc.credentials.createSsl(
-          params.caCert ? Buffer.from(params.caCert) : null,
-          undefined,
-          undefined,
-          params.acceptInvalidCert ? { rejectUnauthorized: false, checkServerIdentity: () => undefined } : undefined,
-        )
-      : grpc.credentials.createInsecure();
-
-
-    client = new ServiceConstructor(serverAddress, credentials);
+    const client = getOrCreateGrpcClient(ServiceConstructor, protoHash, params);
 
     if (typeof client[methodName] !== "function") {
       throw new Error(`Method "${methodName}" not found on service "${serviceName}"`);

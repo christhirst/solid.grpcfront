@@ -3,7 +3,17 @@ import { createClientResource } from "~/lib/clientResource";
 import { isServer } from "solid-js/web";
 import { parseProtoContent, generateSkeleton, type ParsedProto, type ProtoMethod } from "~/lib/protoParser";
 import { Line } from "solid-chartjs";
-import { Chart, registerables } from "chart.js";
+import {
+  Chart,
+  LineController,
+  LineElement,
+  PointElement,
+  CategoryScale,
+  LinearScale,
+  Tooltip,
+  Legend,
+  Filler,
+} from "chart.js";
 
 // Safe dot-path getter to avoid CJS interop issues in Vite prod builds
 function get(obj: any, path: string | string[], defValue?: any) {
@@ -19,9 +29,18 @@ import {
   flexRender,
 } from "@tanstack/solid-table";
 
-// Register Chart.js components
+// Register Chart.js components (line chart only)
 if (!isServer) {
-  Chart.register(...registerables);
+  Chart.register(
+    LineController,
+    LineElement,
+    PointElement,
+    CategoryScale,
+    LinearScale,
+    Tooltip,
+    Legend,
+    Filler
+  );
 }
 
 interface HistoryEntry {

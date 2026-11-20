@@ -7,6 +7,7 @@ export type OutcomeStatus = "loading" | "ready" | "error";
 
 export interface WidgetOutcome {
   data: unknown;
+  logs?: any[];
   status: OutcomeStatus;
   error: string;
 }
@@ -14,6 +15,13 @@ export interface WidgetOutcome {
 /** Run a widget's bound workflow once on mount and expose the last successful outcome. */
 export function useWidgetOutcome(dashboardId: string | undefined, btn: WidgetConfig) {
   const [outcome, setOutcome] = createSignal<WidgetOutcome>({ data: undefined, status: "loading", error: "" });
+  let disposed = false;
+  let cancelPoll: (() => void) | undefined;
+
+  onCleanup(() => {
+    disposed = true;
+    cancelPoll?.();
+  });
 
   onMount(async () => {
     const targetWfId = btn.conditionWorkflowId || btn.workflowId;
@@ -30,20 +38,23 @@ export function useWidgetOutcome(dashboardId: string | undefined, btn: WidgetCon
 
     try {
       const runId = await triggerWidgetRun(dashboardId, btn.id, {}, btn.conditionWorkflowId);
-      const cancelPoll = pollRun(
+      if (disposed) return;
+      cancelPoll = pollRun(
         runId,
         {
           onDone: (logs) => {
-            setOutcome({ data: extractRunOutcome(logs), status: "ready", error: "" });
+            if (disposed) return;
+            setOutcome({ data: extractRunOutcome(logs), logs, status: "ready", error: "" });
           },
           onError: (msg) => {
+            if (disposed) return;
             setOutcome({ data: undefined, status: "error", error: msg });
           },
         },
         { maxAttempts: 60, intervalMs: 1500 }
       );
-      onCleanup(() => cancelPoll());
     } catch (e: any) {
+      if (disposed) return;
       setOutcome({ data: undefined, status: "error", error: e.message || "Failed to load widget state" });
     }
   });

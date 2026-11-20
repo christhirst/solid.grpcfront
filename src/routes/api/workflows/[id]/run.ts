@@ -92,19 +92,24 @@ export async function POST(event: APIEvent) {
 export async function GET(event: APIEvent) {
   try {
     const id = event.params.id;
+    const url = new URL(event.request.url);
+    const parsedLimit = Number.parseInt(url.searchParams.get("limit") || "20", 10);
+    const limit = Number.isFinite(parsedLimit) ? Math.min(50, Math.max(1, parsedLimit)) : 20;
+
     const db = await getDb();
     const rawDbId = id.includes(":") ? id.split(":")[1] : id;
     const dbId = rawDbId.replace(/[⟨⟩]/g, "");
     const recordId = new RecordId("workflow", dbId);
     const wfIdStr = recordId.toString();
     const cleanWfIdStr = `workflow:${dbId}`;
+    const ids = Array.from(new Set([recordId, wfIdStr, cleanWfIdStr, dbId]));
 
-    // Get all runs for this workflow matching RecordId, chevron string, or clean string
+    // Get recent runs for this workflow matching RecordId, chevron string, or clean string
     const query =
-      "SELECT * FROM workflow_run WHERE workflowId = $wfId OR workflowId = $wfIdStr OR workflowId = $cleanWfIdStr OR workflowId = $dbId ORDER BY startTime DESC LIMIT 20";
+      "SELECT * OMIT context FROM workflow_run WHERE workflowId IN $ids ORDER BY startTime DESC LIMIT $limit";
     let results: any = [[]];
     try {
-      const raw: any = await db.query(query, { wfId: recordId, wfIdStr, cleanWfIdStr, dbId });
+      const raw: any = await db.query(query, { ids, limit });
       results = [(raw[0] || []).map((r: any) => ({ ...r, id: r.id?.toString().replace(/[⟨⟩]/g, "") }))];
     } catch (e: any) {
       if (!e.message?.includes("does not exist")) throw e;

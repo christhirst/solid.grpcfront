@@ -1,5 +1,6 @@
 import jsonata from "jsonata";
 import get from "lodash.get";
+import { createHash } from "node:crypto";
 import { getDb } from "~/lib/db";
 import { installConsoleTimestamps } from "~/lib/logger";
 import { executeGrpcCall, executeGrpcStreamCall } from "~/lib/grpcExecutor";
@@ -33,6 +34,107 @@ export { getStepCategory, type StepCategory, type WorkflowStep, type StepVariabl
 
 export const workflowStreamManager = new EventEmitter();
 workflowStreamManager.setMaxListeners(200);
+
+// ---------------------------------------------------------------------------
+// Module-level caches for workflow execution
+// ---------------------------------------------------------------------------
+
+const MAX_JSONATA_CACHE = 200;
+const jsonataCache = new Map<string, any>();
+
+function getCompiledJsonata(exprString: string): any {
+  const existing = jsonataCache.get(exprString);
+  if (existing) {
+    jsonataCache.delete(exprString);
+    jsonataCache.set(exprString, existing);
+    return existing;
+  }
+  const compiled = jsonata(exprString);
+  registerJsonataTextFunctions(compiled);
+  while (jsonataCache.size >= MAX_JSONATA_CACHE) {
+    const oldest = jsonataCache.keys().next().value;
+    if (oldest === undefined) break;
+    jsonataCache.delete(oldest);
+  }
+  jsonataCache.set(exprString, compiled);
+  return compiled;
+}
+
+interface GlobalOAuthCacheEntry {
+  header: string;
+  token: string;
+  response?: any;
+  name?: string;
+  expiresAt: number;
+}
+const MAX_OAUTH_TOKEN_CACHE = 128;
+const globalOAuthTokenCache = new Map<string, GlobalOAuthCacheEntry>();
+
+function computeOAuthTokenTtlMs(response: any): number {
+  const rawExp = Number(response?.expires_in);
+  if (Number.isFinite(rawExp) && rawExp > 60) {
+    return (rawExp - 60) * 1000;
+  }
+  if (Number.isFinite(rawExp) && rawExp > 0) {
+    return Math.max(5000, Math.floor(rawExp * 500));
+  }
+  return 5 * 60 * 1000; // 5-minute default when expires_in is absent
+}
+
+function getGlobalOAuthToken(connDbId: string, updatedAt?: string): GlobalOAuthCacheEntry | null {
+  const key = `${connDbId}:${updatedAt || ""}`;
+  const entry = globalOAuthTokenCache.get(key);
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now()) {
+    globalOAuthTokenCache.delete(key);
+    return null;
+  }
+  globalOAuthTokenCache.delete(key);
+  globalOAuthTokenCache.set(key, entry);
+  return entry;
+}
+
+function setGlobalOAuthToken(
+  connDbId: string,
+  updatedAt: string | undefined,
+  entry: Omit<GlobalOAuthCacheEntry, "expiresAt">
+): void {
+  const key = `${connDbId}:${updatedAt || ""}`;
+  const ttlMs = computeOAuthTokenTtlMs(entry.response);
+  while (globalOAuthTokenCache.size >= MAX_OAUTH_TOKEN_CACHE) {
+    const oldest = globalOAuthTokenCache.keys().next().value;
+    if (oldest === undefined) break;
+    globalOAuthTokenCache.delete(oldest);
+  }
+  globalOAuthTokenCache.set(key, { ...entry, expiresAt: Date.now() + ttlMs });
+}
+
+export function _clearWorkflowEngineCachesForTest(): void {
+  jsonataCache.clear();
+  globalOAuthTokenCache.clear();
+}
+
+const INTERMEDIATE_RESPONSE_LIMIT_BYTES = 4096;
+
+function truncateIntermediateLogs(logs: WorkflowRunLog[]): WorkflowRunLog[] {
+  return logs.map((log) => {
+    if (log.response === undefined) return log;
+    try {
+      const serialized = JSON.stringify(log.response);
+      if (serialized && serialized.length > INTERMEDIATE_RESPONSE_LIMIT_BYTES) {
+        return {
+          ...log,
+          response: {
+            __truncated: true,
+            preview: serialized.slice(0, 512),
+            byteLength: serialized.length,
+          },
+        };
+      }
+    } catch {}
+    return log;
+  });
+}
 
 export function emitWorkflowEvent(runId: string, workflowId: string, type: string, data: any) {
   const payload = {
@@ -74,7 +176,8 @@ async function getStepAuthHeader(
   rawStep: any,
   db: any,
   context?: any,
-  tokenCache?: Map<string, { header?: string; token?: string; response?: any; name?: string }>
+  tokenCache?: Map<string, { header?: string; token?: string; response?: any; name?: string }>,
+  connResolver?: (connId: string) => Promise<any | null>
 ): Promise<string | undefined> {
   if (rawStep?.type === "database" || rawStep?.type === "surreal_live" || rawStep?.type === "s3") {
     return undefined;
@@ -120,13 +223,20 @@ async function getStepAuthHeader(
       return cached.header;
     }
 
-    console.log(`[STEP AUTH] Fetching connection details for ID: ${authConnId}`);
     try {
-      const connRecord = await db.select(new RecordId("connection", connDbId));
-      const rawConnection = Array.isArray(connRecord) ? connRecord[0] : connRecord;
+      let connection: any = null;
+      if (connResolver) {
+        connection = await connResolver(connDbId);
+      } else {
+        console.log(`[STEP AUTH] Fetching connection details for ID: ${authConnId}`);
+        const connRecord = await db.select(new RecordId("connection", connDbId));
+        const rawConnection = Array.isArray(connRecord) ? connRecord[0] : connRecord;
+        if (rawConnection) {
+          connection = await resolveObjectSecrets(normalizeConnection(rawConnection));
+        }
+      }
       
-      if (rawConnection) {
-        const connection = await resolveObjectSecrets(normalizeConnection(rawConnection));
+      if (connection) {
         const conn = connection as any;
         console.log(`[STEP AUTH] Resolving auth for connection: ${connection.name} (type: ${connection.type})`);
 
@@ -157,6 +267,47 @@ async function getStepAuthHeader(
         }
 
         if (conn.authType === "oauth" || conn.tokenUrl || conn.oauthProvider) {
+          const cachedGlobal = getGlobalOAuthToken(connDbId, conn.updated_at);
+          if (cachedGlobal) {
+            tokenCache?.set(connDbId, {
+              header: cachedGlobal.header,
+              token: cachedGlobal.token,
+              response: cachedGlobal.response,
+              name: cachedGlobal.name || connection.name,
+            });
+            if (context && cachedGlobal.token) {
+              context.auth = {
+                ...(context.auth || {}),
+                token: cachedGlobal.token,
+                access_token: cachedGlobal.token,
+                response: cachedGlobal.response,
+              };
+              context.access_token = cachedGlobal.token;
+              context.token = cachedGlobal.token;
+              context.connections = context.connections || {};
+              context.connections[connDbId] = {
+                token: cachedGlobal.token,
+                access_token: cachedGlobal.token,
+                response: cachedGlobal.response,
+              };
+              context.connections[`connection:${connDbId}`] = {
+                token: cachedGlobal.token,
+                access_token: cachedGlobal.token,
+                response: cachedGlobal.response,
+              };
+              const nameSlug = (connection.name || "").toLowerCase().replace(/[^a-z0-9_]/g, "_");
+              if (nameSlug) {
+                context.oauth = context.oauth || {};
+                context.oauth[nameSlug] = {
+                  token: cachedGlobal.token,
+                  access_token: cachedGlobal.token,
+                  response: cachedGlobal.response,
+                };
+              }
+            }
+            return cachedGlobal.header;
+          }
+
           const tokenRes = await fetchPreRequestToken({
             tokenUrl: conn.tokenUrl,
             tokenMethod: conn.tokenMethod,
@@ -183,6 +334,14 @@ async function getStepAuthHeader(
           const prefix = conn.tokenHeaderPrefix !== undefined ? conn.tokenHeaderPrefix : "Bearer ";
           const header = `${prefix}${tokenRes.token}`;
           tokenCache?.set(connDbId, { header, token: tokenRes.token, response: tokenRes.response, name: connection.name });
+          if (tokenRes.token) {
+            setGlobalOAuthToken(connDbId, conn.updated_at, {
+              header,
+              token: tokenRes.token,
+              response: tokenRes.response,
+              name: connection.name,
+            });
+          }
           if (context && tokenRes.token) {
             context.auth = {
               ...(context.auth || {}),
@@ -588,6 +747,156 @@ export function sortStepsTopologically(steps: WorkflowStep[]): WorkflowStep[] {
   return sorted.length === steps.length ? sorted : steps;
 }
 
+export function isBarrierStep(step: WorkflowStep, workflowDirection?: "read" | "write"): boolean {
+  if ((step as any).direction === "write") return true;
+  if (workflowDirection === "write" && (step as any).direction !== "read") return true;
+  if (step.type === "oauth_token" || step.type === "authz") return true;
+  if (
+    step.type === "database" &&
+    (step as any).direction !== "read" &&
+    /\b(CREATE|UPDATE|DELETE|INSERT|UPSERT|REMOVE|DEFINE|RELATE)\b/i.test(
+      (step as any).surrealQuery || step.requestBodyTemplate || ""
+    )
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Partition topologically ordered steps into parallel execution waves.
+ * Independent read/transform/target steps with all upstream dependencies satisfied run together;
+ * write, oauth_token, and authz steps act as sequential barriers preserving relative order.
+ */
+export function buildExecutionWaves(
+  orderedSteps: WorkflowStep[],
+  workflowDirection?: "read" | "write"
+): WorkflowStep[][] {
+  if (!orderedSteps || orderedSteps.length === 0) return [];
+  if (orderedSteps.length === 1) return [[orderedSteps[0]]];
+
+  const stepIdSet = new Set(orderedSteps.map((s) => s.id));
+  const varProducers = new Map<string, Array<{ stepId: string; idx: number }>>();
+
+  orderedSteps.forEach((s, idx) => {
+    if (!Array.isArray(s.variables)) return;
+    for (const v of s.variables) {
+      if (v && v.direction === "up") {
+        const cleanAlias = (v.alias || "").trim().replace(/^\{\{\s*|\s*\}\}$/g, "");
+        const cleanName = (v.name || "").trim().replace(/^\{\{\s*|\s*\}\}$/g, "");
+        for (const key of [cleanAlias, cleanName]) {
+          if (!key) continue;
+          let list = varProducers.get(key);
+          if (!list) {
+            list = [];
+            varProducers.set(key, list);
+          }
+          list.push({ stepId: s.id, idx });
+        }
+      }
+    }
+  });
+
+  const depsMap = new Map<string, Set<string>>();
+  orderedSteps.forEach((s, idx) => {
+    const deps = new Set<string>();
+    if (Array.isArray(s.sourceStepIds)) {
+      for (const srcId of s.sourceStepIds) {
+        if (stepIdSet.has(srcId) && srcId !== s.id) deps.add(srcId);
+      }
+    }
+
+    const blob = JSON.stringify(s);
+    for (const m of blob.matchAll(/\bsteps\.([a-zA-Z0-9_-]+)/g)) {
+      const refId = m[1];
+      if (stepIdSet.has(refId) && refId !== s.id) deps.add(refId);
+    }
+
+    for (const m of blob.matchAll(/\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g)) {
+      const root = (m[1] || "").split(".")[0];
+      const producers = varProducers.get(root);
+      if (producers) {
+        for (let i = producers.length - 1; i >= 0; i--) {
+          if (producers[i].idx < idx && producers[i].stepId !== s.id) {
+            deps.add(producers[i].stepId);
+            break;
+          }
+        }
+      }
+    }
+
+    for (const m of blob.matchAll(/\bvariables\.([a-zA-Z0-9_-]+)/g)) {
+      const varName = m[1];
+      const producers = varProducers.get(varName);
+      if (producers) {
+        for (let i = producers.length - 1; i >= 0; i--) {
+          if (producers[i].idx < idx && producers[i].stepId !== s.id) {
+            deps.add(producers[i].stepId);
+            break;
+          }
+        }
+      }
+    }
+
+    depsMap.set(s.id, deps);
+  });
+
+  const waves: WorkflowStep[][] = [];
+  const completed = new Set<string>();
+  let segment: WorkflowStep[] = [];
+
+  const flushSegment = () => {
+    if (segment.length === 0) return;
+    let pending = segment;
+    segment = [];
+    while (pending.length > 0) {
+      const ready: WorkflowStep[] = [];
+      const nextPending: WorkflowStep[] = [];
+      for (const s of pending) {
+        const deps = depsMap.get(s.id);
+        let allMet = true;
+        if (deps) {
+          for (const d of deps) {
+            if (!completed.has(d)) {
+              allMet = false;
+              break;
+            }
+          }
+        }
+        if (allMet) {
+          ready.push(s);
+        } else {
+          nextPending.push(s);
+        }
+      }
+      if (ready.length === 0) {
+        // Cycle fallback: advance one step to guarantee forward progress
+        const forced = nextPending.shift()!;
+        waves.push([forced]);
+        completed.add(forced.id);
+        pending = nextPending;
+      } else {
+        waves.push(ready);
+        for (const r of ready) completed.add(r.id);
+        pending = nextPending;
+      }
+    }
+  };
+
+  for (const s of orderedSteps) {
+    if (isBarrierStep(s, workflowDirection)) {
+      flushSegment();
+      waves.push([s]);
+      completed.add(s.id);
+    } else {
+      segment.push(s);
+    }
+  }
+  flushSegment();
+
+  return waves;
+}
+
 function normalizeVisualData(value: any): any[] {
   let data = parseJsonString(value);
 
@@ -678,8 +987,49 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
   const runRecordId = new RecordId("workflow_run", dbId);
   await db.query("CREATE $id CONTENT $data", { id: runRecordId, data: dataWithoutId });
 
+  let intermediateDirty = false;
+  let isTerminalRunState = false;
+  let intermediateTimer: ReturnType<typeof setTimeout> | undefined;
+  let inFlightIntermediate: Promise<void> | null = null;
+
+  const flushIntermediateState = () => {
+    if (intermediateTimer) {
+      clearTimeout(intermediateTimer);
+      intermediateTimer = undefined;
+    }
+    if (!intermediateDirty || isTerminalRunState) return;
+    intermediateDirty = false;
+    const snapshot = {
+      status: runRecord.status,
+      logs: truncateIntermediateLogs(runRecord.logs),
+    };
+    inFlightIntermediate = db
+      .query("UPDATE $id MERGE $data", {
+        id: runRecordId,
+        data: snapshot,
+      })
+      .catch((e: any) => {
+        console.warn(`[ENGINE] Intermediate run update failed: ${e.message}`);
+      })
+      .finally(() => {
+        inFlightIntermediate = null;
+        if (intermediateDirty && !isTerminalRunState && !intermediateTimer) {
+          intermediateTimer = setTimeout(flushIntermediateState, 250);
+        }
+      });
+  };
+
   const saveRunState = async (terminal = false) => {
     if (terminal) {
+      isTerminalRunState = true;
+      intermediateDirty = false;
+      if (intermediateTimer) {
+        clearTimeout(intermediateTimer);
+        intermediateTimer = undefined;
+      }
+      if (inFlightIntermediate) {
+        await inFlightIntermediate;
+      }
       runRecord.context = sanitizeContextForStorage(context);
       const { id: _ignore, ...data } = runRecord;
       try {
@@ -688,17 +1038,10 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
         console.error(`[ENGINE] Failed to save terminal run record: ${e.message}`);
       }
     } else {
-      // Lightweight intermediate update: persist latest logs and status without serializing the massive context
-      try {
-        await db.query("UPDATE $id MERGE $data", {
-          id: runRecordId,
-          data: {
-            status: runRecord.status,
-            logs: runRecord.logs,
-          },
-        });
-      } catch (e: any) {
-        console.warn(`[ENGINE] Intermediate run update failed: ${e.message}`);
+      if (isTerminalRunState) return;
+      intermediateDirty = true;
+      if (!intermediateTimer && !inFlightIntermediate) {
+        intermediateTimer = setTimeout(flushIntermediateState, 250);
       }
     }
   };
@@ -714,8 +1057,22 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
   const isReadWorkflow = workflow.direction === "read" || (workflow.steps && workflow.steps.every(s => (s as any).direction !== "write"));
   let cacheKey: string | null = null;
   if (cacheTtl > 0 && isReadWorkflow && cleanWfId) {
-    const inputSig = JSON.stringify(customContext || {});
-    cacheKey = `wf_cache:${cleanWfId}:${Buffer.from(inputSig).toString("base64")}`;
+    const usesUserInSteps = /\$user\b/.test(JSON.stringify(workflow.steps || []));
+    const { $user: _dropUser, form: ctxForm, dashboard_form: ctxDashForm, ...otherCtxKeys } = customContext || {};
+    const keyPayload: Record<string, any> = {
+      form: ctxForm || {},
+      dashboard_form: ctxDashForm || {},
+      ...otherCtxKeys,
+    };
+    if (usesUserInSteps) {
+      keyPayload.user = {
+        sub: userContext?.sub || "anonymous",
+        roles: userContext?.roles || [],
+        groups: userContext?.groups || [],
+      };
+    }
+    const digest = createHash("sha1").update(JSON.stringify(keyPayload)).digest("hex");
+    cacheKey = `wf_cache:${cleanWfId}:${digest}`;
     const cachedResponse = await getCache(cacheKey);
     if (cachedResponse) {
       try {
@@ -749,13 +1106,49 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
     const defaultCaId = caId || (legacyUseTls ? ACCEPT_ALL_CA : "");
     const useTls = defaultCaId !== "";
 
+    // Per-run caches for connections, proto files, and CA certs (Promise-based so parallel steps dedupe lookups)
+    const runConnCache = new Map<string, Promise<any | null>>();
+    const resolveRunConnection = (rawId: string): Promise<any | null> => {
+      const connDbId = String(rawId || "").replace(/^connection:/, "").replace(/[⟨⟩]/g, "").trim();
+      if (!connDbId) return Promise.resolve(null);
+      const existing = runConnCache.get(connDbId);
+      if (existing) return existing;
+      const p = (async () => {
+        const connRecord = await db.select(new RecordId("connection", connDbId));
+        const rawConn = Array.isArray(connRecord) ? connRecord[0] : connRecord;
+        if (!rawConn) return null;
+        return await resolveObjectSecrets(normalizeConnection(rawConn));
+      })().catch((err) => {
+        runConnCache.delete(connDbId);
+        throw err;
+      });
+      runConnCache.set(connDbId, p);
+      return p;
+    };
+
+    const runProtoCache = new Map<string, Promise<any | null>>();
+    const resolveRunProto = (rawId: string): Promise<any | null> => {
+      const protoDbId = String(rawId || "").replace(/^proto_file:/, "").replace(/[⟨⟩]/g, "").trim();
+      if (!protoDbId) return Promise.resolve(null);
+      const existing = runProtoCache.get(protoDbId);
+      if (existing) return existing;
+      const p = (async () => {
+        const protoRecord = await db.select(new RecordId("proto_file", protoDbId));
+        const protoFile = Array.isArray(protoRecord) ? protoRecord[0] : protoRecord;
+        return protoFile || null;
+      })().catch((err) => {
+        runProtoCache.delete(protoDbId);
+        throw err;
+      });
+      runProtoCache.set(protoDbId, p);
+      return p;
+    };
+
     let protoContent = storedProtoContent || "";
     if (protoId) {
       console.log(`[ENGINE] Fetching workflow proto by ID: ${protoId}`);
       try {
-        const protoDbId = protoId.includes(":") ? protoId.split(":")[1] : protoId;
-        const protoRecord = await db.select(new RecordId("proto_file", protoDbId));
-        const protoFile = Array.isArray(protoRecord) ? protoRecord[0] : protoRecord;
+        const protoFile = await resolveRunProto(protoId);
         if (protoFile && protoFile.content) {
           protoContent = protoFile.content;
         }
@@ -765,43 +1158,43 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
     }
 
     // Fetch CA cert PEM if a CA is configured
-    const caCertCache = new Map<string, string | undefined>();
-    const resolveCaCert = async (selectedCaId: string) => {
-      if (!selectedCaId || selectedCaId === ACCEPT_ALL_CA) return undefined;
-      if (caCertCache.has(selectedCaId)) return caCertCache.get(selectedCaId);
-      console.log(`[ENGINE] Fetching CA cert by ID: ${selectedCaId}`);
-      try {
-        const caDbId = selectedCaId.includes(":") ? selectedCaId.split(":")[1] : selectedCaId;
-        const caRecord = await db.select(new RecordId("ca_cert", caDbId));
-        const caFile = Array.isArray(caRecord) ? caRecord[0] : caRecord;
-        if (caFile && caFile.content) {
-          const cert = caFile.content;
-          caCertCache.set(selectedCaId, cert);
-          console.log(`[ENGINE] CA cert loaded: ${caFile.name || caDbId}`);
-          return cert;
+    const caCertCache = new Map<string, Promise<string | undefined>>();
+    const resolveCaCert = (selectedCaId: string): Promise<string | undefined> => {
+      if (!selectedCaId || selectedCaId === ACCEPT_ALL_CA) return Promise.resolve(undefined);
+      const existing = caCertCache.get(selectedCaId);
+      if (existing) return existing;
+      const p = (async () => {
+        console.log(`[ENGINE] Fetching CA cert by ID: ${selectedCaId}`);
+        try {
+          const caDbId = selectedCaId.includes(":") ? selectedCaId.split(":")[1] : selectedCaId;
+          const caRecord = await db.select(new RecordId("ca_cert", caDbId));
+          const caFile = Array.isArray(caRecord) ? caRecord[0] : caRecord;
+          if (caFile && caFile.content) {
+            console.log(`[ENGINE] CA cert loaded: ${caFile.name || caDbId}`);
+            return caFile.content as string;
+          }
+        } catch (err: any) {
+          console.error(`[ENGINE] Failed to resolve CA cert by ID ${selectedCaId}:`, err);
         }
-      } catch (err: any) {
-        console.error(`[ENGINE] Failed to resolve CA cert by ID ${selectedCaId}:`, err);
-      }
-      caCertCache.set(selectedCaId, undefined);
-      return undefined;
+        return undefined;
+      })();
+      caCertCache.set(selectedCaId, p);
+      return p;
     };
     const caCert = await resolveCaCert(defaultCaId);
 
     const parsedProto = parseProtoContent(protoContent);
 
     // 1. Perform Authentication if configured
-    const tokenCache = new Map<string, { header?: string; token?: string; response?: any }>();
+    const tokenCache = new Map<string, { header?: string; token?: string; response?: any; name?: string }>();
     let authToken: string | undefined;
     if (connectionId) {
       console.log(`[AUTH] Fetching connection details for ID: ${connectionId}`);
       try {
         const connDbId = (connectionId.includes(":") ? connectionId.split(":")[1] : connectionId).replace(/[⟨⟩]/g, "").trim();
-        const connRecord = await db.select(new RecordId("connection", connDbId));
-        const rawConnection = Array.isArray(connRecord) ? connRecord[0] : connRecord;
+        const connection = await resolveRunConnection(connDbId);
         
-        if (rawConnection) {
-          const connection = await resolveObjectSecrets(normalizeConnection(rawConnection));
+        if (connection) {
           const conn = connection as any;
           console.log(`[AUTH] Resolving workflow connection auth: ${connection.name}`);
 
@@ -810,47 +1203,68 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
             context.auth = { token: authToken, access_token: authToken };
             context.access_token = authToken;
             context.token = authToken;
-            tokenCache.set(connDbId, { header: `Bearer ${authToken}`, token: authToken });
+            tokenCache.set(connDbId, { header: `Bearer ${authToken}`, token: authToken, name: connection.name });
           } else if (conn.authType === "basic" && (conn.username || conn.password)) {
             authToken = Buffer.from(`${conn.username || ""}:${conn.password || ""}`).toString("base64");
             context.auth = { token: authToken, access_token: authToken };
             context.access_token = authToken;
             context.token = authToken;
-            tokenCache.set(connDbId, { header: `Basic ${authToken}`, token: authToken });
+            tokenCache.set(connDbId, { header: `Basic ${authToken}`, token: authToken, name: connection.name });
           } else if (conn.authType === "oauth" || conn.tokenUrl) {
-            const tokenRes = await fetchPreRequestToken({
-              tokenUrl: conn.tokenUrl,
-              tokenMethod: conn.tokenMethod,
-              tokenAuthScheme: conn.tokenAuthScheme,
-              tokenUsername: conn.tokenUsername,
-              tokenPassword: conn.tokenPassword,
-              tokenBearerToken: conn.tokenBearerToken,
-              tokenGrantType: conn.tokenGrantType,
-              tokenClientId: conn.tokenClientId,
-              tokenClientSecret: conn.tokenClientSecret,
-              tokenScope: conn.tokenScope,
-              tokenContentType: conn.tokenContentType,
-              tokenBody: conn.tokenBody,
-              tokenHeaders: conn.tokenHeaders,
-              tokenPath: conn.tokenPath,
-              caId: conn.caId,
-              acceptInvalidCert: conn.acceptInvalidCert,
-            });
+            const cachedGlobal = getGlobalOAuthToken(connDbId, conn.updated_at);
+            if (cachedGlobal) {
+              authToken = cachedGlobal.token;
+              context.auth = { token: authToken, access_token: authToken, response: cachedGlobal.response };
+              context.access_token = authToken;
+              context.token = authToken;
+              context.connections = context.connections || {};
+              context.connections[connDbId] = { token: authToken, access_token: authToken, response: cachedGlobal.response };
+              context.connections[`connection:${connDbId}`] = { token: authToken, access_token: authToken, response: cachedGlobal.response };
+              tokenCache.set(connDbId, { header: cachedGlobal.header, token: authToken, response: cachedGlobal.response, name: cachedGlobal.name || connection.name });
+            } else {
+              const tokenRes = await fetchPreRequestToken({
+                tokenUrl: conn.tokenUrl,
+                tokenMethod: conn.tokenMethod,
+                tokenAuthScheme: conn.tokenAuthScheme,
+                tokenUsername: conn.tokenUsername,
+                tokenPassword: conn.tokenPassword,
+                tokenBearerToken: conn.tokenBearerToken,
+                tokenGrantType: conn.tokenGrantType,
+                tokenClientId: conn.tokenClientId,
+                tokenClientSecret: conn.tokenClientSecret,
+                tokenScope: conn.tokenScope,
+                tokenContentType: conn.tokenContentType,
+                tokenBody: conn.tokenBody,
+                tokenHeaders: conn.tokenHeaders,
+                tokenPath: conn.tokenPath,
+                caId: conn.caId,
+                acceptInvalidCert: conn.acceptInvalidCert,
+              });
 
-            if (!tokenRes.success) {
-              throw new Error(tokenRes.error);
+              if (!tokenRes.success) {
+                throw new Error(tokenRes.error);
+              }
+
+              authToken = tokenRes.token;
+              const prefix = conn.tokenHeaderPrefix !== undefined ? conn.tokenHeaderPrefix : "Bearer ";
+              const header = `${prefix}${authToken}`;
+              context.auth = { token: authToken, access_token: authToken, response: tokenRes.response };
+              context.access_token = authToken;
+              context.token = authToken;
+              context.connections = context.connections || {};
+              context.connections[connDbId] = { token: authToken, access_token: authToken, response: tokenRes.response };
+              context.connections[`connection:${connDbId}`] = { token: authToken, access_token: authToken, response: tokenRes.response };
+              tokenCache.set(connDbId, { header, token: authToken, response: tokenRes.response, name: connection.name });
+              if (authToken) {
+                setGlobalOAuthToken(connDbId, conn.updated_at, {
+                  header,
+                  token: authToken,
+                  response: tokenRes.response,
+                  name: connection.name,
+                });
+              }
+              console.log(`[AUTH] Success. Connection token obtained.`);
             }
-
-            authToken = tokenRes.token;
-            const prefix = conn.tokenHeaderPrefix !== undefined ? conn.tokenHeaderPrefix : "Bearer ";
-            context.auth = { token: authToken, access_token: authToken, response: tokenRes.response };
-            context.access_token = authToken;
-            context.token = authToken;
-            context.connections = context.connections || {};
-            context.connections[connDbId] = { token: authToken, access_token: authToken, response: tokenRes.response };
-            context.connections[`connection:${connDbId}`] = { token: authToken, access_token: authToken, response: tokenRes.response };
-            tokenCache.set(connDbId, { header: `${prefix}${authToken}`, token: authToken, response: tokenRes.response });
-            console.log(`[AUTH] Success. Connection token obtained.`);
           }
         } else {
           throw new Error(`Connection ${connectionId} not found in database`);
@@ -949,13 +1363,15 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
           .filter((id: any): id is string => typeof id === "string" && id.trim().length > 0)
       )
     );
-    for (const sConnId of stepAuthConnIds) {
-      try {
-        await getStepAuthHeader({ authConnectionId: sConnId, authType: "oauth" }, db, context, tokenCache);
-      } catch (e: any) {
-        console.warn(`[AUTH PREFETCH] Step auth connection ${sConnId} prefetch notice: ${e.message}`);
-      }
-    }
+    await Promise.all(
+      stepAuthConnIds.map(async (sConnId) => {
+        try {
+          await getStepAuthHeader({ authConnectionId: sConnId, authType: "oauth" }, db, context, tokenCache, resolveRunConnection);
+        } catch (e: any) {
+          console.warn(`[AUTH PREFETCH] Step auth connection ${sConnId} prefetch notice: ${e.message}`);
+        }
+      })
+    );
     if (!context.access_token) {
       const usesTokenTemplate = executionSteps.some((s: any) => {
         const blob = `${s.restUrl || ""} ${s.headersTemplate || ""} ${s.requestBodyTemplate || ""} ${s.surrealQuery || ""}`;
@@ -963,11 +1379,13 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
       });
       if (usesTokenTemplate) {
         try {
-          const allConnsRaw = await db.select("connection");
-          const allConns = (Array.isArray(allConnsRaw) ? allConnsRaw : []).map(normalizeConnection);
-          const oauthConn = allConns.find((c: any) => c.authType === "oauth" || c.tokenUrl);
+          const oauthRes = await db.query(
+            "SELECT * FROM connection WHERE authType = 'oauth' OR tokenUrl != NONE LIMIT 1"
+          );
+          const oauthRows = Array.isArray(oauthRes?.[0]) ? oauthRes[0] : [];
+          const oauthConn = oauthRows[0] ? normalizeConnection(oauthRows[0]) : undefined;
           if (oauthConn?.id) {
-            await getStepAuthHeader({ connectionId: oauthConn.id, authType: "oauth" }, db, context, tokenCache);
+            await getStepAuthHeader({ connectionId: oauthConn.id, authType: "oauth" }, db, context, tokenCache, resolveRunConnection);
           }
         } catch (e: any) {
           console.warn(`[AUTH PREFETCH] Fallback OAuth connection prefetch failed: ${e.message}`);
@@ -998,8 +1416,15 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
       context.__vaultRefs = vaultRefMap;
     }
 
-    for (const rawStep of executionSteps) {
-      const step = await resolveObjectSecrets(rawStep, STEP_SECRET_FIELDS);
+    context.connections = context.connections || {};
+    context.oauth = context.oauth || {};
+    context.variables = context.variables || {};
+    const runContext = context;
+
+    const executeSingleStep = async (
+      rawStep: WorkflowStep
+    ): Promise<{ outcome: "continue" | "abort"; step: WorkflowStep; logs: WorkflowRunLog[] }> => {
+      const step = await resolveObjectSecrets({ ...rawStep }, STEP_SECRET_FIELDS);
       const stepLiteralVars = new Set<string>();
       if (Array.isArray(step.variables)) {
         for (const v of step.variables) {
@@ -1010,10 +1435,15 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
           }
         }
       }
-      context.__stepLiteralVars = stepLiteralVars;
+      // Shallow per-step view over shared runContext so parallel steps keep __stepLiteralVars & inline auth isolated
+      const context: typeof runContext = { ...runContext, __stepLiteralVars: stepLiteralVars };
+      const stepLogs: WorkflowRunLog[] = [];
+      const pushStepLog = (entry: WorkflowRunLog) => {
+        Array.prototype.push.call(stepLogs, { timestamp: new Date().toISOString(), ...entry });
+      };
+
       // Each step runs inside a Sentry span. The callback returns a signal
-      // ("continue" | "abort") so we can control the outer loop without
-      // using continue/return across the function boundary.
+      // ("continue" | "abort") so the wave runner can aggregate results cleanly.
       const stepResult: "continue" | "abort" = await Sentry.startSpan(
         {
           name: `step: ${step.id} (${step.type || "grpc"})`,
@@ -1024,7 +1454,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
           },
         },
         async (): Promise<"continue" | "abort"> => {
-          let stepAuthHeader = await getStepAuthHeader(step, db, context, tokenCache);
+          let stepAuthHeader = await getStepAuthHeader(step, db, context, tokenCache, resolveRunConnection);
           if (!stepAuthHeader && authToken) {
             stepAuthHeader = `Bearer ${authToken}`;
           }
@@ -1059,11 +1489,8 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
         // Resolve gRPC connection details from saved connection
         if (step.connectionId) {
           try {
-            const connDbId = (step.connectionId || "").replace(/^connection:/, "").replace(/[⟨⟩]/g, "").trim();
-            const connRecord = await db.select(new RecordId("connection", connDbId));
-            const rawConn = Array.isArray(connRecord) ? connRecord[0] : connRecord;
-            if (rawConn) {
-              const conn = normalizeConnection(rawConn) as any;
+            const conn = (await resolveRunConnection(step.connectionId)) as any;
+            if (conn) {
               if (conn.serverAddress && !step.serverAddress) step.serverAddress = conn.serverAddress;
               if (conn.caId && !step.caId) step.caId = conn.caId;
               if (!step.caId) step.useTls = step.useTls ?? conn.useTls;
@@ -1071,9 +1498,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
               if (conn.timeoutMs) connTimeoutMs = Number(conn.timeoutMs);
               if (!stepProtoContent && conn.protoId) {
                 try {
-                  const protoDbId = (conn.protoId || "").replace(/^proto_file:/, "").replace(/[⟨⟩]/g, "").trim();
-                  const protoRecord = await db.select(new RecordId("proto_file", protoDbId));
-                  const rawProto = Array.isArray(protoRecord) ? protoRecord[0] : protoRecord;
+                  const rawProto = await resolveRunProto(conn.protoId);
                   if (rawProto?.content) stepProtoContent = rawProto.content;
                 } catch {}
               }
@@ -1144,13 +1569,9 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
 
         if (!success) {
           emitWorkflowEvent(runId, workflow.id || "", "step_failed", { stepId: step.id, error: streamError });
-          runRecord.status = "failed";
-          runRecord.endTime = new Date().toISOString();
-          await saveRunState(true);
           return "abort";
         }
 
-        await saveRunState(false);
         emitWorkflowEvent(runId, workflow.id || "", "step_complete", { stepId: step.id, response: chunks });
         return "continue";
       }
@@ -1171,11 +1592,8 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
         // Resolve HTTP connection details from saved connection BEFORE applying local URL fallback
         if (step.connectionId) {
           try {
-            const connDbId = (step.connectionId.includes(":") ? step.connectionId.split(":")[1] : step.connectionId).replace(/[⟨⟩]/g, "").trim();
-            const connRecord = await db.select(new RecordId("connection", connDbId));
-            const rawConn = Array.isArray(connRecord) ? connRecord[0] : connRecord;
-            if (rawConn) {
-              const conn = normalizeConnection(rawConn) as any;
+            const conn = (await resolveRunConnection(step.connectionId)) as any;
+            if (conn) {
               if (conn.url && evaluatedUrl && !evaluatedUrl.startsWith("http://") && !evaluatedUrl.startsWith("https://")) {
                 evaluatedUrl = conn.url.replace(/\/+$/, "") + "/" + evaluatedUrl.replace(/^\/+/, "");
               } else if (conn.url && !evaluatedUrl) {
@@ -1257,13 +1675,9 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
 
         if (!success) {
           emitWorkflowEvent(runId, workflow.id || "", "step_failed", { stepId: step.id, error: streamError });
-          runRecord.status = "failed";
-          runRecord.endTime = new Date().toISOString();
-          await saveRunState(true);
           return "abort";
         }
 
-        await saveRunState(false);
         emitWorkflowEvent(runId, workflow.id || "", "step_complete", { stepId: step.id, response: chunks });
         return "continue";
       }
@@ -1282,11 +1696,8 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
         let savedLiveConn: any = null;
         if (step.connectionId) {
           try {
-            const connDbId = (step.connectionId || "").replace(/^connection:/, "").replace(/[⟨⟩]/g, "").trim();
-            const connRecord = await db.select(new RecordId("connection", connDbId));
-            const rawConn = Array.isArray(connRecord) ? connRecord[0] : connRecord;
-            if (rawConn) {
-              const conn = (await resolveObjectSecrets(normalizeConnection(rawConn) as any)) as any;
+            const conn = (await resolveRunConnection(step.connectionId)) as any;
+            if (conn) {
               savedLiveConn = conn;
               const isLegacySeedUserOverride =
                 targetDbUser === "ai" && conn.username && conn.username !== "ai";
@@ -1377,13 +1788,9 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
 
         if (!success) {
           emitWorkflowEvent(runId, workflow.id || "", "step_failed", { stepId: step.id, error: streamError });
-          runRecord.status = "failed";
-          runRecord.endTime = new Date().toISOString();
-          await saveRunState(true);
           return "abort";
         }
 
-        await saveRunState(false);
         emitWorkflowEvent(runId, workflow.id || "", "step_complete", { stepId: step.id, response: chunks });
         return "continue";
       }
@@ -1413,8 +1820,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
           };
 
           const exprString = (step.transformExpression || "").trim() || "$";
-          const expression = jsonata(exprString);
-          registerJsonataTextFunctions(expression);
+          const expression = getCompiledJsonata(exprString);
           transformedResult = await expression.evaluate(evaluationScope, {
             user: context.$user,
           });
@@ -1449,13 +1855,9 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
 
         if (!success) {
           emitWorkflowEvent(runId, workflow.id || "", "step_failed", { stepId: step.id, error: transformError });
-          runRecord.status = "failed";
-          runRecord.endTime = new Date().toISOString();
-          await saveRunState(true);
           return "abort";
         }
 
-        await saveRunState(false);
         emitWorkflowEvent(runId, workflow.id || "", "step_complete", { stepId: step.id, response: transformedResult });
         return "continue";
       }
@@ -1549,13 +1951,9 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
 
         if (!success) {
           emitWorkflowEvent(runId, workflow.id || "", "step_failed", { stepId: step.id, error: transformError });
-          runRecord.status = "failed";
-          runRecord.endTime = new Date().toISOString();
-          await saveRunState(true);
           return "abort";
         }
 
-        await saveRunState(false);
         emitWorkflowEvent(runId, workflow.id || "", "step_complete", {
           stepId: step.id,
           response: transformedResult,
@@ -1653,8 +2051,6 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
           }
         });
 
-        await saveRunState(false);
-
         emitWorkflowEvent(runId, workflow.id || "", "step_complete", {
           stepId: step.id,
           response: visData,
@@ -1713,11 +2109,8 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
           let savedDbConn: any = null;
           if (step.connectionId) {
             try {
-              const connDbId = (step.connectionId || "").replace(/^connection:/, "").replace(/[⟨⟩]/g, "").trim();
-              const connRecord = await db.select(new RecordId("connection", connDbId));
-              const rawConn = Array.isArray(connRecord) ? connRecord[0] : connRecord;
-              if (rawConn) {
-                const conn = (await resolveObjectSecrets(normalizeConnection(rawConn) as any)) as any;
+              const conn = (await resolveRunConnection(step.connectionId)) as any;
+              if (conn) {
                 savedDbConn = conn;
                 const isLegacySeedUserOverride =
                   targetDbUser === "ai" && conn.username && conn.username !== "ai";
@@ -1808,13 +2201,9 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
             error: execResult.error,
             timestamp: new Date().toISOString(),
           });
-          runRecord.status = "failed";
-          runRecord.endTime = new Date().toISOString();
-          await saveRunState(true);
           return "abort";
         }
 
-        await saveRunState(false);
         emitWorkflowEvent(runId, workflow.id || "", "step_complete", {
           stepId: step.id,
           response: responseData,
@@ -1845,11 +2234,8 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
 
         if (step.connectionId) {
           try {
-            const connDbId = (step.connectionId || "").replace(/^connection:/, "").replace(/[⟨⟩]/g, "").trim();
-            const connRecord = await db.select(new RecordId("connection", connDbId));
-            const rawConn = Array.isArray(connRecord) ? connRecord[0] : connRecord;
-            if (rawConn) {
-              const conn = await resolveObjectSecrets(normalizeConnection(rawConn) as any);
+            const conn = await resolveRunConnection(step.connectionId);
+            if (conn) {
               if (conn.endpoint && !s3Endpoint) s3Endpoint = conn.endpoint;
               if (conn.region && !s3Region) s3Region = conn.region;
               if (conn.bucket && !s3Bucket) s3Bucket = conn.bucket;
@@ -1967,13 +2353,9 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
             error: finalResult.error,
             timestamp: new Date().toISOString(),
           });
-          runRecord.status = "failed";
-          runRecord.endTime = new Date().toISOString();
-          await saveRunState(true);
           return "abort";
         }
 
-        await saveRunState(false);
         emitWorkflowEvent(runId, workflow.id || "", "step_complete", {
           stepId: step.id,
           response: responsePayload,
@@ -1995,10 +2377,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
         const authConnId = step.authConnectionId || step.connectionId;
         if (authConnId) {
           try {
-            const connDbId = String(authConnId).replace(/^connection:/, "").replace(/[⟨⟩]/g, "").trim();
-            const connRecord = await db.select(new RecordId("connection", connDbId));
-            const rawConn = Array.isArray(connRecord) ? connRecord[0] : connRecord;
-            if (rawConn) targetConn = await resolveObjectSecrets(normalizeConnection(rawConn));
+            targetConn = await resolveRunConnection(authConnId);
           } catch (e: any) {
             console.error("[OAUTH STEP] Failed to load connection:", e);
           }
@@ -2082,6 +2461,9 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
             access_token: tokenVal,
             response: finalResult.response,
           };
+          runContext.access_token = tokenVal;
+          runContext.token = tokenVal;
+          runContext.auth = context.auth;
           if (targetConn?.name) {
             const nameSlug = targetConn.name.toLowerCase().replace(/[^a-z0-9_]/g, "_");
             context.oauth = context.oauth || {};
@@ -2106,13 +2488,9 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
             error: finalResult.error,
             timestamp: new Date().toISOString(),
           });
-          runRecord.status = "failed";
-          runRecord.endTime = new Date().toISOString();
-          await saveRunState(true);
           return "abort";
         }
 
-        await saveRunState(false);
         emitWorkflowEvent(runId, workflow.id || "", "step_complete", {
           stepId: step.id,
           response: responsePayload,
@@ -2145,13 +2523,8 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
 
         if (step.connectionId) {
           try {
-            const connDbId = (step.connectionId.includes(":") ? step.connectionId.split(":")[1] : step.connectionId)
-              .replace(/[⟨⟩]/g, "")
-              .trim();
-            const connRecord = await db.select(new RecordId("connection", connDbId));
-            const rawConn = Array.isArray(connRecord) ? connRecord[0] : connRecord;
-            if (rawConn) {
-              const conn = (await resolveObjectSecrets(normalizeConnection(rawConn))) as any;
+            const conn = (await resolveRunConnection(step.connectionId)) as any;
+            if (conn) {
               if (conn.serverAddress && !step.serverAddress) {
                 targetServerAddress = conn.serverAddress;
               }
@@ -2190,9 +2563,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
               }
               if (!stepProtoContent && conn.protoId) {
                 try {
-                  const protoDbId = String(conn.protoId).replace(/^proto_file:/, "").replace(/[⟨⟩]/g, "").trim();
-                  const protoRecord = await db.select(new RecordId("proto_file", protoDbId));
-                  const rawProto = Array.isArray(protoRecord) ? protoRecord[0] : protoRecord;
+                  const rawProto = await resolveRunProto(conn.protoId);
                   if (rawProto?.content) stepProtoContent = rawProto.content;
                 } catch {}
               }
@@ -2453,9 +2824,6 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
             error: execError,
             timestamp: new Date().toISOString(),
           });
-          runRecord.status = "failed";
-          runRecord.endTime = new Date().toISOString();
-          await saveRunState(true);
           return "abort";
         }
 
@@ -2496,13 +2864,9 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
             response: normalized,
             timestamp: new Date().toISOString(),
           });
-          runRecord.status = "failed";
-          runRecord.endTime = new Date().toISOString();
-          await saveRunState(true);
           return "abort";
         }
 
-        await saveRunState(false);
         emitWorkflowEvent(runId, workflow.id || "", "step_complete", {
           stepId: step.id,
           response: normalized,
@@ -2560,11 +2924,8 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
         // Resolve HTTP connection details from saved connection BEFORE applying local URL fallback
         if (step.connectionId) {
           try {
-            const connDbId = (step.connectionId.includes(":") ? step.connectionId.split(":")[1] : step.connectionId).replace(/[⟨⟩]/g, "").trim();
-            const connRecord = await db.select(new RecordId("connection", connDbId));
-            const rawConn = Array.isArray(connRecord) ? connRecord[0] : connRecord;
-            if (rawConn) {
-              const conn = normalizeConnection(rawConn) as any;
+            const conn = (await resolveRunConnection(step.connectionId)) as any;
+            if (conn) {
               // Use connection URL as base if step URL is relative or empty
               if (conn.url && evaluatedUrl && !evaluatedUrl.startsWith("http://") && !evaluatedUrl.startsWith("https://")) {
                 evaluatedUrl = conn.url.replace(/\/+$/, "") + "/" + evaluatedUrl.replace(/^\/+/, "");
@@ -2700,13 +3061,8 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
              error: execResult.error,
              timestamp: new Date().toISOString(),
            });
-           runRecord.status = "failed";
-           runRecord.endTime = new Date().toISOString();
-           await saveRunState(true);
            return "abort";
         }
-
-        await saveRunState(false);
 
         emitWorkflowEvent(runId, workflow.id || "", "step_complete", {
           stepId: step.id,
@@ -2748,11 +3104,8 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
       // Resolve gRPC connection details from saved connection
       if (step.connectionId) {
         try {
-          const connDbId = (step.connectionId || "").replace(/^connection:/, "").replace(/[⟨⟩]/g, "").trim();
-          const connRecord = await db.select(new RecordId("connection", connDbId));
-          const rawConn = Array.isArray(connRecord) ? connRecord[0] : connRecord;
-          if (rawConn) {
-            const conn = normalizeConnection(rawConn) as any;
+          const conn = (await resolveRunConnection(step.connectionId)) as any;
+          if (conn) {
             if (conn.serverAddress && !step.serverAddress) step.serverAddress = conn.serverAddress;
             if (conn.caId && !step.caId) step.caId = conn.caId;
             if (!step.caId) step.useTls = step.useTls ?? conn.useTls;
@@ -2760,9 +3113,7 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
             if (conn.timeoutMs) connTimeoutMs = Number(conn.timeoutMs);
             if (!stepProtoContent && conn.protoId) {
               try {
-                const protoDbId = (conn.protoId || "").replace(/^proto_file:/, "").replace(/[⟨⟩]/g, "").trim();
-                const protoRecord = await db.select(new RecordId("proto_file", protoDbId));
-                const rawProto = Array.isArray(protoRecord) ? protoRecord[0] : protoRecord;
+                const rawProto = await resolveRunProto(conn.protoId);
                 if (rawProto?.content) stepProtoContent = rawProto.content;
               } catch {}
             }
@@ -2857,13 +3208,8 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
           error: execResult.error,
           timestamp: new Date().toISOString(),
         });
-        runRecord.status = "failed";
-        runRecord.endTime = new Date().toISOString();
-        await saveRunState(true);
         return "abort";
       }
-
-      await saveRunState(false);
 
       emitWorkflowEvent(runId, workflow.id || "", "step_complete", {
         stepId: step.id,
@@ -2876,34 +3222,62 @@ async function _runWorkflowBackground(workflow: WorkflowDefinition, runId: strin
 
       }); // end Sentry.startSpan for step
 
-      if (stepResult === "abort") return;
+      return { outcome: stepResult, step, logs: stepLogs };
+    };
 
-      // After each step executes successfully, map any upstream variables produced by this step into context.variables and the latest logRecord
-      const stepResponse = context.steps[step.id]?.response;
-      if (stepResponse !== undefined && Array.isArray(step.variables)) {
-        if (!context.variables) context.variables = {};
-        for (const v of step.variables) {
-          if (v.direction === "up") {
-            const rawName = (v.name || "").trim().replace(/^\{\{\s*|\s*\}\}$/g, "");
-            const val = (rawName && rawName !== "response" && rawName !== "data")
-              ? (resolveSubPath(stepResponse, rawName) ?? stepResponse)
-              : stepResponse;
+    const waves = buildExecutionWaves(executionSteps, workflow.direction);
+    for (const wave of waves) {
+      const waveResults = wave.length === 1
+        ? [await executeSingleStep(wave[0])]
+        : await Promise.all(wave.map((rawStep) => executeSingleStep(rawStep)));
 
-            if (v.alias && v.alias.trim()) {
-              const cleanAlias = v.alias.trim().replace(/^\{\{\s*|\s*\}\}$/g, "");
-              context.variables[cleanAlias] = val;
-            }
-            if (v.name && v.name.trim()) {
-              const cleanName = v.name.trim().replace(/^\{\{\s*|\s*\}\}$/g, "");
-              context.variables[cleanName] = val;
+      let aborted = false;
+      for (const res of waveResults) {
+        for (const log of res.logs) {
+          runRecord.logs.push(log);
+        }
+        if (res.outcome === "abort") {
+          aborted = true;
+          continue;
+        }
+
+        // Map any upstream variables produced by this step in deterministic step order
+        const step = res.step;
+        const stepResponse = context.steps[step.id]?.response;
+        if (stepResponse !== undefined && Array.isArray(step.variables)) {
+          if (!context.variables) context.variables = {};
+          for (const v of step.variables) {
+            if (v.direction === "up") {
+              const rawName = (v.name || "").trim().replace(/^\{\{\s*|\s*\}\}$/g, "");
+              const val = (rawName && rawName !== "response" && rawName !== "data")
+                ? (resolveSubPath(stepResponse, rawName) ?? stepResponse)
+                : stepResponse;
+
+              if (v.alias && v.alias.trim()) {
+                const cleanAlias = v.alias.trim().replace(/^\{\{\s*|\s*\}\}$/g, "");
+                context.variables[cleanAlias] = val;
+              }
+              if (v.name && v.name.trim()) {
+                const cleanName = v.name.trim().replace(/^\{\{\s*|\s*\}\}$/g, "");
+                context.variables[cleanName] = val;
+              }
             }
           }
-        }
-        const lastLog = runRecord.logs[runRecord.logs.length - 1];
-        if (lastLog) {
-          (lastLog as any).variables = { ...(context.variables || {}) };
+          const lastStepLog = res.logs[res.logs.length - 1];
+          if (lastStepLog) {
+            (lastStepLog as any).variables = { ...(context.variables || {}) };
+          }
         }
       }
+
+      if (aborted) {
+        runRecord.status = "failed";
+        runRecord.endTime = new Date().toISOString();
+        await saveRunState(true);
+        return;
+      }
+
+      saveRunState(false);
     }
 
     // All steps successful

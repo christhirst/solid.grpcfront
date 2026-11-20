@@ -74,51 +74,101 @@ export async function executeHttpStreamCall(
       const decoder = new TextDecoder();
       let buffer = "";
 
-      const isEventStream = res.headers.get("content-type")?.includes("text/event-stream");
+      const contentType = (res.headers.get("content-type") || "").toLowerCase();
+      const isEventStream = contentType.includes("text/event-stream");
+      const isNdjson =
+        contentType.includes("application/x-ndjson") ||
+        contentType.includes("application/ndjson") ||
+        contentType.includes("application/jsonl");
+      const isSingleJson = !isEventStream && !isNdjson && contentType.includes("json");
+      const jsonChunks: string[] = [];
+
+      const emitSseBlock = (rawBlock: string) => {
+        if (!rawBlock.trim()) return;
+        let eventType = "message";
+        let eventData = "";
+
+        for (const line of rawBlock.split("\n")) {
+          if (line.startsWith("event:")) {
+            eventType = line.slice(6).trim();
+          } else if (line.startsWith("data:")) {
+            eventData += (eventData ? "\n" : "") + line.slice(5).trim();
+          }
+        }
+
+        let parsed: any = eventData;
+        try {
+          parsed = JSON.parse(eventData);
+        } catch {}
+
+        onChunk({ raw: rawBlock, parsed: { event: eventType, data: parsed } });
+      };
+
+      const emitNdjsonLine = (line: string) => {
+        const trimmed = line.trim();
+        if (!trimmed) return;
+        let parsed: any = trimmed;
+        try {
+          parsed = JSON.parse(trimmed);
+        } catch {}
+        onChunk({ raw: trimmed, parsed });
+      };
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
         const text = decoder.decode(value, { stream: true });
-        buffer += text;
+        if (!text) continue;
 
         if (isEventStream) {
-          const lines = buffer.split("\n\n");
-          buffer = lines.pop() || "";
-
-          for (const rawBlock of lines) {
-            if (!rawBlock.trim()) continue;
-            let eventType = "message";
-            let eventData = "";
-
-            for (const line of rawBlock.split("\n")) {
-              if (line.startsWith("event:")) {
-                eventType = line.slice(6).trim();
-              } else if (line.startsWith("data:")) {
-                eventData += (eventData ? "\n" : "") + line.slice(5).trim();
-              }
-            }
-
-            let parsed: any = eventData;
-            try {
-              parsed = JSON.parse(eventData);
-            } catch {}
-
-            onChunk({ raw: rawBlock, parsed: { event: eventType, data: parsed } });
+          buffer += text;
+          const blocks = buffer.split("\n\n");
+          buffer = blocks.pop() || "";
+          for (const rawBlock of blocks) {
+            emitSseBlock(rawBlock);
           }
+        } else if (isNdjson) {
+          buffer += text;
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+          for (const line of lines) {
+            emitNdjsonLine(line);
+          }
+        } else if (isSingleJson) {
+          jsonChunks.push(text);
         } else {
-          // Chunked text or JSON stream
-          let parsed: any = buffer;
-          try {
-            parsed = JSON.parse(buffer);
-          } catch {}
-          onChunk({ raw: text, parsed });
+          // Chunked plain text stream: emit each chunk once without quadratic buffering
+          onChunk({ raw: text, parsed: text });
         }
       }
 
-      if (buffer.trim()) {
-        onChunk({ raw: buffer, parsed: buffer });
+      const tail = decoder.decode();
+      if (isEventStream) {
+        if (tail) buffer += tail;
+        if (buffer.trim()) emitSseBlock(buffer);
+      } else if (isNdjson) {
+        if (tail) buffer += tail;
+        if (buffer.trim()) emitNdjsonLine(buffer);
+      } else if (isSingleJson) {
+        if (tail) jsonChunks.push(tail);
+        const full = jsonChunks.join("");
+        if (full.trim()) {
+          try {
+            const parsed = JSON.parse(full);
+            onChunk({ raw: full, parsed });
+          } catch {
+            // Fallback for servers emitting NDJSON with application/json content-type
+            const lines = full.split("\n").filter((l) => l.trim().length > 0);
+            if (lines.length > 1) {
+              for (const line of lines) emitNdjsonLine(line);
+            } else {
+              onChunk({ raw: full, parsed: full });
+            }
+          }
+        }
+      } else if (tail) {
+        onChunk({ raw: tail, parsed: tail });
       }
 
       onEnd();

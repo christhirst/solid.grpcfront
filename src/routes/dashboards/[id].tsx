@@ -3,20 +3,6 @@ import { createClientResource } from "~/lib/clientResource";
 import { createStore, reconcile } from "solid-js/store";
 import { useParams, useNavigate, A } from "@solidjs/router";
 import { isServer } from "solid-js/web";
-import { DefaultChart } from "solid-chartjs";
-import { Chart, registerables } from "chart.js";
-import * as ChartGeo from "chartjs-chart-geo";
-import get from "lodash.get";
-
-if (!isServer) {
-  Chart.register(...registerables);
-  Chart.register(
-    ChartGeo.ChoroplethController,
-    ChartGeo.GeoFeature,
-    ChartGeo.ColorScale,
-    ChartGeo.ProjectionScale
-  );
-}
 
 import { extractFormVariables, checkWidgetVariablesConfigured, extractUpstreamVariables } from "~/lib/workflowVariableChecker";
 import DashboardGrid, { getDefaultWidgetDimensions } from "~/components/dashboard/DashboardGrid";
@@ -24,9 +10,11 @@ import { DashboardButtonFormWidget } from "~/components/dashboard/DashboardButto
 import { DashboardPublicButtonFormWidget } from "~/components/dashboard/DashboardPublicWidget";
 import { useWidgetOutcome } from "~/components/dashboard/useWidgetOutcome";
 import { applyWidgetConditions, defaultEffectiveConfig } from "~/lib/dashboard/widgetConditions";
-import { buildMixedChartData, buildMultiChartData, resolveChartSeries, effectiveChartType, SERIES_COLORS, MULTI_SERIES_TYPES } from "~/lib/dashboard/chartSeries";
+import { resolveChartSeries, effectiveChartType, SERIES_COLORS, MULTI_SERIES_TYPES } from "~/lib/dashboard/chartSeries";
 import type { ChartSeriesConfig, ChartSeriesType } from "~/lib/dashboard/widgetTypes";
-import { getChartThemeColors, getTimelineThemeColors, subscribeToThemeChanges } from "~/lib/theme";
+import { DashTable } from "~/components/dashboard/widgets/DashTable";
+import { NewsWidgetComponent } from "~/components/dashboard/widgets/NewsWidget";
+import { extractLastStep, pollRun } from "~/lib/dashboard/runPolling";
 import { TabsList, TabsTrigger } from "~/components/ui/tabs";
 import { Badge } from "~/components/ui/badge";
 import { Input } from "~/components/ui/input";
@@ -37,7 +25,10 @@ import { ResourceTagEditor } from "~/components/ResourceTagEditor";
 import { ActionMessageBanner, type ActionMessage } from "~/components/ui/ActionMessageBanner";
 
 
-import { evaluateNewsRules, newsColorClasses, type NewsRule } from "~/lib/newsRulesEvaluator";
+import type { NewsRule } from "~/lib/newsRulesEvaluator";
+
+const DashChart = lazy(() => import("~/components/dashboard/widgets/DashChart"));
+const DashTimeline = lazy(() => import("~/components/dashboard/widgets/DashTimeline"));
 
 
 /** Return the type of the last meaningful step in a workflow */
@@ -2102,685 +2093,23 @@ export default function DashboardBuilder() {
 
 // ─── Live Preview Helper Components and Functions ─────────────────────────────
 
-function valueToLabel(value: any, fallback: number) {
-  if (value === undefined || value === null || value === "") return String(fallback + 1);
-  return typeof value === "object" ? JSON.stringify(value) : String(value);
-}
-
-function valueToNumber(value: any, fallback = 0) {
-  if (typeof value === "number") return Number.isFinite(value) ? value : fallback;
-  if (typeof value === "boolean") return value ? 1 : 0;
-  if (typeof value === "string" && value.trim() !== "") {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : fallback;
-  }
-  return fallback;
-}
-
-function parseJsonString(value: any) {
-  if (typeof value !== "string") return value;
-  const trimmed = value.trim();
-  if (!trimmed || !/^[\[{]/.test(trimmed)) return value;
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    return value;
-  }
-}
-
-function normalizeDataArray(value: any): any[] {
-  let data = parseJsonString(value);
-
-  if (data && typeof data === "object" && !Array.isArray(data)) {
-    const arrayKey = Object.keys(data).find((key) => Array.isArray(data[key]));
-    if (arrayKey) data = data[arrayKey];
-  }
-
-  if (!Array.isArray(data)) {
-    data = data !== undefined && data !== null ? [data] : [];
-  }
-
-  while (data.length === 1) {
-    const first = parseJsonString(data[0]);
-    if (!Array.isArray(first)) break;
-    data = first;
-  }
-
-  return data.map(parseJsonString);
-}
-
-function collectObjectKeys(data: any[]) {
-  const keys = new Set<string>();
-
-  const addKeys = (value: any, prefix = "") => {
-    if (!value || typeof value !== "object" || Array.isArray(value)) return;
-
-    for (const key of Object.keys(value)) {
-      const path = prefix ? `${prefix}.${key}` : key;
-      const nested = value[key];
-      if (nested && typeof nested === "object" && !Array.isArray(nested)) {
-        addKeys(nested, path);
-      } else {
-        keys.add(path);
-      }
-    }
-  };
-
-  for (const row of data) {
-    addKeys(row);
-  }
-  return [...keys];
-}
-
-function pickKey(keys: string[], preferred: string[]) {
-  const normalized = new Map(keys.map((key) => [key.toLowerCase(), key]));
-  for (const key of preferred) {
-    const match = normalized.get(key.toLowerCase());
-    if (match) return match;
-  }
-  return "";
-}
-
-function inferChartKeys(data: any[], explicitX?: string, explicitY?: string) {
-  const keys = collectObjectKeys(data);
-  const xKey = explicitX || pickKey(keys, ["x", "step", "label", "name", "title", "date", "time", "id"]);
-  let yKey = explicitY || pickKey(keys, ["y", "value", "metrics.value", "metrics.delta", "count", "total", "amount", "score", "completed"]);
-
-  if (!yKey) {
-    yKey = keys.find((key) => key !== xKey && data.some((row) => {
-      const value = row && typeof row === "object" ? get(row, key) : undefined;
-      return typeof value === "number" || typeof value === "boolean" || (typeof value === "string" && value.trim() !== "" && Number.isFinite(Number(value)));
-    })) || "";
-  }
-
-  return { xKey, yKey };
-}
-
-function extractLastStep(logs: any[]): { data: any[]; meta: any } {
-  if (!logs.length) return { data: [], meta: {} };
-  const last = [...logs].reverse().find(l => l.status === "success" && (l.stepType === "table" || l.stepType === "chart"));
-  if (!last) {
-    const fallback = [...logs].reverse().find(l => l.status === "success");
-    if (!fallback) return { data: [], meta: {} };
-    const raw = fallback.response;
-    return { data: Array.isArray(raw) ? raw : (raw ? [raw] : []), meta: fallback.meta || {} };
-  }
-  const raw = last.response;
-  return { data: Array.isArray(raw) ? raw : (raw ? [raw] : []), meta: last.meta || {} };
-}
-
-async function pollRun(runId: string, onDone: (logs: any[]) => void, onError: (msg: string) => void) {
-  const rawId = (runId.includes(":") ? runId.split(":")[1] : runId).replace(/[⟨⟩]/g, "");
-  let attempts = 0;
-  const interval = setInterval(async () => {
-    attempts++;
-    if (attempts > 60) {
-      clearInterval(interval);
-      onError("Timed out waiting for workflow result.");
-      return;
-    }
-    try {
-      const res = await fetch(`/api/workflows/runs/${rawId}`);
-      const json = await res.json();
-      if (json.success) {
-        const run = json.data;
-        if (run.status === "completed" || run.status === "failed") {
-          clearInterval(interval);
-          if (run.status === "failed") {
-            onError("Workflow failed.");
-          } else {
-            onDone(run.logs || []);
-          }
-        }
-      }
-    } catch {
-      // keep polling
-    }
-  }, 1500);
-}
-
-function DashTable(props: { data: any[]; columns?: string[] }) {
-  const rows = () => normalizeDataArray(props.data);
-  const effectiveCols = () => {
-    const explicit = (props.columns || []).filter(Boolean);
-    if (explicit.length) return explicit;
-    const keys = collectObjectKeys(rows());
-    return keys.length ? keys : ["value"];
-  };
-
-  const cellValue = (row: any, key: string) => {
-    if (!row || typeof row !== "object" || Array.isArray(row)) return key === "value" ? row : undefined;
-    return Object.prototype.hasOwnProperty.call(row, key) ? row[key] : get(row, key);
-  };
-
-  const formatCell = (value: any) => {
-    if (value === undefined || value === null) return "";
-    return typeof value === "object" ? JSON.stringify(value) : String(value);
-  };
-
-  return (
-    <div class="overflow-auto max-h-[250px] rounded-xl border border-[#2a2a3a]/60 bg-[#0a0a0f]">
-      <Show when={rows().length > 0} fallback={<div class="p-4 text-xs text-[#5a5a6e]">No table data</div>}>
-        <table class="w-full text-left text-xs text-[#c8c8d8]">
-          <thead class="bg-[#1a1a24] text-[#8b8b9e] sticky top-0">
-            <tr>
-              <For each={effectiveCols()}>
-                {(col) => (
-                  <th class="px-3 py-2 font-semibold border-b border-[#2a2a3e] whitespace-nowrap uppercase text-[9px] tracking-wider">
-                    {col}
-                  </th>
-                )}
-              </For>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-[#1e1e2e]">
-            <For each={rows()}>
-              {(row) => (
-                <tr>
-                  <For each={effectiveCols()}>
-                    {(col) => {
-                      const text = formatCell(cellValue(row, col));
-                      return <td class="px-3 py-1.5 border-b border-[#1e1e2e]/50 max-w-[150px] truncate" title={text}>{text}</td>;
-                    }}
-                  </For>
-                </tr>
-              )}
-            </For>
-          </tbody>
-        </table>
-      </Show>
-    </div>
-  );
-}
-
-let globalUsTopoJson: any = null;
-let globalWorldTopoJson: any = null;
-
-const STATE_ABBR_MAP: Record<string, string> = {
-  AL: "Alabama", AK: "Alaska", AZ: "Arizona", AR: "Arkansas", CA: "California",
-  CO: "Colorado", CT: "Connecticut", DE: "Delaware", FL: "Florida", GA: "Georgia",
-  HI: "Hawaii", ID: "Idaho", IL: "Illinois", IN: "Indiana", IA: "Iowa",
-  KS: "Kansas", KY: "Kentucky", LA: "Louisiana", ME: "Maine", MD: "Maryland",
-  MA: "Massachusetts", MI: "Michigan", MN: "Minnesota", MS: "Mississippi", MO: "Missouri",
-  MT: "Montana", NE: "Nebraska", NV: "Nevada", NH: "New Hampshire", NJ: "New Jersey",
-  NM: "New Mexico", NY: "New York", NC: "North Carolina", ND: "North Dakota", OH: "Ohio",
-  OK: "Oklahoma", OR: "Oregon", PA: "Pennsylvania", RI: "Rhode Island", SC: "South Carolina",
-  SD: "South Dakota", TN: "Tennessee", TX: "Texas", UT: "Utah", VT: "Vermont",
-  VA: "Virginia", WA: "Washington", WV: "West Virginia", WI: "Wisconsin", WY: "Wyoming"
-};
-
-// ─── Inline Timeline widget ──────────────────────────────────────────────────
-const TIMELINE_IMPORTANCE_COLOR: Record<number, string> = {
-  1: "#4a5273", 2: "#2dd4bf", 3: "#6c63ff", 4: "#f59e0b", 5: "#f472b6"
-};
-
-function DashTimeline(props: { data: any[]; xKey?: string; yKey?: string }) {
-  let vpRef!: HTMLDivElement;
-  let canvasRef!: HTMLDivElement;
-
-  const rows = () => normalizeDataArray(props.data);
-
-  // Map each row to a timeline event
-  const events = () => rows().map((row, i) => {
-    const xk = props.xKey || "year";
-    const yk = props.yKey || "header";
-    const rawYear = row && typeof row === "object" ? get(row, xk) : row;
-    const header  = row && typeof row === "object" ? get(row, yk) : String(row);
-    const text    = row && typeof row === "object" ? (get(row, "text") || get(row, "description") || "") : "";
-    const imp     = row && typeof row === "object" ? (Number(get(row, "importance") || get(row, "rating") || 3)) : 3;
-    const link    = row && typeof row === "object" ? (get(row, "link") || get(row, "url") || "") : "";
-    const date    = row && typeof row === "object" ? (get(row, "date") || String(rawYear)) : String(rawYear);
-    const year    = Number(rawYear) || i;
-    return { year, header: String(header || "Event"), text: String(text), importance: Math.min(5, Math.max(1, imp)), link: String(link), date: String(date) };
-  });
-
-  let scale = 1;
-  let offsetX = 0;
-  const BASE_PX = 80;
-  const AXIS_Y = 140;
-  let isPanning = false;
-  let panStartX = 0;
-  let panStartOX = 0;
-
-  const yearToX = (y: number) => y * BASE_PX;
-
-  const render = () => {
-    if (!canvasRef || !vpRef) return;
-    const themeColors = getTimelineThemeColors();
-    // clear dynamic children
-    while (canvasRef.children.length > 1) canvasRef.removeChild(canvasRef.lastChild!);
-
-    const evs = events();
-    if (!evs.length) return;
-
-    const years = evs.map(e => e.year);
-    const minY = Math.min(...years);
-    const maxY = Math.max(...years);
-    const pad = 200;
-    const canvasL = yearToX(minY) - pad;
-    const canvasR = yearToX(maxY) + pad;
-    const canvasW = Math.max(canvasR - canvasL, 600);
-
-    canvasRef.style.width  = canvasW + "px";
-    canvasRef.style.height = vpRef.clientHeight + "px";
-
-    // axis
-    const axis = canvasRef.querySelector(".tl-axis") as HTMLElement;
-    if (axis) { axis.style.top = AXIS_Y + "px"; axis.style.width = canvasW + "px"; }
-
-    const cx = (year: number) => yearToX(year) - canvasL;
-
-    // ticks
-    const range = maxY - minY;
-    let interval = range > 2000 ? 500 : range > 500 ? 100 : range > 100 ? 50 : 10;
-    for (let y = Math.floor(minY / interval) * interval - interval; y <= maxY + interval; y += interval) {
-      const tick = document.createElement("div");
-      tick.className = "tl-tick";
-      tick.style.cssText = `position:absolute;left:${cx(y)}px;top:${AXIS_Y - 10}px;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;pointer-events:none;`;
-      tick.innerHTML = `<div style="width:1px;height:10px;background:${themeColors.tick}"></div><div style="font-size:9px;color:${themeColors.hint};margin-top:2px;white-space:nowrap">${y < 0 ? Math.abs(y) + " BCE" : y === 0 ? "0" : y + " CE"}</div>`;
-      canvasRef.appendChild(tick);
-    }
-
-    // events
-    const sorted = [...evs].sort((a, b) => a.year - b.year);
-    sorted.forEach((ev, i) => {
-      const above = i % 2 === 0;
-      const x = cx(ev.year);
-      const color = TIMELINE_IMPORTANCE_COLOR[ev.importance] || "#6c63ff";
-      const stemH = ev.importance * 20 + 20;
-      const node = document.createElement("div");
-      node.style.cssText = `position:absolute;left:${x}px;${above ? `bottom:${vpRef.clientHeight - AXIS_Y}px` : `top:${AXIS_Y}px`};transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;cursor:pointer;`;
-
-      const stemEl = document.createElement("div");
-      stemEl.style.cssText = `width:2px;height:${stemH}px;background:linear-gradient(${above ? "to top" : "to bottom"},${color},transparent);flex-shrink:0;order:${above ? 0 : 1}`;
-
-      const dot = document.createElement("div");
-      dot.style.cssText = `width:10px;height:10px;border-radius:50%;background:${color};box-shadow:0 0 8px ${color};flex-shrink:0;order:${above ? 1 : 2};transition:transform 0.15s`;
-
-      // label below dot (or above)
-      const label = document.createElement("div");
-      label.style.cssText = `position:absolute;${above ? `bottom:${stemH + 12}px` : `top:${stemH + 12}px`};left:50%;transform:translateX(-50%);background:${themeColors.panel};border:1px solid ${themeColors.border};border-radius:8px;padding:6px 10px;width:160px;font-size:10px;color:${themeColors.text};pointer-events:none;opacity:0;transition:opacity 0.2s;z-index:10;box-shadow:0 4px 16px rgba(0,0,0,0.18);`;
-      label.innerHTML = `<div style="font-size:9px;font-weight:700;color:${color};margin-bottom:3px">${ev.date}</div><div style="font-weight:600;margin-bottom:4px;line-height:1.3">${ev.header}</div>${ev.text ? `<div style="font-size:9px;color:${themeColors.muted};line-height:1.5;margin-bottom:4px">${ev.text.slice(0,120)}${ev.text.length>120?"…":""}</div>` : ""}${ev.link ? `<a href="${ev.link}" target="_blank" style="font-size:9px;color:#a78bfa;text-decoration:none">→ Link</a>` : ""}`;
-
-      node.addEventListener("mouseenter", () => { dot.style.transform = "scale(1.6)"; label.style.opacity = "1"; });
-      node.addEventListener("mouseleave", () => { dot.style.transform = "scale(1)"; label.style.opacity = "0"; });
-
-      node.appendChild(above ? stemEl : dot);
-      node.appendChild(above ? dot : stemEl);
-      node.appendChild(label);
-      canvasRef.appendChild(node);
-    });
-
-    applyTransform();
-  };
-
-  const applyTransform = () => {
-    if (!canvasRef) return;
-    canvasRef.style.transform = `scale(${scale}) translate(${offsetX}px,0)`;
-  };
-
-  const centreView = () => {
-    if (!vpRef || !events().length) return;
-    const evs = events();
-    const years = evs.map(e => e.year);
-    const minY = Math.min(...years);
-    const maxY = Math.max(...years);
-    const pad = 200;
-    const canvasL = yearToX(minY) - pad;
-    const mid = yearToX((minY + maxY) / 2) - canvasL;
-    offsetX = vpRef.clientWidth / (2 * scale) - mid;
-    render();
-  };
-
-  onMount(() => {
-    centreView();
-    const unsubscribeTheme = subscribeToThemeChanges(render);
-    onCleanup(unsubscribeTheme);
-
-    vpRef.addEventListener("wheel", (e) => {
-      e.preventDefault();
-      const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
-      const newScale = Math.min(8, Math.max(0.05, scale * factor));
-      const pivot = (e.clientX - vpRef.getBoundingClientRect().left) / scale - offsetX;
-      scale = newScale;
-      offsetX = (e.clientX - vpRef.getBoundingClientRect().left) / scale - pivot;
-      render();
-    }, { passive: false });
-
-    let panning2 = false, panStart2 = 0, panOX2 = 0;
-    vpRef.addEventListener("mousedown", (e) => { if (e.button !== 0) return; panning2 = true; panStart2 = e.clientX; panOX2 = offsetX; vpRef.style.cursor = "grabbing"; });
-    window.addEventListener("mousemove", (e) => { if (!panning2) return; offsetX = panOX2 + (e.clientX - panStart2) / scale; applyTransform(); });
-    window.addEventListener("mouseup", () => { panning2 = false; vpRef.style.cursor = "grab"; });
-  });
-
-  return (
-    <div style="position:relative;height:300px;background:var(--theme-chart-canvas);border-radius:10px;overflow:hidden;border:1px solid var(--theme-timeline-border)">
-      <div
-        ref={vpRef}
-        style="width:100%;height:100%;overflow:hidden;cursor:grab;position:relative"
-      >
-        <div ref={canvasRef} class="tl-canvas" style="position:absolute;transform-origin:0 0">
-          <div class="tl-axis" style="position:absolute;left:0;height:2px;background:linear-gradient(90deg,transparent,#6c63ff 5%,#6c63ff 95%,transparent);box-shadow:0 0 12px rgba(108,99,255,0.4)"></div>
-        </div>
-      </div>
-      <div style="position:absolute;bottom:6px;right:10px;font-size:9px;color:var(--theme-timeline-hint);pointer-events:none">Scroll to zoom · Drag to pan</div>
-    </div>
-  );
-}
-
-function DashChart(props: {
-  data: any[];
-  dataBySource?: Record<string, any[]>;
-  xKey?: string;
-  yKey?: string;
-  chartType?: string;
-  chartSeries?: ChartSeriesConfig[];
-}) {
-  const effType = () => effectiveChartType(props.chartType, props.chartSeries);
-  const cType = () => effType();
-  const isMultiChart = () => effType() === "multi";
-  const isMixedChart = () =>
-    (effType() === "bar" || effType() === "line" || isMultiChart()) &&
-    Array.isArray(props.chartSeries);
-  const multiData = () =>
-    buildMultiChartData(
-      props.dataBySource || normalizeDataArray(props.data),
-      props.xKey,
-      props.chartSeries || [],
-    );
-  const [topoJson, setTopoJson] = createSignal<any>(null);
-  const [themeRevision, setThemeRevision] = createSignal(0);
-  const chartTheme = () => {
-    themeRevision();
-    return getChartThemeColors();
-  };
-
-  onMount(() => {
-    const unsubscribe = subscribeToThemeChanges(() => setThemeRevision((revision) => revision + 1));
-    onCleanup(unsubscribe);
-  });
-
-  createEffect(() => {
-    const type = cType();
-    if (type === "choropleth-us") {
-      if (globalUsTopoJson) {
-        setTopoJson(globalUsTopoJson);
-      } else {
-        fetch("https://cdn.jsdelivr.net/npm/us-atlas/states-10m.json")
-          .then((res) => res.json())
-          .then((data) => {
-            globalUsTopoJson = data;
-            setTopoJson(data);
-          });
-      }
-    } else if (type === "choropleth-world") {
-      if (globalWorldTopoJson) {
-        setTopoJson(globalWorldTopoJson);
-      } else {
-        fetch("https://cdn.jsdelivr.net/npm/world-atlas/countries-110m.json")
-          .then((res) => res.json())
-          .then((data) => {
-            globalWorldTopoJson = data;
-            setTopoJson(data);
-          });
-      }
-    }
-  });
-
-  const buildData = () => {
-    const data = normalizeDataArray(props.data);
-    if (!Array.isArray(data) || !data.length) {
-      if (isMixedChart() && multiData().datasets.length > 0) return multiData();
-      return { labels: [], datasets: [] };
-    }
-
-    if (isMixedChart()) return multiData();
-    
-    const type = cType();
-    const isPie = type === "pie" || type === "doughnut";
-    const isScatter = type === "scatter";
-    const isBar = type === "bar";
-
-    if (type.startsWith("choropleth")) {
-      const isUS = type === "choropleth-us";
-      const topo = topoJson();
-      if (!topo) return { labels: [], datasets: [] };
-
-      const features = isUS
-        ? (ChartGeo.topojson.feature(topo, topo.objects.states) as any).features
-        : (ChartGeo.topojson.feature(topo, topo.objects.countries) as any).features;
-
-      const inferred = inferChartKeys(data, props.xKey, props.yKey);
-
-      const items = data.map((item, i) => {
-        const geoVal = inferred.xKey ? String(get(item, inferred.xKey) || "").trim() : "";
-        const numVal = inferred.yKey ? valueToNumber(get(item, inferred.yKey), 0) : valueToNumber(item, 0);
-        return { geoVal, numVal };
-      });
-
-      const matchedFeatures = features.map((d: any) => {
-        const featName = d.properties.name;
-        const matched = items.find(item => {
-          const name = item.geoVal;
-          if (name.toLowerCase() === featName.toLowerCase()) return true;
-          if (isUS) {
-            const mappedName = STATE_ABBR_MAP[name.toUpperCase()];
-            if (mappedName && mappedName.toLowerCase() === featName.toLowerCase()) return true;
-          }
-          return false;
-        });
-        return {
-          feature: d,
-          value: matched ? matched.numVal : 0
-        };
-      });
-
-      return {
-        labels: features.map((d: any) => d.properties.name),
-        datasets: [{
-          label: inferred.yKey || "Value",
-          outline: features,
-          data: matchedFeatures,
-        }]
-      };
-    }
-
-    const inferred = inferChartKeys(data, props.xKey, props.yKey);
-
-    if (isScatter) {
-      const points: {x: number, y: number}[] = [];
-      data.forEach((item, i) => {
-        if (item && typeof item === "object") {
-           points.push({
-             x: inferred.xKey ? valueToNumber(get(item, inferred.xKey), i) : i,
-             y: inferred.yKey ? valueToNumber(get(item, inferred.yKey), 0) : valueToNumber(item, 0)
-           });
-        } else {
-           points.push({ x: i, y: Number(item) || 0 });
-        }
-      });
-      return {
-        labels: [],
-        datasets: [{
-          label: inferred.yKey || "Value",
-          data: points,
-          backgroundColor: "#a855f7",
-          pointRadius: 4,
-        }]
-      };
-    }
-
-    const labels: any[] = [];
-    const points: number[] = [];
-    data.forEach((item, i) => {
-      if (item && typeof item === "object") {
-        labels.push(inferred.xKey ? valueToLabel(get(item, inferred.xKey), i) : String(i + 1));
-        points.push(inferred.yKey ? valueToNumber(get(item, inferred.yKey), 0) : i + 1);
-      } else {
-        labels.push(String(i + 1));
-        points.push(valueToNumber(item, 0));
-      }
-    });
-
-    if (isPie) {
-      const colors = ["#a855f7", "#6366f1", "#ec4899", "#f43f5e", "#f97316", "#eab308", "#22c55e", "#06b6d4"];
-      const bgColors = points.map((_, i) => colors[i % colors.length]);
-      return {
-        labels,
-        datasets: [{
-          label: inferred.yKey || "Value",
-          data: points,
-          backgroundColor: bgColors,
-          borderWidth: 1,
-          borderColor: chartTheme().cutout
-        }]
-      };
-    }
-
-    return {
-      labels,
-      datasets: [{
-        label: inferred.yKey || "Value",
-        data: points,
-        borderColor: isBar ? "#6366f1" : "#a855f7",
-        backgroundColor: isBar ? "rgba(99,102,241,0.75)" : "rgba(168,85,247,0.1)",
-        borderWidth: isBar ? 0 : 2,
-        borderRadius: isBar ? 4 : 0,
-        pointBackgroundColor: "#a855f7",
-        pointRadius: isBar ? 0 : 3,
-        tension: 0.3,
-        fill: !isBar,
-      }],
-    };
-  };
-
-  const chartOptions = () => {
-    const type = cType();
-    const colors = chartTheme();
-    if (isMixedChart()) {
-      const m = multiData();
-      const yScale = {
-        grid: { color: colors.grid },
-        ticks: { color: colors.axis },
-        position: "left" as const,
-        stacked: m.hasStack,
-      };
-      return {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: { labels: { color: colors.text } },
-          tooltip: {
-            backgroundColor: colors.tooltip,
-            titleColor: colors.tooltipText,
-            bodyColor: colors.tooltipText,
-            borderColor: colors.tooltipBorder,
-            borderWidth: 1,
-          },
-        },
-        scales: {
-          x: { grid: { color: colors.grid }, ticks: { color: colors.axis } },
-          y: yScale,
-          ...(m.hasRightAxis ? {
-            y1: {
-              axis: "y" as const,
-              position: "right" as const,
-              grid: { drawOnChartArea: false, color: colors.grid },
-              ticks: { color: colors.axis },
-            },
-          } : {}),
-          ...(m.hasDensity ? {
-            xDensity: {
-              type: "linear" as const,
-              position: "top" as const,
-              grid: { drawOnChartArea: false, color: colors.grid },
-              ticks: { color: colors.axis, font: { size: 9 } },
-              title: { display: true, text: "Distribution", color: colors.axis, font: { size: 9 } }
-            },
-            yDensity: {
-              type: "linear" as const,
-              position: "right" as const,
-              grid: { drawOnChartArea: false },
-              ticks: { display: false }
-            }
-          } : {}),
-        },
-      };
-    }
-    if (type.startsWith("choropleth")) {
-      const isUS = type === "choropleth-us";
-      return {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: { display: false }
-        },
-        scales: {
-          projection: {
-            axis: "x",
-            projection: isUS ? "albersUsa" : "equalEarth"
-          },
-          color: {
-            axis: "x",
-            interpolate: (v: number) => {
-              const hue = 220 + v * (320 - 220); // 220 (blue) to 320 (pink/purple)
-              const saturation = 30 + v * (85 - 30);
-              const lightness = 25 + v * (65 - 25);
-              return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
-            },
-            legend: {
-              position: "bottom-right",
-              align: "bottom"
-            }
-          }
-        }
-      };
-    }
-    const isPie = type === "pie" || type === "doughnut";
-    return {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { labels: { color: colors.text } },
-        tooltip: {
-          backgroundColor: colors.tooltip,
-          titleColor: colors.tooltipText,
-          bodyColor: colors.tooltipText,
-          borderColor: colors.tooltipBorder,
-          borderWidth: 1,
-        },
-      },
-      scales: isPie ? {} : {
-        x: { grid: { color: colors.grid }, ticks: { color: colors.axis } },
-        y: { grid: { color: colors.grid }, ticks: { color: colors.axis } },
-      },
-    };
-  };
-
-  return (
-    <div class="bg-[#101015] p-3 rounded border border-[#2a2a3a]/50" style={cType() === "timeline" ? "" : "height:200px"}>
-      <Show when={cType() === "timeline"} fallback={
-        <Show when={normalizeDataArray(props.data).length > 0 || (isMixedChart() && multiData().datasets.length > 0)} fallback={<p class="text-xs text-[#5a5a6e]">No valid array data for chart</p>}>
-          <Show when={!cType().startsWith("choropleth") || topoJson()} fallback={<p class="text-xs text-[#8b8b9e] animate-pulse">Loading map assets...</p>}>
-            <Show when={!isMixedChart() || multiData().datasets.length > 0} fallback={<p class="py-8 text-center text-xs text-[#8b8b9e]">Add a Y field to at least one series to preview this chart.</p>}>
-              {/* @ts-ignore */}
-              <DefaultChart type={isMixedChart() ? "bar" : cType().startsWith("choropleth") ? "choropleth" : (cType() as any)} data={buildData()} options={chartOptions()} />
-            </Show>
-          </Show>
-        </Show>
-      }>
-        <DashTimeline data={props.data} xKey={props.xKey} yKey={props.yKey} />
-      </Show>
-    </div>
-  );
-}
-
 function PreviewWidget(props: { btn: any; dashboardId?: string }) {
   const [status, setStatus] = createSignal<"idle" | "loading" | "ready" | "error">("idle");
   const [data, setData] = createSignal<any[]>([]);
   const [dataBySource, setDataBySource] = createSignal<Record<string, any[]>>({});
   const [meta, setMeta] = createSignal<any>({});
   const [error, setError] = createSignal("");
+
+  let disposed = false;
+  let activeCancels: Array<() => void> = [];
+  const cancelAllPolls = () => {
+    for (const c of activeCancels) c();
+    activeCancels = [];
+  };
+  onCleanup(() => {
+    disposed = true;
+    cancelAllPolls();
+  });
 
   const runWorkflowPromise = (wfId: string): Promise<{ data: any[]; meta: any }> => {
     const rawId = wfId.includes(":") ? wfId.split(":")[1].replace(/[⟨⟩]/g, "") : wfId.replace(/[⟨⟩]/g, "");
@@ -2795,17 +2124,23 @@ function PreviewWidget(props: { btn: any; dashboardId?: string }) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ form: {}, dashboardId: props.dashboardId })
         });
+        if (disposed) return reject(new Error("Cancelled"));
         const json = await res.json();
+        if (disposed) return reject(new Error("Cancelled"));
         if (!json.success) throw new Error(json.error || `Failed to start workflow ${rawId}`);
 
-        await pollRun(
+        const cancel = pollRun(
           json.runId,
-          (logs) => {
-            const { data: stepData, meta: stepMeta } = extractLastStep(logs);
-            resolve({ data: stepData, meta: stepMeta });
+          {
+            onDone: (logs) => {
+              const { data: stepData, meta: stepMeta } = extractLastStep(logs);
+              resolve({ data: stepData, meta: stepMeta });
+            },
+            onError: (msg) => reject(new Error(msg)),
           },
-          (msg) => reject(new Error(msg))
+          { maxAttempts: 60, intervalMs: 1500 }
         );
+        activeCancels.push(cancel);
       } catch (err) {
         reject(err);
       }
@@ -2814,11 +2149,13 @@ function PreviewWidget(props: { btn: any; dashboardId?: string }) {
 
   const loadPreview = async () => {
     if (!props.btn.workflowId) return;
+    cancelAllPolls();
     setStatus("loading");
     setError("");
 
     try {
       const { data: mainData, meta: mainMeta } = await runWorkflowPromise(props.btn.workflowId);
+      if (disposed) return;
       setData(mainData);
       setMeta(mainMeta);
 
@@ -2846,22 +2183,24 @@ function PreviewWidget(props: { btn: any; dashboardId?: string }) {
           })
         );
       }
+      if (disposed) return;
 
       setDataBySource(sourcesMap);
       setStatus("ready");
     } catch (e: any) {
+      if (disposed) return;
       setError(e.message);
       setStatus("error");
     }
   };
 
-  const kind = props.btn.widgetType;
+  const kind = () => props.btn.widgetType;
 
   return (
     <div class="w-full rounded-xl border border-[#2a2a3a] bg-[#0e0e15] p-3 shadow-md text-left">
       <div class="flex items-center justify-between mb-2 pb-1.5 border-b border-[#2a2a3a]">
-        <h3 class={`text-[10px] font-bold uppercase tracking-wider ${kind === "table" ? "text-emerald-400" : "text-purple-400"}`}>
-          {kind === "table" ? "📊 Table Preview" : kind === "infographic" ? "🦋 Infographic Preview" : "📈 Chart Preview"}: {props.btn.label}
+        <h3 class={`text-[10px] font-bold uppercase tracking-wider ${kind() === "table" ? "text-emerald-400" : "text-purple-400"}`}>
+          {kind() === "table" ? "📊 Table Preview" : kind() === "infographic" ? "🦋 Infographic Preview" : "📈 Chart Preview"}: {props.btn.label}
         </h3>
         <div class="flex items-center gap-2">
           <Show when={status() === "loading"}>
@@ -2900,141 +2239,42 @@ function PreviewWidget(props: { btn: any; dashboardId?: string }) {
       </Show>
 
       <Show when={status() === "ready"}>
-        <Show when={kind === "table"}>
+        <Show when={kind() === "table"}>
           <DashTable 
+            compact={true}
             data={data()} 
             columns={props.btn.columns ? props.btn.columns.split(",").map((c: string) => c.trim()).filter(Boolean) : meta().columns} 
           />
         </Show>
-        <Show when={kind === "chart" && (props.btn.chartType || "bar") !== "timeline"}>
-          <DashChart
-            data={data()}
-            dataBySource={dataBySource()}
-            xKey={props.btn.xKey || meta().xKey}
-            yKey={props.btn.yKey || meta().yKey}
-            chartType={props.btn.chartType || meta().chartType || "bar"}
-            chartSeries={props.btn.chartSeries}
-          />
+        <Show when={kind() === "chart" && (props.btn.chartType || "bar") !== "timeline"}>
+          <Suspense fallback={<div class="h-[200px] animate-pulse rounded bg-[#101015]" />}>
+            <DashChart
+              data={data()}
+              dataBySource={dataBySource()}
+              xKey={props.btn.xKey || meta().xKey}
+              yKey={props.btn.yKey || meta().yKey}
+              chartType={props.btn.chartType || meta().chartType || "bar"}
+              chartSeries={props.btn.chartSeries}
+              height="200px"
+              emptySeriesHint="Add a Y field to at least one series to preview this chart."
+            />
+          </Suspense>
         </Show>
-        <Show when={kind === "chart" && props.btn.chartType === "timeline"}>
-          <DashTimeline
-            data={data()}
-            xKey={props.btn.xKey || meta().xKey}
-            yKey={props.btn.yKey || meta().yKey}
-          />
+        <Show when={kind() === "chart" && props.btn.chartType === "timeline"}>
+          <Suspense fallback={<div class="h-[300px] animate-pulse rounded bg-[#101015]" />}>
+            <DashTimeline
+              data={data()}
+              xKey={props.btn.xKey || meta().xKey}
+              yKey={props.btn.yKey || meta().yKey}
+            />
+          </Suspense>
         </Show>
-        <Show when={kind === "infographic"}>
-          <InfographicWidget syntax={props.btn.infographicSyntax} data={data()} editable={props.btn.infographicEditable} />
+        <Show when={kind() === "infographic"}>
+          <Suspense>
+            <InfographicWidget syntax={props.btn.infographicSyntax} data={data()} editable={props.btn.infographicEditable} />
+          </Suspense>
         </Show>
       </Show>
-    </div>
-  );
-}
-
-function NewsWidgetComponent(props: { btn: any; dashboardId?: string }) {
-  const [data, setData] = createSignal<any>("No Data");
-  const [status, setStatus] = createSignal<"idle" | "loading" | "live" | "error">("idle");
-
-  const evalResult = () => evaluateNewsRules(data(), props.btn.newsRules || []);
-  const theme = () => newsColorClasses[evalResult().color] || newsColorClasses.blue;
-
-  onMount(() => {
-    if (!props.btn.workflowId) return;
-    const wfId = (props.btn.workflowId.includes(":") ? props.btn.workflowId.split(":")[1] : props.btn.workflowId).replace(/[⟨⟩]/g, "");
-
-    if (props.btn.streamActive !== false) {
-      setStatus("live");
-      const dashQuery =
-        props.dashboardId && props.dashboardId !== "new"
-          ? `?dashboard=${encodeURIComponent(props.dashboardId)}`
-          : "";
-      const es = new EventSource(`/api/workflows/${wfId}/stream${dashQuery}`);
-
-      es.onmessage = (e) => {
-        try {
-          const payload = JSON.parse(e.data);
-          if (payload.data?.chunk || payload.data?.response) {
-            let chunk = payload.data.chunk || payload.data.response;
-            if (props.btn.dataPath) {
-              chunk = get(chunk, props.btn.dataPath, chunk);
-            }
-            if (chunk !== undefined) setData(chunk);
-          }
-        } catch {}
-      };
-
-      es.addEventListener("step_chunk", (e: any) => {
-        try {
-          const payload = JSON.parse(e.data);
-          let chunk = payload.data?.chunk;
-          if (props.btn.dataPath && chunk) {
-            chunk = get(chunk, props.btn.dataPath, chunk);
-          }
-          if (chunk !== undefined) setData(chunk);
-        } catch {}
-      });
-
-      es.addEventListener("step_complete", (e: any) => {
-        try {
-          const payload = JSON.parse(e.data);
-          let resData = payload.data?.response;
-          if (props.btn.dataPath && resData) {
-            resData = get(resData, props.btn.dataPath, resData);
-          }
-          if (resData !== undefined) setData(resData);
-        } catch {}
-      });
-
-      es.onerror = () => { setStatus("idle"); };
-    }
-  });
-
-  const fetchManual = async () => {
-    if (!props.btn.workflowId) return;
-    const wfId = (props.btn.workflowId.includes(":") ? props.btn.workflowId.split(":")[1] : props.btn.workflowId).replace(/[⟨⟩]/g, "");
-    setStatus("loading");
-    try {
-      const dashQuery =
-        props.dashboardId && props.dashboardId !== "new"
-          ? `?dashboard=${encodeURIComponent(props.dashboardId)}`
-          : "";
-      const res = await fetch(`/api/workflows/${wfId}/run${dashQuery}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ form: {}, dashboardId: props.dashboardId }),
-      });
-      const json = await res.json();
-      if (json.success) setStatus("idle");
-    } catch {
-      setStatus("error");
-    }
-  };
-
-  return (
-    <div class={`w-full rounded-2xl border p-5 shadow-xl transition-all duration-300 ${theme().bg} ${theme().border}`}>
-      <div class="flex items-center justify-between mb-3">
-        <div class="flex items-center gap-2">
-          <span class="text-xl">📰</span>
-          <h3 class="text-sm font-bold text-white tracking-wide">{props.btn.label || "News Alert"}</h3>
-        </div>
-        <div class="flex items-center gap-2">
-          <Show when={props.btn.streamActive !== false}>
-            <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold border bg-purple-500/20 text-purple-300 border-purple-500/30">
-              <span class="w-1.5 h-1.5 rounded-full bg-purple-400 animate-ping"></span>
-              STREAM LIVE
-            </span>
-          </Show>
-          <button onClick={fetchManual} class="text-[10px] text-slate-400 hover:text-white transition-colors">
-            ↻ Refresh
-          </button>
-        </div>
-      </div>
-
-      <div class="mt-2">
-        <div class={`text-lg font-extrabold tracking-tight ${theme().text}`}>
-          {evalResult().text}
-        </div>
-      </div>
     </div>
   );
 }

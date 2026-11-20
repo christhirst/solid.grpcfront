@@ -4,7 +4,7 @@ import GrpcMethodPicker, { type ReflectionResult } from "~/components/workflow/G
 import S3FilePicker from "~/components/workflow/S3FilePicker";
 
 const ReteWorkflowEditor = clientOnly(() => import("~/components/workflow/ReteWorkflowEditor"));
-import { createSignal, createEffect, on, untrack, onMount, onCleanup, For, Show, createMemo, Index, useTransition } from "solid-js";
+import { createSignal, createEffect, on, untrack, onMount, onCleanup, For, Show, createMemo, Index, useTransition, lazy, Suspense } from "solid-js";
 import { createClientResource } from "~/lib/clientResource";
 import { extractFormVariables, checkWorkflowConfiguredInDashboards, detectStepVariables, type VariableConfigStatus } from "~/lib/workflowVariableChecker";
 import { collectFieldNames, type FieldInfo } from "~/lib/dashboard/chartSeries";
@@ -18,6 +18,10 @@ import { useParams, useNavigate } from "@solidjs/router";
 import { parseProtoContent, generateSkeleton, ParsedProto } from "~/lib/protoParser";
 import { ResourceTagEditor } from "~/components/ResourceTagEditor";
 import { ActionMessageBanner, type ActionMessage } from "~/components/ui/ActionMessageBanner";
+import { DashTable } from "~/components/dashboard/widgets/DashTable";
+
+const DashChart = lazy(() => import("~/components/dashboard/widgets/DashChart"));
+const DashTimeline = lazy(() => import("~/components/dashboard/widgets/DashTimeline"));
 
 // Safe dot-path getter to avoid CJS interop issues in Vite prod builds
 function get(obj: any, path: string | string[], defValue?: any) {
@@ -25,527 +29,6 @@ function get(obj: any, path: string | string[], defValue?: any) {
   const pathArray = Array.isArray(path) ? path : path.match(/([^[.\]])+/g);
   const result = pathArray?.reduce((prevObj, key) => prevObj && prevObj[key], obj);
   return result === undefined ? defValue : result;
-}
-
-import { DefaultChart } from "solid-chartjs";
-import { Chart, registerables } from "chart.js";
-import * as ChartGeo from "chartjs-chart-geo";
-import { getChartThemeColors, getTimelineThemeColors, subscribeToThemeChanges } from "~/lib/theme";
-
-if (!isServer) {
-  Chart.register(...registerables);
-  Chart.register(
-    ChartGeo.ChoroplethController,
-    ChartGeo.GeoFeature,
-    ChartGeo.ColorScale,
-    ChartGeo.ProjectionScale
-  );
-}
-
-function valueToLabel(value: any, fallback: number) {
-  if (value === undefined || value === null || value === "") return String(fallback + 1);
-  return typeof value === "object" ? JSON.stringify(value) : String(value);
-}
-
-function valueToNumber(value: any, fallback = 0) {
-  if (typeof value === "number") return Number.isFinite(value) ? value : fallback;
-  if (typeof value === "boolean") return value ? 1 : 0;
-  if (typeof value === "string" && value.trim() !== "") {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : fallback;
-  }
-  return fallback;
-}
-
-function parseJsonString(value: any) {
-  if (typeof value !== "string") return value;
-  const trimmed = value.trim();
-  if (!trimmed || !/^[\[{]/.test(trimmed)) return value;
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    return value;
-  }
-}
-
-function normalizeDataArray(value: any): any[] {
-  let data = parseJsonString(value);
-
-  if (data && typeof data === "object" && !Array.isArray(data)) {
-    const arrayKey = Object.keys(data).find((key) => Array.isArray(data[key]));
-    if (arrayKey) data = data[arrayKey];
-  }
-
-  if (!Array.isArray(data)) {
-    data = data !== undefined && data !== null ? [data] : [];
-  }
-
-  while (data.length === 1) {
-    const first = parseJsonString(data[0]);
-    if (!Array.isArray(first)) break;
-    data = first;
-  }
-
-  return data.map(parseJsonString);
-}
-
-function collectObjectKeys(data: any[]) {
-  const keys = new Set<string>();
-
-  const addKeys = (value: any, prefix = "") => {
-    if (!value || typeof value !== "object" || Array.isArray(value)) return;
-
-    for (const key of Object.keys(value)) {
-      const path = prefix ? `${prefix}.${key}` : key;
-      const nested = value[key];
-      if (nested && typeof nested === "object" && !Array.isArray(nested)) {
-        addKeys(nested, path);
-      } else {
-        keys.add(path);
-      }
-    }
-  };
-
-  for (const row of data) {
-    addKeys(row);
-  }
-  return [...keys];
-}
-
-function pickKey(keys: string[], preferred: string[]) {
-  const normalized = new Map(keys.map((key) => [key.toLowerCase(), key]));
-  for (const key of preferred) {
-    const match = normalized.get(key.toLowerCase());
-    if (match) return match;
-  }
-  return "";
-}
-
-function inferChartKeys(data: any[], explicitX?: string, explicitY?: string) {
-  const keys = collectObjectKeys(data);
-  const xKey = explicitX || pickKey(keys, ["x", "step", "label", "name", "title", "date", "time", "id"]);
-  let yKey = explicitY || pickKey(keys, ["y", "value", "metrics.value", "metrics.delta", "count", "total", "amount", "score", "completed"]);
-
-  if (!yKey) {
-    yKey = keys.find((key) => key !== xKey && data.some((row) => {
-      const value = row && typeof row === "object" ? get(row, key) : undefined;
-      return typeof value === "number" || typeof value === "boolean" || (typeof value === "string" && value.trim() !== "" && Number.isFinite(Number(value)));
-    })) || "";
-  }
-
-  return { xKey, yKey };
-}
-
-function LogTable(props: { data: any[]; columns?: string[] }) {
-  const rows = () => normalizeDataArray(props.data);
-  const effectiveCols = () => {
-    const explicit = (props.columns || []).filter(Boolean);
-    if (explicit.length) return explicit;
-    const keys = collectObjectKeys(rows());
-    return keys.length ? keys : ["value"];
-  };
-
-  const cellValue = (row: any, key: string) => {
-    if (!row || typeof row !== "object" || Array.isArray(row)) return key === "value" ? row : undefined;
-    return Object.prototype.hasOwnProperty.call(row, key) ? row[key] : get(row, key);
-  };
-
-  const formatCell = (value: any) => {
-    if (value === undefined || value === null) return "";
-    return typeof value === "object" ? JSON.stringify(value) : String(value);
-  };
-
-  return (
-    <div class="overflow-auto max-h-[300px] border border-[#2a2a3a]/50 rounded bg-[#101015] custom-scrollbar">
-      <Show when={rows().length > 0} fallback={<div class="p-3 text-xs text-[#5a5a6e]">No table data</div>}>
-        <table class="w-full text-left text-xs text-[#c8c8d8]">
-          <thead class="bg-[#1a1a24] text-[#8b8b9e] sticky top-0 shadow-sm">
-            <tr>
-              <For each={effectiveCols()}>
-                {(col) => <th class="px-3 py-2 font-medium border-b border-[#2a2a3e] whitespace-nowrap uppercase text-[10px] tracking-wider">{col}</th>}
-              </For>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-[#1e1e2e]">
-            <For each={rows()}>
-              {(row) => (
-                <tr class="hover:bg-[#1a1a24]/50 transition-colors">
-                  <For each={effectiveCols()}>
-                    {(col) => {
-                      const text = formatCell(cellValue(row, col));
-                      return <td class="px-3 py-2 border-b border-[#1e1e2e]/50 max-w-[150px] truncate" title={text}>{text}</td>;
-                    }}
-                  </For>
-                </tr>
-              )}
-            </For>
-          </tbody>
-        </table>
-      </Show>
-    </div>
-  );
-}
-
-let globalUsTopoJson: any = null;
-let globalWorldTopoJson: any = null;
-
-const STATE_ABBR_MAP: Record<string, string> = {
-  AL: "Alabama", AK: "Alaska", AZ: "Arizona", AR: "Arkansas", CA: "California",
-  CO: "Colorado", CT: "Connecticut", DE: "Delaware", FL: "Florida", GA: "Georgia",
-  HI: "Hawaii", ID: "Idaho", IL: "Illinois", IN: "Indiana", IA: "Iowa",
-  KS: "Kansas", KY: "Kentucky", LA: "Louisiana", ME: "Maine", MD: "Maryland",
-  MA: "Massachusetts", MI: "Michigan", MN: "Minnesota", MS: "Mississippi", MO: "Missouri",
-  MT: "Montana", NE: "Nebraska", NV: "Nevada", NH: "New Hampshire", NJ: "New Jersey",
-  NM: "New Mexico", NY: "New York", NC: "North Carolina", ND: "North Dakota", OH: "Ohio",
-  OK: "Oklahoma", OR: "Oregon", PA: "Pennsylvania", RI: "Rhode Island", SC: "South Carolina",
-  SD: "South Dakota", TN: "Tennessee", TX: "Texas", UT: "Utah", VT: "Vermont",
-  VA: "Virginia", WA: "Washington", WV: "West Virginia", WI: "Wisconsin", WY: "Wyoming"
-};
-
-const LOG_TIMELINE_COLORS: Record<number, string> = {
-  1: "#4a5273", 2: "#2dd4bf", 3: "#6c63ff", 4: "#f59e0b", 5: "#f472b6"
-};
-
-function LogTimeline(props: { data: any[]; xKey?: string; yKey?: string }) {
-  let vpRef!: HTMLDivElement;
-  let canvasRef!: HTMLDivElement;
-
-  const rows = () => normalizeDataArray(props.data);
-  const events = () => rows().map((row, i) => {
-    const xk = props.xKey || "year";
-    const yk = props.yKey || "header";
-    const rawYear = row && typeof row === "object" ? get(row, xk) : row;
-    const header  = row && typeof row === "object" ? get(row, yk) : String(row);
-    const text    = row && typeof row === "object" ? (get(row, "text") || get(row, "description") || "") : "";
-    const imp     = row && typeof row === "object" ? (Number(get(row, "importance") || get(row, "rating") || 3)) : 3;
-    const link    = row && typeof row === "object" ? (get(row, "link") || get(row, "url") || "") : "";
-    const date    = row && typeof row === "object" ? (get(row, "date") || String(rawYear)) : String(rawYear);
-    const year    = Number(rawYear) || i;
-    return { year, header: String(header || "Event"), text: String(text), importance: Math.min(5, Math.max(1, imp)), link: String(link), date: String(date) };
-  });
-
-  let scale = 1, offsetX = 0;
-  const BASE_PX = 80, AXIS_Y = 120;
-
-  const yearToX = (y: number) => y * BASE_PX;
-
-  const render = () => {
-    if (!canvasRef || !vpRef) return;
-    const themeColors = getTimelineThemeColors();
-    while (canvasRef.children.length > 1) canvasRef.removeChild(canvasRef.lastChild!);
-    const evs = events();
-    if (!evs.length) return;
-    const years = evs.map(e => e.year);
-    const minY = Math.min(...years), maxY = Math.max(...years);
-    const canvasL = yearToX(minY) - 200;
-    const canvasW = Math.max(yearToX(maxY) + 200 - canvasL, 600);
-    canvasRef.style.width = canvasW + "px";
-    canvasRef.style.height = vpRef.clientHeight + "px";
-    const axis = canvasRef.querySelector(".lt-axis") as HTMLElement;
-    if (axis) { axis.style.top = AXIS_Y + "px"; axis.style.width = canvasW + "px"; }
-    const cx = (y: number) => yearToX(y) - canvasL;
-    const range = maxY - minY;
-    let interval = range > 2000 ? 500 : range > 500 ? 100 : range > 100 ? 50 : 10;
-    for (let y = Math.floor(minY / interval) * interval - interval; y <= maxY + interval; y += interval) {
-      const t = document.createElement("div");
-      t.style.cssText = `position:absolute;left:${cx(y)}px;top:${AXIS_Y - 8}px;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;pointer-events:none`;
-      t.innerHTML = `<div style="width:1px;height:8px;background:${themeColors.tick}"></div><div style="font-size:8px;color:${themeColors.hint};margin-top:1px;white-space:nowrap">${y < 0 ? Math.abs(y) + " BCE" : y === 0 ? "0" : y + " CE"}</div>`;
-      canvasRef.appendChild(t);
-    }
-    [...evs].sort((a, b) => a.year - b.year).forEach((ev, i) => {
-      const above = i % 2 === 0;
-      const x = cx(ev.year);
-      const color = LOG_TIMELINE_COLORS[ev.importance] || "#6c63ff";
-      const stemH = ev.importance * 16 + 16;
-      const node = document.createElement("div");
-      node.style.cssText = `position:absolute;left:${x}px;${above ? `bottom:${vpRef.clientHeight - AXIS_Y}px` : `top:${AXIS_Y}px`};transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;cursor:pointer`;
-      const stem = document.createElement("div");
-      stem.style.cssText = `width:2px;height:${stemH}px;background:linear-gradient(${above ? "to top" : "to bottom"},${color},transparent);order:${above ? 0 : 1}`;
-      const dot = document.createElement("div");
-      dot.style.cssText = `width:8px;height:8px;border-radius:50%;background:${color};box-shadow:0 0 6px ${color};order:${above ? 1 : 2};transition:transform 0.15s`;
-      const lbl = document.createElement("div");
-      lbl.style.cssText = `position:absolute;${above ? `bottom:${stemH + 10}px` : `top:${stemH + 10}px`};left:50%;transform:translateX(-50%);background:${themeColors.panel};border:1px solid ${themeColors.border};border-radius:6px;padding:5px 8px;width:140px;font-size:9px;color:${themeColors.text};opacity:0;transition:opacity 0.15s;z-index:10;pointer-events:none;box-shadow:0 4px 14px rgba(0,0,0,0.18)`;
-      lbl.innerHTML = `<div style="font-size:8px;font-weight:700;color:${color};margin-bottom:2px">${ev.date}</div><div style="font-weight:600;margin-bottom:3px">${ev.header}</div>${ev.text ? `<div style="font-size:8px;color:${themeColors.muted}">${ev.text.slice(0, 100)}${ev.text.length > 100 ? "…" : ""}</div>` : ""}${ev.link ? `<a href="${ev.link}" target="_blank" style="font-size:8px;color:#a78bfa">→ Link</a>` : ""}`;
-      node.addEventListener("mouseenter", () => { dot.style.transform = "scale(1.5)"; lbl.style.opacity = "1"; });
-      node.addEventListener("mouseleave", () => { dot.style.transform = "scale(1)"; lbl.style.opacity = "0"; });
-      node.append(above ? stem : dot, above ? dot : stem, lbl);
-      canvasRef.appendChild(node);
-    });
-    canvasRef.style.transform = `scale(${scale}) translate(${offsetX}px,0)`;
-  };
-
-  const applyTransform = () => { if (canvasRef) canvasRef.style.transform = `scale(${scale}) translate(${offsetX}px,0)`; };
-
-  onMount(() => {
-    const evs = events();
-    if (evs.length) {
-      const years = evs.map(e => e.year);
-      const minY = Math.min(...years), maxY = Math.max(...years);
-      const canvasL = yearToX(minY) - 200;
-      const mid = yearToX((minY + maxY) / 2) - canvasL;
-      offsetX = vpRef.clientWidth / (2 * scale) - mid;
-    }
-    render();
-    const unsubscribeTheme = subscribeToThemeChanges(render);
-    onCleanup(unsubscribeTheme);
-    vpRef.addEventListener("wheel", (e) => {
-      e.preventDefault();
-      const f = e.deltaY < 0 ? 1.15 : 1 / 1.15;
-      const ns = Math.min(8, Math.max(0.05, scale * f));
-      const pivot = (e.clientX - vpRef.getBoundingClientRect().left) / scale - offsetX;
-      scale = ns; offsetX = (e.clientX - vpRef.getBoundingClientRect().left) / scale - pivot;
-      render();
-    }, { passive: false });
-    let p2 = false, psx = 0, pox = 0;
-    vpRef.addEventListener("mousedown", (e) => { if (e.button !== 0) return; p2 = true; psx = e.clientX; pox = offsetX; vpRef.style.cursor = "grabbing"; });
-    window.addEventListener("mousemove", (e) => { if (!p2) return; offsetX = pox + (e.clientX - psx) / scale; applyTransform(); });
-    window.addEventListener("mouseup", () => { p2 = false; vpRef.style.cursor = "grab"; });
-  });
-
-  return (
-    <div style="position:relative;height:250px;background:var(--theme-chart-canvas);border-radius:8px;overflow:hidden;border:1px solid var(--theme-timeline-border)">
-      <div ref={vpRef} style="width:100%;height:100%;overflow:hidden;cursor:grab;position:relative">
-        <div ref={canvasRef} class="lt-canvas" style="position:absolute;transform-origin:0 0">
-          <div class="lt-axis" style="position:absolute;left:0;height:2px;background:linear-gradient(90deg,transparent,#6c63ff 5%,#6c63ff 95%,transparent);box-shadow:0 0 10px rgba(108,99,255,0.4)"></div>
-        </div>
-      </div>
-      <div style="position:absolute;bottom:5px;right:8px;font-size:8px;color:var(--theme-timeline-hint);pointer-events:none">Scroll · Drag</div>
-    </div>
-  );
-}
-
-function LogChart(props: { data: any[]; xKey?: string; yKey?: string; chartType?: string }) {
-  const cType = () => props.chartType || "bar";
-  const [topoJson, setTopoJson] = createSignal<any>(null);
-  const [themeRevision, setThemeRevision] = createSignal(0);
-  const chartTheme = () => {
-    themeRevision();
-    return getChartThemeColors();
-  };
-
-  onMount(() => {
-    const unsubscribe = subscribeToThemeChanges(() => setThemeRevision((revision) => revision + 1));
-    onCleanup(unsubscribe);
-  });
-
-  createEffect(() => {
-    const type = cType();
-    if (type === "choropleth-us") {
-      if (globalUsTopoJson) {
-        setTopoJson(globalUsTopoJson);
-      } else {
-        fetch("https://cdn.jsdelivr.net/npm/us-atlas/states-10m.json")
-          .then((res) => res.json())
-          .then((data) => {
-            globalUsTopoJson = data;
-            setTopoJson(data);
-          });
-      }
-    } else if (type === "choropleth-world") {
-      if (globalWorldTopoJson) {
-        setTopoJson(globalWorldTopoJson);
-      } else {
-        fetch("https://cdn.jsdelivr.net/npm/world-atlas/countries-110m.json")
-          .then((res) => res.json())
-          .then((data) => {
-            globalWorldTopoJson = data;
-            setTopoJson(data);
-          });
-      }
-    }
-  });
-
-  const buildData = () => {
-    const data = normalizeDataArray(props.data);
-    if (!Array.isArray(data) || !data.length) return { labels: [], datasets: [] };
-    
-    const type = cType();
-    const isPie = type === "pie" || type === "doughnut";
-    const isScatter = type === "scatter";
-    const isBar = type === "bar";
-
-    if (type.startsWith("choropleth")) {
-      const isUS = type === "choropleth-us";
-      const topo = topoJson();
-      if (!topo) return { labels: [], datasets: [] };
-
-      const features = isUS
-        ? (ChartGeo.topojson.feature(topo, topo.objects.states) as any).features
-        : (ChartGeo.topojson.feature(topo, topo.objects.countries) as any).features;
-
-      const inferred = inferChartKeys(data, props.xKey, props.yKey);
-
-      const items = data.map((item, i) => {
-        const geoVal = inferred.xKey ? String(get(item, inferred.xKey) || "").trim() : "";
-        const numVal = inferred.yKey ? valueToNumber(get(item, inferred.yKey), 0) : valueToNumber(item, 0);
-        return { geoVal, numVal };
-      });
-
-      const matchedFeatures = features.map((d: any) => {
-        const featName = d.properties.name;
-        const matched = items.find(item => {
-          const name = item.geoVal;
-          if (name.toLowerCase() === featName.toLowerCase()) return true;
-          if (isUS) {
-            const mappedName = STATE_ABBR_MAP[name.toUpperCase()];
-            if (mappedName && mappedName.toLowerCase() === featName.toLowerCase()) return true;
-          }
-          return false;
-        });
-        return {
-          feature: d,
-          value: matched ? matched.numVal : 0
-        };
-      });
-
-      return {
-        labels: features.map((d: any) => d.properties.name),
-        datasets: [{
-          label: inferred.yKey || "Value",
-          outline: features,
-          data: matchedFeatures,
-        }]
-      };
-    }
-
-    const inferred = inferChartKeys(data, props.xKey, props.yKey);
-
-    if (isScatter) {
-      const points: {x: number, y: number}[] = [];
-      for (let i = 0; i < data.length; i++) {
-        const item = data[i];
-        if (item && typeof item === "object") {
-           points.push({
-             x: inferred.xKey ? valueToNumber(get(item, inferred.xKey), i) : i,
-             y: inferred.yKey ? valueToNumber(get(item, inferred.yKey), 0) : valueToNumber(item, 0)
-           });
-        } else {
-           points.push({ x: i, y: Number(item) || 0 });
-        }
-      }
-      return {
-        labels: [],
-        datasets: [{
-          label: inferred.yKey || "Value",
-          data: points,
-          backgroundColor: "#3b82f6",
-          pointRadius: 4,
-        }]
-      };
-    }
-
-    const labels: any[] = [];
-    const points: number[] = [];
-    for (let i = 0; i < data.length; i++) {
-      const item = data[i];
-      if (item && typeof item === "object") {
-        labels.push(inferred.xKey ? valueToLabel(get(item, inferred.xKey), i) : String(i + 1));
-        points.push(inferred.yKey ? valueToNumber(get(item, inferred.yKey), 0) : i + 1);
-      } else {
-        labels.push(String(i + 1));
-        points.push(valueToNumber(item, 0));
-      }
-    }
-
-    if (isPie) {
-      const colors = ["#6366f1", "#8b5cf6", "#ec4899", "#f43f5e", "#f97316", "#eab308", "#22c55e", "#06b6d4"];
-      const bgColors = points.map((_, i) => colors[i % colors.length]);
-      return {
-        labels,
-        datasets: [{
-          label: inferred.yKey || "Value",
-          data: points,
-          backgroundColor: bgColors,
-          borderWidth: 1,
-          borderColor: chartTheme().cutout
-        }]
-      };
-    }
-
-    return {
-      labels,
-      datasets: [{
-        label: inferred.yKey || "Value",
-        data: points,
-        borderColor: isBar ? "#6366f1" : "#3b82f6",
-        backgroundColor: isBar ? "rgba(99,102,241,0.7)" : "rgba(59,130,246,0.1)",
-        borderWidth: isBar ? 0 : 2,
-        borderRadius: isBar ? 4 : 0,
-        pointBackgroundColor: "#3b82f6",
-        pointRadius: isBar ? 0 : 3,
-        tension: 0.3,
-        fill: !isBar,
-      }]
-    };
-  };
-
-  const chartOptions = () => {
-    const type = cType();
-    const colors = chartTheme();
-    if (type.startsWith("choropleth")) {
-      const isUS = type === "choropleth-us";
-      return {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: { display: false }
-        },
-        scales: {
-          projection: {
-            axis: "x",
-            projection: isUS ? "albersUsa" : "equalEarth"
-          },
-          color: {
-            axis: "x",
-            interpolate: (v: number) => {
-              const hue = 220 + v * (320 - 220); // 220 (blue) to 320 (pink/purple)
-              const saturation = 30 + v * (85 - 30);
-              const lightness = 25 + v * (65 - 25);
-              return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
-            },
-            legend: {
-              position: "bottom-right",
-              align: "bottom"
-            }
-          }
-        }
-      };
-    }
-    const isPie = cType() === "pie" || cType() === "doughnut";
-    return {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { labels: { color: colors.text } },
-        tooltip: {
-          backgroundColor: colors.tooltip,
-          titleColor: colors.tooltipText,
-          bodyColor: colors.tooltipText,
-          borderColor: colors.tooltipBorder,
-          borderWidth: 1,
-        },
-      },
-      scales: isPie ? {} : {
-        x: { grid: { color: colors.grid }, ticks: { color: colors.axis } },
-        y: { grid: { color: colors.grid }, ticks: { color: colors.axis } },
-      },
-    };
-  };
-
-  return (
-    <div class="bg-[#101015] p-3 rounded border border-[#2a2a3a]/50" style={cType() === "timeline" ? "" : "height:250px"}>
-      <Show when={cType() === "timeline"} fallback={
-        <Show when={normalizeDataArray(props.data).length > 0} fallback={<p class="text-xs text-[#5a5a6e]">No valid array data for chart</p>}>
-          <Show when={!cType().startsWith("choropleth") || topoJson()} fallback={<p class="text-xs text-[#8b8b9e] animate-pulse">Loading map assets...</p>}>
-            {/* @ts-ignore */}
-            <DefaultChart type={cType().startsWith("choropleth") ? "choropleth" : (cType() as any)} data={buildData()} options={chartOptions()} />
-          </Show>
-        </Show>
-      }>
-        <LogTimeline data={props.data} xKey={props.xKey} yKey={props.yKey} />
-      </Show>
-    </div>
-  );
 }
 
 const DATA_SOURCE_STEP_TYPES = new Set(["grpc", "rest", "database", "s3", "oauth_token", "authz", "transform", "text_transform"]);
@@ -820,10 +303,9 @@ export default function WorkflowBuilder() {
     }
   };
 
-  createEffect(() => {
-    if (isServer) return;
+  const oauthConnIdsKey = createMemo(() => {
     const allConns = connections() || [];
-    if (allConns.length === 0) return;
+    if (allConns.length === 0) return "";
 
     const usedConnIds = new Set<string>();
     const wfConn = connectionId();
@@ -842,15 +324,26 @@ export default function WorkflowBuilder() {
       }
     }
 
+    const oauthIds: string[] = [];
     for (const c of allConns) {
       if (c && (c.authType === "oauth" || c.tokenUrl)) {
         const cleanId = String(c.id || "").replace(/^connection:/, "").replace(/[⟨⟩]/g, "").trim();
         if (usedConnIds.has(c.id) || (cleanId && usedConnIds.has(cleanId))) {
-          prefetchConnectionToken(c.id);
+          oauthIds.push(c.id);
         }
       }
     }
+    return oauthIds.sort().join(",");
   });
+
+  createEffect(
+    on(oauthConnIdsKey, (key) => {
+      if (isServer || !key) return;
+      for (const id of key.split(",")) {
+        prefetchConnectionToken(id);
+      }
+    })
+  );
 
   // Parsed state
   // Share in-flight discovery across steps using the same connection and configuration.
@@ -878,8 +371,33 @@ export default function WorkflowBuilder() {
     return request!;
   };
 
-  const [parsedProto, setParsedProto] = createSignal<ParsedProto | null>(null);
-  const [compileError, setCompileError] = createSignal<string | null>(null);
+  const [debouncedProtoContent, setDebouncedProtoContent] = createSignal("");
+  createEffect(() => {
+    const _currentParam = params.id; // track route switches
+    const content = protoContent();
+    if (isServer || !content.trim() || !untrack(debouncedProtoContent)) {
+      setDebouncedProtoContent(content);
+      return;
+    }
+    const timer = setTimeout(() => {
+      setDebouncedProtoContent(content);
+    }, 300);
+    onCleanup(() => clearTimeout(timer));
+  });
+
+  const protoParseResult = createMemo(() => {
+    const content = debouncedProtoContent();
+    if (!content.trim()) {
+      return { parsed: null as ParsedProto | null, error: null as string | null };
+    }
+    try {
+      return { parsed: parseProtoContent(content), error: null as string | null };
+    } catch (err: any) {
+      return { parsed: null as ParsedProto | null, error: err.message || "Failed to parse .proto file" };
+    }
+  });
+  const parsedProto = () => protoParseResult().parsed;
+  const compileError = () => protoParseResult().error;
 
   // Execution state
   const [runId, setRunId] = createSignal<string | null>(null);
@@ -887,12 +405,32 @@ export default function WorkflowBuilder() {
   const [isRunning, setIsRunning] = createSignal(false);
   const [isSaving, setIsSaving] = createSignal(false);
   const [actionMessage, setActionMessage] = createSignal<{ type: "success" | "error"; text: string } | null>(null);
-  const [liveStreamEvents, setLiveStreamEvents] = createSignal<any[]>([]);
+  const [liveStreamEvents, setLiveStreamEvents] = createStore<any[]>([]);
+
+  let activeEventSource: EventSource | null = null;
+  let activePollTimer: ReturnType<typeof setTimeout> | undefined;
+  let activePollToken = 0;
+
+  onCleanup(() => {
+    if (activeEventSource) {
+      activeEventSource.close();
+      activeEventSource = null;
+    }
+    activePollToken++;
+    if (activePollTimer) {
+      clearTimeout(activePollTimer);
+      activePollTimer = undefined;
+    }
+  });
 
   const runWorkflowStreaming = async () => {
+    if (activeEventSource) {
+      activeEventSource.close();
+      activeEventSource = null;
+    }
     setIsRunning(true);
     setRunData(null);
-    setLiveStreamEvents([]);
+    setLiveStreamEvents(reconcile([]));
     setActionMessage(null);
 
     try {
@@ -909,21 +447,28 @@ export default function WorkflowBuilder() {
       if (json.success) {
         setRunId(json.runId);
         const es = new EventSource(`/api/workflows/runs/${json.runId}/stream`);
+        activeEventSource = es;
 
         const appendEvent = (e: MessageEvent) => {
           try {
             const payload = JSON.parse(e.data);
-            setLiveStreamEvents((prev) => [...prev, payload]);
+            setLiveStreamEvents(
+              produce((draft) => {
+                draft.push(payload);
+                if (draft.length > 500) {
+                  draft.splice(0, draft.length - 500);
+                }
+              })
+            );
           } catch {}
         };
 
+        // Server emits every workflow event on "message" as well as its named type
         es.onmessage = appendEvent;
-        ["workflow_start", "step_start", "step_chunk", "step_complete", "step_failed", "workflow_complete", "workflow_failed"].forEach((evtName) => {
-          es.addEventListener(evtName, appendEvent as any);
-        });
 
         const handleEnd = () => {
           es.close();
+          if (activeEventSource === es) activeEventSource = null;
           pollRunData(json.runId);
         };
 
@@ -932,6 +477,7 @@ export default function WorkflowBuilder() {
 
         es.onerror = () => {
           es.close();
+          if (activeEventSource === es) activeEventSource = null;
           setIsRunning(false);
         };
       } else {
@@ -1053,7 +599,7 @@ export default function WorkflowBuilder() {
 
       if (!isServer && !isNew() && !untrack(() => runData())) {
         const cleanId = String(data.id || params.id).replace(/[⟨⟩]/g, "").replace(/^workflow:/, "");
-        fetch(`/api/workflows/${cleanId}/run`)
+        fetch(`/api/workflows/${cleanId}/run?limit=1`)
           .then((res) => res.json())
           .then((json) => {
             if (json.success && Array.isArray(json.data) && json.data.length > 0 && !untrack(() => runData())) {
@@ -1072,26 +618,6 @@ export default function WorkflowBuilder() {
       if (p) {
         setProtoContent(p.content || "");
       }
-    }
-  });
-
-
-  // Re-parse proto content when it changes
-  createEffect(() => {
-    const currentParam = params.id; // track dependency
-    const content = protoContent();
-    if (!content.trim()) {
-      setParsedProto(null);
-      setCompileError(null);
-      return;
-    }
-    try {
-      const parsed = parseProtoContent(content);
-      setParsedProto(parsed);
-      setCompileError(null);
-    } catch (err: any) {
-      setCompileError(err.message || "Failed to parse .proto file");
-      setParsedProto(null);
     }
   });
 
@@ -1495,10 +1021,22 @@ export default function WorkflowBuilder() {
 
   const pollRunData = async (id: string) => {
     const rawId = id.includes(":") ? id.split(":")[1].replace(/[⟨⟩]/g, "") : id.replace(/[⟨⟩]/g, "");
-    const fetchRun = async () => {
+    const token = ++activePollToken;
+    if (activePollTimer) {
+      clearTimeout(activePollTimer);
+      activePollTimer = undefined;
+    }
+
+    const maxAttempts = 120;
+    let attempts = 0;
+
+    const fetchRun = async (): Promise<boolean> => {
+      if (token !== activePollToken) return true;
       try {
         const res = await fetch(`/api/workflows/runs/${rawId}`);
+        if (token !== activePollToken) return true;
         const json = await res.json();
+        if (token !== activePollToken) return true;
         if (json.success && json.data) {
           setRunData(json.data);
           if (json.data.status === "completed" || json.data.status === "failed") {
@@ -1512,15 +1050,19 @@ export default function WorkflowBuilder() {
       return false;
     };
 
-    const done = await fetchRun();
-    if (done) return;
-
-    const interval = setInterval(async () => {
+    const step = async () => {
+      if (token !== activePollToken) return;
+      attempts++;
       const isDone = await fetchRun();
-      if (isDone) {
-        clearInterval(interval);
+      if (isDone || token !== activePollToken) return;
+      if (attempts >= maxAttempts) {
+        setIsRunning(false);
+        return;
       }
-    }, 1000); // poll every second
+      activePollTimer = setTimeout(step, 1000);
+    };
+
+    await step();
   };
 
   return (
@@ -1772,16 +1314,16 @@ export default function WorkflowBuilder() {
       </Show>
 
 
-      <Show when={liveStreamEvents().length > 0}>
+      <Show when={liveStreamEvents.length > 0}>
         <div class="card p-4 border border-purple-500/30 bg-purple-950/20 mb-6">
           <div class="flex items-center justify-between mb-2">
             <span class="text-xs font-bold uppercase tracking-wider text-purple-300 flex items-center gap-2">
               <span class="inline-block w-2 h-2 rounded-full bg-purple-400 animate-ping"></span>
-              Live Workflow Stream Events ({liveStreamEvents().length})
+              Live Workflow Stream Events ({liveStreamEvents.length})
             </span>
           </div>
           <div class="max-h-48 overflow-y-auto font-mono text-xs space-y-1 custom-scrollbar bg-[#0a0a0f] p-3 rounded-lg border border-purple-900/50">
-            <For each={liveStreamEvents()}>
+            <For each={liveStreamEvents}>
               {(evt) => (
                 <div class="flex items-start gap-2 border-b border-[#1e1e2e] pb-1 text-slate-300">
                   <span class="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-purple-900/60 text-purple-200">
@@ -5061,7 +4603,7 @@ export default function WorkflowBuilder() {
                                         No table rows found
                                       </div>
                                     }>
-                                      <LogTable data={stepData()} columns={log()!.meta?.columns} />
+                                      <DashTable compact={true} data={stepData()} columns={log()!.meta?.columns} />
                                     </Show>
                                   </div>
                                   <Show when={responseFields().length > 0}>
@@ -5103,18 +4645,25 @@ export default function WorkflowBuilder() {
                                       </div>
                                     }>
                                       <Show when={step.chartType === "timeline"} fallback={
-                                        <LogChart
-                                          data={stepData()}
-                                          xKey={log()!.meta?.xKey || step.xKey}
-                                          yKey={log()!.meta?.yKey || step.yKey}
-                                          chartType={log()!.meta?.chartType || step.chartType || "bar"}
-                                        />
+                                        <Suspense fallback={<div class="h-[250px] animate-pulse rounded bg-[#101015]" />}>
+                                          <DashChart
+                                            data={stepData()}
+                                            xKey={log()!.meta?.xKey || step.xKey}
+                                            yKey={log()!.meta?.yKey || step.yKey}
+                                            chartType={log()!.meta?.chartType || step.chartType || "bar"}
+                                            accentColor="blue"
+                                            height="250px"
+                                          />
+                                        </Suspense>
                                       }>
-                                        <LogTimeline
-                                          data={stepData()}
-                                          xKey={log()!.meta?.xKey || step.xKey}
-                                          yKey={log()!.meta?.yKey || step.yKey}
-                                        />
+                                        <Suspense fallback={<div class="h-[250px] animate-pulse rounded bg-[#101015]" />}>
+                                          <DashTimeline
+                                            data={stepData()}
+                                            xKey={log()!.meta?.xKey || step.xKey}
+                                            yKey={log()!.meta?.yKey || step.yKey}
+                                            height="250px"
+                                          />
+                                        </Suspense>
                                       </Show>
                                     </Show>
                                   </div>

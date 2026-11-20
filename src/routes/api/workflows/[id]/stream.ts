@@ -43,11 +43,26 @@ export async function GET(event: APIEvent) {
 
     const channel = runId ? `run:${runId}` : `wf:${id}`;
 
+    let activeCleanup: (() => void) | null = null;
     const stream = new ReadableStream({
       async start(controller) {
         const encoder = new TextEncoder();
+        let closed = false;
+        let unsubFn: (() => void) | null = null;
+        const cleanup = () => {
+          if (closed) return;
+          closed = true;
+          try { unsubFn?.(); } catch {}
+          unsubFn = null;
+        };
+        activeCleanup = cleanup;
         const sendEvent = (evt: string, data: any) => {
-          controller.enqueue(encoder.encode(`event: ${evt}\ndata: ${JSON.stringify(data)}\n\n`));
+          if (closed) return;
+          try {
+            controller.enqueue(encoder.encode(`event: ${evt}\ndata: ${JSON.stringify(data)}\n\n`));
+          } catch {
+            cleanup();
+          }
         };
 
         sendEvent("status", { message: `Subscribed to workflow stream on channel '${channel}'` });
@@ -60,11 +75,12 @@ export async function GET(event: APIEvent) {
           if (payload.type === "workflow_complete" || payload.type === "workflow_failed") {
             setTimeout(() => {
               try { controller.close(); } catch {}
+              cleanup();
             }, 500);
           }
         };
 
-        const unsub = await subscribeEvent(channel, (raw) => {
+        unsubFn = await subscribeEvent(channel, (raw) => {
           try {
             const payload = typeof raw === "string" ? JSON.parse(raw) : raw;
             eventHandler(payload);
@@ -72,10 +88,15 @@ export async function GET(event: APIEvent) {
             console.warn("[Stream] Failed to parse event payload:", e);
           }
         });
+        if (closed || event.request.signal.aborted) {
+          cleanup();
+          return;
+        }
 
-        event.request.signal.addEventListener("abort", () => {
-          unsub();
-        });
+        event.request.signal.addEventListener("abort", cleanup, { once: true });
+      },
+      cancel() {
+        activeCleanup?.();
       },
     });
 

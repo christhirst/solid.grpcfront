@@ -75,18 +75,23 @@ function isConnectionError(err: any): boolean {
 class TracedDb {
     private inner: Surreal;
     private dbLabel: string;
+    private onConnError?: () => void;
 
-    constructor(inner: Surreal, label = "main") {
+    constructor(inner: Surreal, label = "main", onConnError?: () => void) {
         this.inner = inner;
         this.dbLabel = label;
+        this.onConnError = onConnError;
     }
 
     private handleError(op: string, err: any): void {
         console.error(`[DB] ${op} failed: ${err?.message || err}`);
         if (isConnectionError(err)) {
             console.warn(`[DB] Connection failure detected during ${op} (${err?.message}). Resetting connection cache.`);
-            resetDbConnection();
-            dynamicDbs.delete(this.dbLabel);
+            if (this.onConnError) {
+                this.onConnError();
+            } else {
+                resetDbConnection();
+            }
         }
         Sentry.captureException(err);
     }
@@ -459,6 +464,10 @@ async function createConnectedClient(
             console.warn(
                 `[DB] Auth attempt failed (${Object.keys(auth).join(", ")}) [ns=${auth.namespace || "-"}, db=${auth.database || "-"}, user=${auth.username || "-"}]: ${err?.message || err}`,
             );
+            // If the server timed out at the socket level, retrying other auth scopes won't succeed.
+            if (String(err?.message || "").toLowerCase().includes("timed out")) {
+                throw err;
+            }
         }
     }
     throw lastError;
@@ -467,7 +476,52 @@ async function createConnectedClient(
 // Cache the connection promise so concurrent requests await the same initial connection.
 // We avoid globalThis as it can cause Nitro worker hangs when dealing with WebSockets/WASM.
 let dbPromise: Promise<TracedDb> | null = null;
-const dynamicDbs = new Map<string, Promise<TracedDb>>();
+
+interface PoolEntry {
+    promise: Promise<TracedDb>;
+    lastUsed: number;
+}
+const MAX_POOL_ENTRIES = 32;
+const POOL_IDLE_TTL_MS = 10 * 60 * 1000;
+const dynamicDbs = new Map<string, PoolEntry>();
+const customDbs = new Map<string, PoolEntry>();
+
+function touchPoolEntry(map: Map<string, PoolEntry>, key: string): Promise<TracedDb> | null {
+    const existing = map.get(key);
+    if (!existing) return null;
+    existing.lastUsed = Date.now();
+    map.delete(key);
+    map.set(key, existing);
+    return existing.promise;
+}
+
+function evictPoolEntry(map: Map<string, PoolEntry>, key: string): void {
+    const existing = map.get(key);
+    if (!existing) return;
+    map.delete(key);
+    existing.promise.then((traced) => traced.close()).catch(() => {});
+}
+
+function evictPoolOverflow(map: Map<string, PoolEntry>): void {
+    while (map.size >= MAX_POOL_ENTRIES) {
+        const oldestKey = map.keys().next().value;
+        if (oldestKey === undefined) break;
+        evictPoolEntry(map, oldestKey);
+    }
+}
+
+const poolSweepTimer = setInterval(() => {
+    const cutoff = Date.now() - POOL_IDLE_TTL_MS;
+    for (const [k, entry] of dynamicDbs) {
+        if (entry.lastUsed < cutoff) evictPoolEntry(dynamicDbs, k);
+    }
+    for (const [k, entry] of customDbs) {
+        if (entry.lastUsed < cutoff) evictPoolEntry(customDbs, k);
+    }
+}, 60_000);
+if (typeof (poolSweepTimer as any).unref === "function") {
+    (poolSweepTimer as any).unref();
+}
 
 const DEFAULT_SURREALDB_URL = "wss://app.ux-ti.com/rpc";
 const DEFAULT_SURREALDB_USER = "solid";
@@ -539,6 +593,9 @@ export async function getDb(): Promise<TracedDb> {
                     DEFINE INDEX IF NOT EXISTS idx_workflow_run_lookup ON workflow_run FIELDS workflowId, startTime;
                     DEFINE INDEX IF NOT EXISTS idx_group_member_sub ON group_member FIELDS userSub;
                     DEFINE INDEX IF NOT EXISTS idx_group_member_username ON group_member FIELDS username;
+                    DEFINE FIELD IF NOT EXISTS username_lc ON group_member VALUE string::lowercase(username ?? '');
+                    DEFINE INDEX IF NOT EXISTS idx_group_member_username_lc ON group_member FIELDS username_lc;
+                    UPDATE group_member SET username_lc = string::lowercase(username ?? '') WHERE username_lc = NONE;
                     DEFINE INDEX IF NOT EXISTS idx_group_namespace_owner ON group_namespace FIELDS owner;
                 `).catch((e: any) => console.warn("[DB] [INIT] Background index definition warning:", e?.message));
 
@@ -546,7 +603,7 @@ export async function getDb(): Promise<TracedDb> {
                     `[DB] [INIT] Successfully connected to ${namespace}/${database}`,
                 );
 
-                const traced = new TracedDb(db, database);
+                const traced = new TracedDb(db, database, () => resetDbConnection());
 
                 // Initialize workflow scheduler and bootstrap default data ONCE on the server
                 if (typeof window === "undefined" && !isBootstrapped) {
@@ -585,10 +642,13 @@ export function resetDbConnection() {
 }
 
 export async function getDynamicDb(dbName: string): Promise<TracedDb> {
-    if (dynamicDbs.has(dbName)) {
-        return dynamicDbs.get(dbName)!;
+    const cached = touchPoolEntry(dynamicDbs, dbName);
+    if (cached) {
+        return cached;
     }
 
+    evictPoolOverflow(dynamicDbs);
+    const entry: PoolEntry = { promise: null as any, lastUsed: Date.now() };
     const promise = Sentry.startSpan(
         {
             name: `SurrealDB Connect (${dbName})`,
@@ -616,24 +676,32 @@ export async function getDynamicDb(dbName: string): Promise<TracedDb> {
                 const s = await createConnectedClient(url, user, pass, namespace, dbName, connectTimeoutMs, authLevel);
                 await s.use({ namespace, database: dbName });
                 console.log(`[DB] [DYNAMIC] Successfully connected to '${dbName}'`);
-                return new TracedDb(s, dbName);
+                const traced = new TracedDb(s, dbName, () => {
+                    if (dynamicDbs.get(dbName) === entry) {
+                        evictPoolEntry(dynamicDbs, dbName);
+                    } else {
+                        traced.close().catch(() => {});
+                    }
+                });
+                return traced;
             } catch (err: any) {
                 console.error(
                     `[DB] [DYNAMIC] Failed to connect to dynamic database ${dbName}:`,
                     err.message,
                 );
                 Sentry.captureException(err);
-                dynamicDbs.delete(dbName);
+                if (dynamicDbs.get(dbName) === entry) {
+                    dynamicDbs.delete(dbName);
+                }
                 throw err;
             }
         },
     );
 
-    dynamicDbs.set(dbName, promise);
+    entry.promise = promise;
+    dynamicDbs.set(dbName, entry);
     return promise;
 }
-
-const customDbs = new Map<string, Promise<TracedDb>>();
 
 export interface CustomDbOpts {
     url?: string;
@@ -656,10 +724,13 @@ export async function getCustomDb(opts: CustomDbOpts): Promise<TracedDb> {
 
     const cacheKey = `${url}|${user}|${pass}|${namespace}|${database}|${authLevel}`;
 
-    if (customDbs.has(cacheKey)) {
-        return customDbs.get(cacheKey)!;
+    const cached = touchPoolEntry(customDbs, cacheKey);
+    if (cached) {
+        return cached;
     }
 
+    evictPoolOverflow(customDbs);
+    const entry: PoolEntry = { promise: null as any, lastUsed: Date.now() };
     const promise = Sentry.startSpan(
         {
             name: `SurrealDB Connect (custom: ${database})`,
@@ -682,20 +753,30 @@ export async function getCustomDb(opts: CustomDbOpts): Promise<TracedDb> {
                 await s.use({ namespace, database });
                 
                 console.log(`[DB] [CUSTOM] Successfully connected to '${database}'`);
-                return new TracedDb(s, database);
+                const traced = new TracedDb(s, database, () => {
+                    if (customDbs.get(cacheKey) === entry) {
+                        evictPoolEntry(customDbs, cacheKey);
+                    } else {
+                        traced.close().catch(() => {});
+                    }
+                });
+                return traced;
             } catch (err: any) {
                 console.error(
                     `[DB] [CUSTOM] Failed to connect to custom database ${database}:`,
                     err.message,
                 );
                 Sentry.captureException(err);
-                customDbs.delete(cacheKey);
+                if (customDbs.get(cacheKey) === entry) {
+                    customDbs.delete(cacheKey);
+                }
                 throw err;
             }
         },
     );
 
-    customDbs.set(cacheKey, promise);
+    entry.promise = promise;
+    customDbs.set(cacheKey, entry);
     return promise;
 }
 

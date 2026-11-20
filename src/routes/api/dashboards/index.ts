@@ -36,14 +36,23 @@ export async function GET(event: APIEvent) {
     let dashboards: any[] = [];
     try {
       let result;
-      if (q) {
-        result = await db.query(
-          "SELECT * FROM dashboard WHERE (string::lowercase(name) CONTAINS string::lowercase($q) OR string::lowercase(description ?? '') CONTAINS string::lowercase($q) OR $q INSIDE tags OR $q INSIDE content_tags) ORDER BY updated_at DESC",
-          { q }
-        );
-      } else {
-        result = await db.query("SELECT * FROM dashboard ORDER BY updated_at DESC");
-      }
+      const anonUnrestricted =
+        "((owner = NONE OR owner = '' OR owner = 'anonymous') AND (tags = NONE OR array::len(tags) = 0))";
+      const anonClause =
+        ctx.sub === "anonymous"
+          ? libraryOnly
+            ? `(isPublic = true OR ${anonUnrestricted})`
+            : anonUnrestricted
+          : null;
+      const searchClause = q
+        ? "(string::lowercase(name) CONTAINS string::lowercase($q) OR string::lowercase(description ?? '') CONTAINS string::lowercase($q) OR $q INSIDE tags OR $q INSIDE content_tags)"
+        : null;
+      const whereParts = [searchClause, anonClause].filter(Boolean);
+      const whereSql = whereParts.length > 0 ? ` WHERE ${whereParts.join(" AND ")}` : "";
+      result = await db.query(
+        `SELECT * FROM dashboard${whereSql} ORDER BY updated_at DESC`,
+        q ? { q } : undefined
+      );
       const raw = ((result[0] as any[]) || []).map((w: any) => ({
         ...w,
         id: w.id?.toString().replace(/[⟨⟩]/g, ""),

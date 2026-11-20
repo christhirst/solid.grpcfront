@@ -33,11 +33,11 @@ export async function GET(event: APIEvent) {
       let result;
       if (q) {
         result = await db.query(
-          "SELECT * FROM workflow WHERE (string::lowercase(name) CONTAINS string::lowercase($q) OR $q INSIDE tags) ORDER BY updated_at DESC",
+          "SELECT * OMIT protoContent, graph FROM workflow WHERE (string::lowercase(name) CONTAINS string::lowercase($q) OR $q INSIDE tags) ORDER BY updated_at DESC",
           { q }
         );
       } else {
-        result = await db.query("SELECT * FROM workflow ORDER BY updated_at DESC");
+        result = await db.query("SELECT * OMIT protoContent, graph FROM workflow ORDER BY updated_at DESC");
       }
       const raw = ((result[0] as any[]) || []).map((w: any) => ({
         ...w,

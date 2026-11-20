@@ -1,4 +1,4 @@
-import { Show, createSignal } from "solid-js";
+import { createSignal, onCleanup } from "solid-js";
 import { DashboardButtonFormWidget, type WidgetResponseOutcome } from "./DashboardButtonFormWidget";
 import { useWidgetOutcome } from "./useWidgetOutcome";
 import { applyWidgetConditions, extractRunOutcome } from "~/lib/dashboard/widgetConditions";
@@ -26,21 +26,32 @@ export function DashboardPublicButtonFormWidget(props: DashboardPublicWidgetProp
   const effectiveData = () => runOutcome().data ?? outcome().data;
   const effective = () => applyWidgetConditions(props.btn, effectiveData());
 
+  let disposed = false;
+  let cancelTriggerPoll: (() => void) | undefined;
+  onCleanup(() => {
+    disposed = true;
+    cancelTriggerPoll?.();
+  });
+
   const handleTrigger = async () => {
     const res = (await props.triggerButton(props.btn, effective().workflowId)) as any;
+    if (disposed) return;
     const runId = res?.runId;
     const hasOutput = !!(props.btn.showOutput || (props.btn.outputConfig && props.btn.outputConfig.length > 0));
 
     if (runId && hasOutput) {
+      cancelTriggerPoll?.();
       setRunOutcome({ status: "running" });
-      pollRun(
+      cancelTriggerPoll = pollRun(
         runId,
         {
           onDone: (logs) => {
+            if (disposed) return;
             const data = extractRunOutcome(logs);
             setRunOutcome({ status: "ready", data });
           },
           onError: (errMsg) => {
+            if (disposed) return;
             setRunOutcome({ status: "error", error: errMsg });
           },
         },

@@ -81,12 +81,10 @@ export async function POST(event: APIEvent) {
   // Skip updating dashboard buttons when triggering an auxiliary series run
   if (!body.seriesRun) {
     const updatedButtons = buildUpdatedButtons(dashboard.buttons, buttonId, formPayload);
-    const { id: _dashboardId, ...dashboardData } = dashboard;
 
-    await db.query("UPDATE $id CONTENT $data", {
+    await db.query("UPDATE $id MERGE $data", {
       id: dId,
       data: {
-        ...dashboardData,
         buttons: updatedButtons,
         updated_at: new Date().toISOString(),
       },

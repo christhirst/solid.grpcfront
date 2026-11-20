@@ -33,17 +33,68 @@ let redisInitAttempted = false;
 
 const memoryLocks = new Map<string, number>();
 
+// Sweep expired in-memory fallback entries every 60s so long-running processes don't leak memory.
+const MEMORY_SWEEP_INTERVAL_MS = 60_000;
+const memorySweepTimer = setInterval(() => {
+  const now = Date.now();
+  for (const [k, entry] of memoryStore) {
+    if (entry.expiresAt !== null && entry.expiresAt <= now) {
+      memoryStore.delete(k);
+    }
+  }
+  for (const [k, expiresAt] of memoryLocks) {
+    if (expiresAt <= now) {
+      memoryLocks.delete(k);
+    }
+  }
+}, MEMORY_SWEEP_INTERVAL_MS);
+if (typeof (memorySweepTimer as any).unref === "function") {
+  (memorySweepTimer as any).unref();
+}
+
+// Shared Redis pub/sub dispatcher with per-channel reference-counted handlers.
+const redisChannelHandlers = new Map<string, Set<(message: string) => void>>();
+let attachedSubClient: any = null;
+
+function ensureRedisDispatcher(sub: any): void {
+  if (!sub || attachedSubClient === sub) return;
+  attachedSubClient = sub;
+  sub.on("message", (chan: string, msg: string) => {
+    const handlers = redisChannelHandlers.get(chan);
+    if (!handlers || handlers.size === 0) return;
+    for (const fn of Array.from(handlers)) {
+      try {
+        fn(msg);
+      } catch (e: any) {
+        console.warn(`[Cache] Redis subscriber handler error on "${chan}": ${e?.message || e}`);
+      }
+    }
+  });
+}
+
+/**
+ * Test helper to inject mock Redis clients or reset module state.
+ */
+export function _setRedisClientsForTest(client: any | null, sub: any | null): void {
+  redisClient = client;
+  redisSubClient = sub;
+  isRedisConnected = Boolean(client);
+  redisInitAttempted = Boolean(client);
+  attachedSubClient = null;
+  redisChannelHandlers.clear();
+}
+
 /**
  * Initializes the Redis connection if REDIS_URL or REDIS_HOST is configured.
  */
 export async function getRedisConnection(): Promise<any | null> {
+  if (redisClient) {
+    return isRedisConnected ? redisClient : null;
+  }
+
   const redisUrl = process.env.REDIS_URL || (process.env.REDIS_HOST ? `redis://${process.env.REDIS_HOST}:${process.env.REDIS_PORT || 6379}` : null);
   if (!redisUrl) {
     return null;
-  }
-
-  if (redisClient) {
-    return isRedisConnected ? redisClient : null;
   }
 
   if (redisInitAttempted && !isRedisConnected) {
@@ -98,8 +149,16 @@ async function getRedisSubConnection(): Promise<any | null> {
   if (redisSubClient) return redisSubClient;
 
   try {
-    redisSubClient = mainClient.duplicate();
-    await redisSubClient.connect();
+    const sub = mainClient.duplicate();
+    sub.on?.("close", () => {
+      if (redisSubClient === sub) redisSubClient = null;
+      if (attachedSubClient === sub) attachedSubClient = null;
+    });
+    sub.on?.("error", (err: any) => {
+      console.warn(`[Cache] Redis subscriber error: ${err?.message || err}`);
+    });
+    await sub.connect();
+    redisSubClient = sub;
     return redisSubClient;
   } catch (err: any) {
     console.warn(`[Cache] Failed to create Redis subscriber client: ${err.message}`);
@@ -225,12 +284,13 @@ export async function publishEvent(channel: string, message: string): Promise<vo
   if (client) {
     try {
       await client.publish(channel, message);
+      return;
     } catch (e: any) {
       console.warn(`[Cache] Redis publish error on "${channel}": ${e.message}`);
     }
   }
 
-  // Always emit to local process emitter as well
+  // Fallback: emit to local process emitter only when Redis is unavailable
   memoryEmitter.emit(channel, message);
 }
 
@@ -242,21 +302,37 @@ export async function subscribeEvent(channel: string, handler: (message: string)
   const sub = await getRedisSubConnection();
   if (sub) {
     try {
-      await sub.subscribe(channel);
-      const onMessage = (chan: string, msg: string) => {
-        if (chan === channel) handler(msg);
-      };
-      sub.on("message", onMessage);
-
-      // Local listener as well
-      memoryEmitter.on(channel, handler);
-
-      return () => {
-        memoryEmitter.off(channel, handler);
+      ensureRedisDispatcher(sub);
+      let set = redisChannelHandlers.get(channel);
+      const needsSubscribe = !set || set.size === 0;
+      if (!set) {
+        set = new Set();
+        redisChannelHandlers.set(channel, set);
+      }
+      set.add(handler);
+      if (needsSubscribe) {
         try {
-          sub.off("message", onMessage);
-          sub.unsubscribe(channel).catch(() => {});
-        } catch {}
+          await sub.subscribe(channel);
+        } catch (subErr) {
+          set.delete(handler);
+          if (set.size === 0) redisChannelHandlers.delete(channel);
+          throw subErr;
+        }
+      }
+
+      let cleaned = false;
+      return () => {
+        if (cleaned) return;
+        cleaned = true;
+        const currentSet = redisChannelHandlers.get(channel);
+        if (!currentSet) return;
+        currentSet.delete(handler);
+        if (currentSet.size === 0) {
+          redisChannelHandlers.delete(channel);
+          try {
+            sub.unsubscribe(channel).catch(() => {});
+          } catch {}
+        }
       };
     } catch (e: any) {
       console.warn(`[Cache] Redis subscribe error on "${channel}": ${e.message}`);
@@ -265,7 +341,10 @@ export async function subscribeEvent(channel: string, handler: (message: string)
 
   // Fallback: in-memory emitter
   memoryEmitter.on(channel, handler);
+  let cleaned = false;
   return () => {
+    if (cleaned) return;
+    cleaned = true;
     memoryEmitter.off(channel, handler);
   };
 }
