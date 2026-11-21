@@ -8,6 +8,9 @@
     "preview": "bun .output/server/index.mjs",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
+    "keys:generate": "bun scripts/rotate-keys.ts --generate",
+    "keys:status": "bun scripts/rotate-keys.ts --status",
+    "keys:rotate": "bun scripts/rotate-keys.ts",
     "varlock:load": "varlock load",
     "varlock:scan": "varlock scan",
     "varlock:encrypt": "varlock encrypt"

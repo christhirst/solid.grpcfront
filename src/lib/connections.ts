@@ -45,7 +45,10 @@ export interface ConnectionBase {
   secretStorage?: "openbao" | "db";
   credentialSecurity?: CredentialSecurityStatus;
   vaultFields?: string[];
+  encryptedFields?: string[];
   cleartextFields?: string[];
+  key_version?: string;
+  key_rotated_at?: string;
   created_at?: string;
   updated_at?: string;
 }
@@ -152,7 +155,10 @@ export function normalizeConnection(raw: any): Connection {
       secretStorage: raw.secretStorage || (sec.status === "openbao" ? "openbao" : "db"),
       credentialSecurity: sec.status,
       vaultFields: sec.vaultFields,
+      encryptedFields: sec.encryptedFields,
       cleartextFields: sec.cleartextFields,
+      key_version: raw.key_version || undefined,
+      key_rotated_at: raw.key_rotated_at || undefined,
     };
   }
 
@@ -193,10 +199,12 @@ export function normalizeConnection(raw: any): Connection {
       if (!tokenContentType) tokenContentType = "application/x-www-form-urlencoded";
       if (!tokenGrantType && params.get("grant_type")) tokenGrantType = params.get("grant_type") as any;
       if (!tokenClientId && params.get("client_id")) tokenClientId = params.get("client_id") || undefined;
-      if (!tokenClientSecret && params.get("client_secret")) tokenClientSecret = params.get("client_secret") || undefined;
+      const bodySecret = params.get("client_secret");
+      if (!tokenClientSecret && bodySecret && bodySecret !== "********") tokenClientSecret = bodySecret;
       if (!tokenScope && params.get("scope")) tokenScope = params.get("scope") || undefined;
       if (!tokenUsername && params.get("username")) tokenUsername = params.get("username") || undefined;
-      if (!tokenPassword && params.get("password")) tokenPassword = params.get("password") || undefined;
+      const bodyPass = params.get("password");
+      if (!tokenPassword && bodyPass && bodyPass !== "********") tokenPassword = bodyPass;
     } catch {}
   }
 
@@ -250,7 +258,10 @@ export function normalizeConnection(raw: any): Connection {
     secretStorage: raw.secretStorage || (sec.status === "openbao" ? "openbao" : "db"),
     credentialSecurity: sec.status,
     vaultFields: sec.vaultFields,
+    encryptedFields: sec.encryptedFields,
     cleartextFields: sec.cleartextFields,
+    key_version: raw.key_version || undefined,
+    key_rotated_at: raw.key_rotated_at || undefined,
   };
 }
 

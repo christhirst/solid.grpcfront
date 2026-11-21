@@ -7,14 +7,22 @@ import { getCaCertContent } from "./connections";
 import {
   CONNECTION_SECRET_FIELDS,
   STEP_SECRET_FIELDS,
+  MASKED_SECRET_PLACEHOLDER,
   parseVaultSecretRef,
   isVaultSecretRef,
+  isEncryptedSecretValue,
   formatVaultSecretRef,
   getCredentialSecuritySummary,
   type CredentialSecurityStatus,
   type CredentialSecuritySummary,
   type VaultSecretRef,
 } from "./vaultRef";
+import {
+  decryptRecordSecrets,
+  encryptRecordSecrets,
+  getEncryptionStatus,
+  scrubTokenBodySecrets,
+} from "~/lib/crypto/envelope";
 
 export {
   CONNECTION_SECRET_FIELDS,
@@ -93,7 +101,16 @@ async function loadDbVaultConfig(): Promise<Partial<OpenBaoConfig> | null> {
     const db = await getDb();
     if (!db) return null;
     const rec: any = await db.select(new RecordId("vault_config", "main")).catch(() => null);
-    const val = rec && typeof rec === "object" && !Array.isArray(rec) ? rec : null;
+    const rawVal = Array.isArray(rec) ? rec[0] : rec;
+    let val = rawVal && typeof rawVal === "object" ? rawVal : null;
+    if (val && isEncryptedSecretValue(val.token)) {
+      val = decryptRecordSecrets(
+        { ...val, id: "vault_config:main" },
+        ["token"],
+        undefined,
+        "vault_config:main"
+      );
+    }
     cachedDbConfig = { value: val, expiresAt: now + DB_CONFIG_TTL_MS };
     return val;
   } catch {
@@ -149,21 +166,44 @@ export async function saveOpenBaoConfig(input: {
   const db = await getDb();
   if (!db) throw new Error("Database not available to save OpenBao configuration");
 
-  const existing: any = await db.select(new RecordId("vault_config", "main")).catch(() => null);
-  const nextToken =
-    input.token !== undefined && input.token !== "********"
-      ? input.token.trim()
-      : existing?.token || "";
+  const existingRes: any = await db.select(new RecordId("vault_config", "main")).catch(() => null);
+  const existing = Array.isArray(existingRes) ? existingRes[0] : existingRes;
+  const incomingToken =
+    input.token !== undefined ? input.token.trim() : MASKED_SECRET_PLACEHOLDER;
 
-  const payload = {
+  const basePayload: Record<string, any> = {
     url: (input.url || "").trim().replace(/\/+$/, ""),
-    token: nextToken,
+    token: incomingToken,
     mount: (input.mount || "secret").trim().replace(/^\/+|\/+$/g, "") || "secret",
     namespace: (input.namespace || "").trim(),
     caId: input.caId || "",
     acceptInvalidCert: Boolean(input.acceptInvalidCert),
     updatedAt: new Date().toISOString(),
   };
+
+  let payload: Record<string, any>;
+  const encStatus = getEncryptionStatus();
+  if (encStatus.configured) {
+    payload = encryptRecordSecrets("vault_config:main", basePayload, existing, ["token"]);
+  } else {
+    const resolvedToken =
+      incomingToken === MASKED_SECRET_PLACEHOLDER ? existing?.token || "" : incomingToken;
+    if (
+      process.env.NODE_ENV === "production" &&
+      resolvedToken &&
+      !isVaultSecretRef(resolvedToken)
+    ) {
+      throw new Error(
+        "Envelope encryption master key is not configured. Run 'bun run keys:generate' and set ENCRYPTION_MASTER_KEY_V1 before storing OpenBao tokens in SurrealDB."
+      );
+    }
+    if (resolvedToken && !isVaultSecretRef(resolvedToken)) {
+      console.warn(
+        "[OPENBAO] Saving OpenBao token without ENCRYPTION_MASTER_KEY_* configured (dev only)."
+      );
+    }
+    payload = { ...basePayload, token: resolvedToken };
+  }
 
   try {
     await db.upsert(new RecordId("vault_config", "main")).content(payload);
@@ -481,18 +521,38 @@ export async function offloadSecretsToOpenBao<T extends Record<string, any>>(
   const cloned: Record<string, any> = { ...payload };
   const toWrite: Record<string, string> = {};
 
+  if (secretFields.includes("tokenPassword")) {
+    scrubTokenBodySecrets(cloned, "strip");
+  }
+
+  const decryptedExisting = existingRecord
+    ? decryptRecordSecrets(existingRecord, secretFields)
+    : null;
+  const envelopeSource = existingRecord?.encrypted_dek ? existingRecord : cloned;
+  const decryptedPayload: Record<string, any> = secretFields.some((f) => isEncryptedSecretValue(cloned[f]))
+    ? decryptRecordSecrets(
+        {
+          ...envelopeSource,
+          ...cloned,
+          encrypted_dek: cloned.encrypted_dek || envelopeSource.encrypted_dek,
+          key_version: cloned.key_version || envelopeSource.key_version,
+        } as Record<string, any>,
+        secretFields
+      )
+    : cloned;
+
   for (const field of secretFields) {
     const incomingVal = cloned[field];
 
     if (typeof incomingVal === "string" && incomingVal.trim().length > 0) {
-      if (incomingVal === "********") {
+      if (incomingVal === MASKED_SECRET_PLACEHOLDER) {
         // User left masked password unchanged on edit
-        const prevVal = existingRecord?.[field];
+        const prevVal = decryptedExisting?.[field];
         if (typeof prevVal === "string" && prevVal.trim().length > 0) {
           if (isVaultSecretRef(prevVal)) {
             cloned[field] = prevVal;
           } else {
-            // Migrate previously cleartext secret into OpenBao!
+            // Migrate previously cleartext or encrypted DB secret into OpenBao as plaintext
             toWrite[field] = prevVal;
             cloned[field] = formatVaultSecretRef(mount, scopePath, field);
           }
@@ -502,6 +562,10 @@ export async function offloadSecretsToOpenBao<T extends Record<string, any>>(
       } else if (isVaultSecretRef(incomingVal)) {
         // Already a vault reference (e.g. user entered custom bao:secret/...#key)
         cloned[field] = incomingVal.trim();
+      } else if (isEncryptedSecretValue(incomingVal)) {
+        // Decrypt AES-256-GCM DB secret before writing to OpenBao
+        toWrite[field] = decryptedPayload[field];
+        cloned[field] = formatVaultSecretRef(mount, scopePath, field);
       } else {
         // Plaintext secret to offload to OpenBao
         toWrite[field] = incomingVal;
@@ -514,12 +578,20 @@ export async function offloadSecretsToOpenBao<T extends Record<string, any>>(
     await writeVaultSecrets(scopePath, toWrite, mount, configOverride);
   }
 
+  const stillHasDbEncrypted = secretFields.some((f) => isEncryptedSecretValue(cloned[f]));
+  if (!stillHasDbEncrypted) {
+    delete cloned.encrypted_dek;
+    delete cloned.key_version;
+    delete cloned.key_rotated_at;
+  }
+
   return cloned as T;
 }
 
 /**
- * Resolves all Vault secret references (`bao:...` or `vaultSecret(...)`) on an object
- * in-memory so executors can authenticate with the real secret values.
+ * Resolves all Vault secret references (`bao:...` or `vaultSecret(...)`) and
+ * AES-256-GCM envelope-encrypted DB fields (`enc:aes256gcm:...`) in-memory
+ * so executors can authenticate with the real secret values.
  */
 export async function resolveObjectSecrets<T extends Record<string, any>>(
   obj: T,
@@ -528,8 +600,12 @@ export async function resolveObjectSecrets<T extends Record<string, any>>(
 ): Promise<T> {
   if (!obj || typeof obj !== "object") return obj;
 
-  const clone: Record<string, any> = { ...obj };
+  let clone: Record<string, any> = { ...obj };
   const fieldsToInspect = secretFields || Object.keys(clone);
+
+  if (fieldsToInspect.some((f) => isEncryptedSecretValue(clone[f]))) {
+    clone = decryptRecordSecrets(clone, fieldsToInspect);
+  }
 
   await Promise.all(
     fieldsToInspect.map(async (field) => {

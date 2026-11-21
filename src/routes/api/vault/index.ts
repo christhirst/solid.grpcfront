@@ -126,13 +126,17 @@ export async function POST(event: APIEvent) {
         });
       }
 
+      const includeEncryptedDb = body?.includeEncryptedDb !== false;
       const rawConns = await db.select("connection");
       const list = Array.isArray(rawConns) ? rawConns : [];
       let migratedCount = 0;
 
       for (const conn of list) {
         const summary = getCredentialSecuritySummary(conn, CONNECTION_SECRET_FIELDS);
-        if (summary.cleartextFields.length === 0) continue;
+        const needsMigration =
+          summary.cleartextFields.length > 0 ||
+          (includeEncryptedDb && summary.encryptedFields.length > 0);
+        if (!needsMigration) continue;
 
         const rawId = conn.id ? String(conn.id).replace(/[⟨⟩]/g, "") : "";
         const cleanId = rawId.includes(":") ? rawId.split(":").slice(1).join(":") : rawId;
@@ -146,17 +150,18 @@ export async function POST(event: APIEvent) {
           CONNECTION_SECRET_FIELDS
         );
         delete updatedPayload.id;
+        delete updatedPayload.encrypted_dek;
+        delete updatedPayload.key_version;
+        delete updatedPayload.key_rotated_at;
         updatedPayload.secretStorage = "openbao";
-        updatedPayload.updatedAt = new Date().toISOString();
+        updatedPayload.updated_at = new Date().toISOString();
+        delete updatedPayload.updatedAt;
 
-        try {
-          await db.update(new RecordId("connection", cleanId)).merge(updatedPayload);
-        } catch {
-          await db.query(`UPDATE type::thing("connection", $id) MERGE $data`, {
-            id: cleanId,
-            data: updatedPayload,
-          });
-        }
+        const rid = new RecordId("connection", cleanId);
+        await db.query("UPDATE $id CONTENT $data", {
+          id: rid,
+          data: updatedPayload,
+        });
         migratedCount++;
       }
 
@@ -166,8 +171,8 @@ export async function POST(event: APIEvent) {
           migratedCount,
           message:
             migratedCount > 0
-              ? `Migrated ${migratedCount} connection(s) from Cleartext DB to OpenBao Vault.`
-              : "All connections with credentials are already secured in OpenBao.",
+              ? `Migrated ${migratedCount} connection(s) from SurrealDB to OpenBao Vault.`
+              : "All connections with credentials are already stored in OpenBao.",
         }),
         { status: 200, headers: { "Content-Type": "application/json" } }
       );

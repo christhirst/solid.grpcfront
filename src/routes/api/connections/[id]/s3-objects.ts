@@ -4,7 +4,10 @@ import { getDb } from "~/lib/db";
 import { normalizeConnection, getCaCertContent } from "~/lib/connections";
 import { listS3Objects } from "~/lib/s3Executor";
 import { readJsonBody } from "~/lib/requestUtils";
-import { resolveObjectSecrets } from "~/lib/openbao";
+import { resolveObjectSecrets, CONNECTION_SECRET_FIELDS } from "~/lib/openbao";
+import { getEffectiveAccessContext } from "~/lib/auth";
+import { canAccessResource } from "~/lib/groupAuth";
+import { mergeMaskedConnectionSecrets } from "~/lib/crypto/envelope";
 
 export async function POST(event: APIEvent) {
   try {
@@ -22,22 +25,39 @@ export async function POST(event: APIEvent) {
     if (id && id !== "adhoc" && id !== "draft" && id !== "new" && id !== "custom") {
       try {
         const db = await getDb();
+        const ctx = await getEffectiveAccessContext(event.request, db);
         const result = await db.select(new RecordId("connection", id));
         const dbConn = Array.isArray(result) ? result[0] : result;
         if (dbConn) {
-          rawConnection = {
-            ...dbConn,
-            ...(body || {}),
-            // Preserve DB credentials/bucket unless explicitly overridden with non-empty values
-            endpoint: body?.endpoint || dbConn.endpoint || dbConn.url,
-            bucket: body?.bucket || dbConn.bucket,
-            region: body?.region || dbConn.region,
-            accessKeyId: body?.accessKeyId !== undefined && body?.accessKeyId !== "" ? body.accessKeyId : dbConn.accessKeyId,
-            secretAccessKey: body?.secretAccessKey !== undefined && body?.secretAccessKey !== "" ? body.secretAccessKey : dbConn.secretAccessKey,
-            sessionToken: body?.sessionToken !== undefined && body?.sessionToken !== "" ? body.sessionToken : dbConn.sessionToken,
-            prefix: body?.prefix !== undefined ? body.prefix : dbConn.prefix,
-            type: "s3",
-          };
+          const hasRealOwner = Boolean(dbConn.owner && dbConn.owner !== "anonymous");
+          const hasTags = Array.isArray(dbConn.tags) && dbConn.tags.length > 0;
+          if (
+            ctx.sub === "anonymous"
+              ? hasRealOwner || hasTags
+              : !canAccessResource(ctx, dbConn, "view")
+          ) {
+            return Response.json(
+              { success: false, error: "You do not have permission to browse this S3 connection." },
+              { status: 403 }
+            );
+          }
+          rawConnection = mergeMaskedConnectionSecrets(
+            {
+              ...dbConn,
+              ...(body || {}),
+              // Preserve DB credentials/bucket unless explicitly overridden with non-empty values
+              endpoint: body?.endpoint || dbConn.endpoint || dbConn.url,
+              bucket: body?.bucket || dbConn.bucket,
+              region: body?.region || dbConn.region,
+              accessKeyId: body?.accessKeyId !== undefined && body?.accessKeyId !== "" ? body.accessKeyId : dbConn.accessKeyId,
+              secretAccessKey: body?.secretAccessKey !== undefined && body?.secretAccessKey !== "" ? body.secretAccessKey : dbConn.secretAccessKey,
+              sessionToken: body?.sessionToken !== undefined && body?.sessionToken !== "" ? body.sessionToken : dbConn.sessionToken,
+              prefix: body?.prefix !== undefined ? body.prefix : dbConn.prefix,
+              type: "s3",
+            },
+            dbConn,
+            CONNECTION_SECRET_FIELDS
+          );
         }
       } catch {
         // Fallback to body below
@@ -45,7 +65,11 @@ export async function POST(event: APIEvent) {
     }
 
     if (!rawConnection && body && (body.bucket || body.endpoint || body.type === "s3")) {
-      rawConnection = { ...body, type: "s3" };
+      rawConnection = mergeMaskedConnectionSecrets(
+        { ...body, type: "s3" },
+        null,
+        CONNECTION_SECRET_FIELDS
+      );
     }
 
     if (!rawConnection) {

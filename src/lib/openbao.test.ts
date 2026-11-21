@@ -1,4 +1,5 @@
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
+import { randomBytes } from "node:crypto";
 import {
   parseVaultSecretRef,
   isVaultSecretRef,
@@ -11,6 +12,8 @@ import {
   clearOpenBaoCaches,
 } from "./openbao";
 import { normalizeConnection } from "./connections";
+import { encryptRecordSecrets, clearMasterKeyringCache } from "./crypto/envelope";
+import { MASKED_SECRET_PLACEHOLDER } from "./vaultRef";
 
 describe("OpenBao Credential Storage & Security", () => {
   let mockServer: any;
@@ -166,5 +169,71 @@ describe("OpenBao Credential Storage & Security", () => {
     expect(resolved.password).toBe("super-secret-basic-pass");
     expect(resolved.tokenPassword).toBe("super-secret-oauth-pass");
     expect(resolved.tokenClientSecret).toBe("super-secret-client-secret");
+  });
+
+  test("resolves AES-256-GCM DB secrets transparently and decrypts before migrating to OpenBao", async () => {
+    clearOpenBaoCaches();
+    const prevKey = process.env.ENCRYPTION_MASTER_KEY_V1;
+    const prevActive = process.env.ENCRYPTION_ACTIVE_KEY_VERSION;
+    process.env.ENCRYPTION_MASTER_KEY_V1 = randomBytes(32).toString("base64");
+    process.env.ENCRYPTION_ACTIVE_KEY_VERSION = "v1";
+    clearMasterKeyringCache();
+
+    try {
+      const cfgOverride = {
+        url: mockVaultUrl,
+        token: "test-bao-token",
+        mount: "secret",
+      };
+
+      const encryptedDbConn = encryptRecordSecrets("connection:enc-to-bao", {
+        id: "connection:enc-to-bao",
+        name: "Encrypted DB Conn",
+        type: "http",
+        url: "https://api.internal",
+        authType: "oauth",
+        password: "real-basic-password",
+        tokenClientSecret: "real-oauth-client-secret",
+      });
+
+      expect(normalizeConnection(encryptedDbConn).credentialSecurity).toBe("encrypted");
+
+      // Executors calling resolveObjectSecrets get plaintext in-memory
+      const resolved = await resolveObjectSecrets(encryptedDbConn, undefined, cfgOverride);
+      expect(resolved.password).toBe("real-basic-password");
+      expect(resolved.tokenClientSecret).toBe("real-oauth-client-secret");
+
+      // Migrating from encrypted DB to OpenBao (with masked UI fields) writes REAL plaintext to OpenBao
+      const migrated = await offloadSecretsToOpenBao(
+        "solidflow/connections/enc-to-bao",
+        {
+          ...encryptedDbConn,
+          password: MASKED_SECRET_PLACEHOLDER,
+          tokenClientSecret: MASKED_SECRET_PLACEHOLDER,
+          secretStorage: "openbao",
+        },
+        encryptedDbConn,
+        undefined,
+        cfgOverride
+      );
+
+      expect(migrated.password).toBe("bao:secret/solidflow/connections/enc-to-bao#password");
+      expect(migrated.tokenClientSecret).toBe(
+        "bao:secret/solidflow/connections/enc-to-bao#tokenClientSecret"
+      );
+      expect(migrated.encrypted_dek).toBeUndefined();
+      expect(migrated.key_version).toBeUndefined();
+
+      const baoPassword = await readVaultSecret(migrated.password, cfgOverride);
+      const baoSecret = await readVaultSecret(migrated.tokenClientSecret, cfgOverride);
+      expect(baoPassword).toBe("real-basic-password");
+      expect(baoSecret).toBe("real-oauth-client-secret");
+    } finally {
+      if (prevKey === undefined) delete process.env.ENCRYPTION_MASTER_KEY_V1;
+      else process.env.ENCRYPTION_MASTER_KEY_V1 = prevKey;
+      if (prevActive === undefined) delete process.env.ENCRYPTION_ACTIVE_KEY_VERSION;
+      else process.env.ENCRYPTION_ACTIVE_KEY_VERSION = prevActive;
+      clearMasterKeyringCache();
+    }
   });
 });

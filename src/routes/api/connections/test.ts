@@ -8,17 +8,22 @@ import {
   testSurrealDbConnection,
   testS3Connection,
 } from "~/lib/connections";
+import { getEffectiveAccessContext } from "~/lib/auth";
+import { canAccessResource } from "~/lib/groupAuth";
+import { CONNECTION_SECRET_FIELDS } from "~/lib/vaultRef";
+import { mergeMaskedConnectionSecrets } from "~/lib/crypto/envelope";
 
 export async function POST(event: APIEvent) {
   try {
     const body = await new Response(event.request.body).json();
-    let config = body;
+    let config: any = mergeMaskedConnectionSecrets(body || {}, null, CONNECTION_SECRET_FIELDS);
 
-    // If a connectionId was supplied instead of full params, fetch from DB
-    if (body.connectionId && !body.url && !body.serverAddress && !body.bucket) {
+    // Always resolve saved connection from DB when connectionId is supplied so masked `"********"` secrets restore cleanly
+    if (body?.connectionId) {
       const db = await getDb();
-      const rawId = body.connectionId;
-      const dbId = rawId.includes(":") ? rawId.split(":")[1] : rawId;
+      const ctx = await getEffectiveAccessContext(event.request, db);
+      const rawId = String(body.connectionId);
+      const dbId = (rawId.includes(":") ? rawId.split(":")[1] : rawId).replace(/[⟨⟩]/g, "").trim();
       const record = await db.select(new RecordId("connection", dbId));
       const conn = Array.isArray(record) ? record[0] : record;
       if (!conn) {
@@ -27,7 +32,19 @@ export async function POST(event: APIEvent) {
           { status: 404, headers: { "Content-Type": "application/json" } }
         );
       }
-      config = { ...conn, ...body };
+      const hasRealOwner = Boolean(conn.owner && conn.owner !== "anonymous");
+      const hasTags = Array.isArray(conn.tags) && conn.tags.length > 0;
+      if (
+        ctx.sub === "anonymous"
+          ? hasRealOwner || hasTags
+          : !canAccessResource(ctx, conn, "view")
+      ) {
+        return Response.json(
+          { success: false, error: "You do not have permission to test this connection." },
+          { status: 403 }
+        );
+      }
+      config = mergeMaskedConnectionSecrets({ ...conn, ...body }, conn, CONNECTION_SECRET_FIELDS);
     }
 
     const normalized = normalizeConnection(config);

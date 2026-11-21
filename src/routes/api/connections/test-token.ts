@@ -4,11 +4,13 @@ import { getDb } from "~/lib/db";
 import { fetchPreRequestToken, normalizeConnection } from "~/lib/connections";
 import { getEffectiveAccessContext } from "~/lib/auth";
 import { canAccessResource } from "~/lib/groupAuth";
+import { resolveObjectSecrets, CONNECTION_SECRET_FIELDS } from "~/lib/openbao";
+import { mergeMaskedConnectionSecrets } from "~/lib/crypto/envelope";
 
 export async function POST(event: APIEvent) {
   try {
     const body = await new Response(event.request.body).json();
-    let config: any = body;
+    let config: any = mergeMaskedConnectionSecrets(body || {}, null, CONNECTION_SECRET_FIELDS);
     let targetDbId: string | undefined;
     let canEditTarget = false;
     let db: any;
@@ -26,10 +28,28 @@ export async function POST(event: APIEvent) {
           { status: 404, headers: { "Content-Type": "application/json" } }
         );
       }
-      const normalized = normalizeConnection(connRecord) as any;
-      canEditTarget = ctx.sub === "anonymous" || canAccessResource(ctx, normalized, "edit");
+      const hasRealOwner = Boolean(connRecord.owner && connRecord.owner !== "anonymous");
+      const hasTags = Array.isArray(connRecord.tags) && connRecord.tags.length > 0;
+      if (
+        ctx.sub === "anonymous"
+          ? hasRealOwner || hasTags
+          : !canAccessResource(ctx, connRecord, "view")
+      ) {
+        return Response.json(
+          { success: false, error: "You do not have permission to test this connection." },
+          { status: 403 }
+        );
+      }
+
+      const merged = mergeMaskedConnectionSecrets(
+        { ...connRecord, ...body },
+        connRecord,
+        CONNECTION_SECRET_FIELDS
+      );
+      const normalized = (await resolveObjectSecrets(normalizeConnection(merged))) as any;
+      canEditTarget = ctx.sub === "anonymous" || canAccessResource(ctx, normalized, "write");
       targetDbId = dbId;
-      config = { ...normalized, ...body };
+      config = normalized;
 
       // If this connection uses static bearer auth instead of dynamic OAuth pre-request
       if (normalized.authType === "bearer" && normalized.bearerToken && !normalized.tokenUrl && !body.tokenUrl && !body.url) {

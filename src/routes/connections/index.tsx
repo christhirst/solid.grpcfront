@@ -17,6 +17,17 @@ const fetchVaultStatus = async () => {
   }
 };
 
+const fetchEncryptionStatus = async () => {
+  if (isServer) return null;
+  try {
+    const res = await fetch("/api/encryption/status", { credentials: "include" });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+};
+
 const fetchConnections = async () => {
   if (isServer) return [];
   try {
@@ -75,17 +86,20 @@ export default function Connections() {
   const [cas, { refetch: refetchCas }] = createClientResource(() => (isServer ? false : true), fetchCas);
   const [protos, { refetch: refetchProtos }] = createClientResource(() => (isServer ? false : true), fetchProtos);
   const [vaultStatus, { refetch: refetchVault }] = createClientResource(() => (isServer ? false : true), fetchVaultStatus);
+  const [encryptionStatus, { refetch: refetchEncryption }] = createClientResource(() => (isServer ? false : true), fetchEncryptionStatus);
 
   onMount(() => {
     refetch();
     refetchCas();
     refetchProtos();
     refetchVault();
+    refetchEncryption();
     const reload = () => {
       refetch();
       refetchCas();
       refetchProtos();
       refetchVault();
+      refetchEncryption();
     };
     window.addEventListener("user-groups-changed", reload);
     onCleanup(() => {
@@ -122,6 +136,14 @@ export default function Connections() {
   const [isMigratingVault, setIsMigratingVault] = createSignal(false);
   const [migratingConnId, setMigratingConnId] = createSignal<string | null>(null);
   const [vaultModalFeedback, setVaultModalFeedback] = createSignal<{ ok: boolean; message: string } | null>(null);
+
+  // Envelope Encryption & Key Rotation Modal State
+  const [isEncryptionModalOpen, setIsEncryptionModalOpen] = createSignal(false);
+  const [rotationMode, setRotationMode] = createSignal<"rewrap" | "reencrypt">("rewrap");
+  const [rotateIncludeCleartext, setRotateIncludeCleartext] = createSignal(true);
+  const [rotateDryRun, setRotateDryRun] = createSignal(false);
+  const [isRotatingKeys, setIsRotatingKeys] = createSignal(false);
+  const [rotationFeedback, setRotationFeedback] = createSignal<{ ok: boolean; message: string } | null>(null);
 
   // HTTP Fields
   const [url, setUrl] = createSignal("");
@@ -645,11 +667,14 @@ export default function Connections() {
 
     try {
       const payload = getPayload();
+      const bodyPayload = selectedConnection()?.id
+        ? { ...payload, connectionId: selectedConnection()?.id }
+        : payload;
       const clientTimeoutMs = ((payload as any).timeoutMs || 5000) + 3000;
       const res = await fetch("/api/connections/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(bodyPayload),
         signal: AbortSignal.timeout(clientTimeoutMs),
       });
       const json = await res.json();
@@ -849,6 +874,7 @@ export default function Connections() {
         setIsNew(false);
         window.dispatchEvent(new CustomEvent("user-groups-changed"));
         refetch();
+        refetchEncryption();
       } else {
         alert("Failed to save connection: " + json.error);
       }
@@ -982,6 +1008,7 @@ export default function Connections() {
       if (res.ok && json.ok) {
         setVaultModalFeedback({ ok: true, message: json.message });
         refetch();
+        refetchEncryption();
       } else {
         setVaultModalFeedback({ ok: false, message: json.error || "Migration failed" });
       }
@@ -1014,6 +1041,7 @@ export default function Connections() {
       const json = await res.json();
       if (json.success) {
         refetch();
+        refetchEncryption();
       } else {
         alert("Failed to migrate credentials to OpenBao: " + json.error);
       }
@@ -1022,6 +1050,81 @@ export default function Connections() {
     } finally {
       setMigratingConnId(null);
     }
+  };
+
+  const openEncryptionModal = () => {
+    setRotationFeedback(null);
+    refetchEncryption();
+    setIsEncryptionModalOpen(true);
+  };
+
+  const runKeyRotation = async () => {
+    setIsRotatingKeys(true);
+    setRotationFeedback(null);
+    try {
+      const res = await fetch("/api/encryption/rotate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: rotationMode(),
+          includeLegacyCleartext: rotateIncludeCleartext(),
+          dryRun: rotateDryRun(),
+        }),
+      });
+      const json = await res.json();
+      if (json.ok || json.success) {
+        const prefix = json.dryRun ? "[Dry Run] " : "";
+        const vaultMsg = json.vaultConfigRotated ? " · Vault token rotated" : "";
+        setRotationFeedback({
+          ok: true,
+          message: `${prefix}Active key ${json.activeKeyVersion}: rotated ${json.rotatedCount} encrypted record(s), encrypted ${json.migratedCleartextCount} legacy cleartext record(s), skipped ${json.skippedCount}${vaultMsg}. Remaining outdated: ${json.remainingOutdatedCount}.`,
+        });
+        if (!json.dryRun) {
+          refetch();
+          refetchEncryption();
+          refetchVault();
+        }
+      } else {
+        const errDetail = Array.isArray(json.failed) && json.failed.length > 0
+          ? ` (${json.failed.length} failed: ${json.failed[0].error})`
+          : "";
+        setRotationFeedback({
+          ok: false,
+          message: (json.error || "Key rotation finished with errors") + errDetail,
+        });
+      }
+    } catch (e: any) {
+      setRotationFeedback({ ok: false, message: e?.message || "Failed to rotate encryption keys" });
+    } finally {
+      setIsRotatingKeys(false);
+    }
+  };
+
+  const SecretFieldBadge = (props: { value: string; compact?: boolean }) => {
+    const isRef = () => isVaultSecretRef(props.value);
+    const isBaoMode = () => isRef() || secretStorage() === "openbao";
+    const isEncMode = () => !isBaoMode() && Boolean(encryptionStatus()?.configured);
+    return (
+      <Show when={props.value.trim()}>
+        <span
+          class={`${props.compact ? "text-[9px]" : "text-[10px]"} font-bold px-1.5 py-0.5 rounded border ${
+            isBaoMode()
+              ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
+              : isEncMode()
+                ? "bg-cyan-500/15 text-cyan-300 border-cyan-500/30"
+                : "bg-amber-500/15 text-amber-300 border-amber-500/30"
+          }`}
+        >
+          {isRef()
+            ? "🔒 OpenBao Ref"
+            : secretStorage() === "openbao"
+              ? "🔒 OpenBao Safe"
+              : isEncMode()
+                ? `🔐 DB Encrypted (${encryptionStatus()?.activeKeyVersion || "v1"})`
+                : "⚠️ DB Cleartext"}
+        </span>
+      </Show>
+    );
   };
 
   return (
@@ -1040,16 +1143,45 @@ export default function Connections() {
               class={`rounded-xl border px-3.5 py-2.5 text-xs font-bold flex items-center gap-2 transition-all ${
                 vaultStatus()?.connected
                   ? "border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 shadow-lg shadow-emerald-500/5"
-                  : "border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 shadow-lg shadow-amber-500/5"
+                  : "border-[#2a2a3a] bg-[#14141c] hover:bg-[#1b1b26] text-[#8b8b9e] hover:text-white"
               }`}
-              title="Configure OpenBao Vault for encrypted credential storage"
+              title="Configure OpenBao Vault for external secret storage"
             >
-              <span>{vaultStatus()?.connected ? "🔒" : "⚠️"}</span>
+              <span>{vaultStatus()?.connected ? "🔒" : "🗄️"}</span>
               <span>
                 {vaultStatus()?.connected
                   ? `OpenBao Vault: Connected (${vaultStatus()?.mount || "secret"})`
-                  : "OpenBao Vault: Not Connected (Cleartext DB)"}
+                  : "OpenBao Vault: Not Connected"}
               </span>
+            </button>
+            <button
+              onClick={openEncryptionModal}
+              class={`rounded-xl border px-3.5 py-2.5 text-xs font-bold flex items-center gap-2 transition-all ${
+                encryptionStatus()?.configured
+                  ? "border-cyan-500/40 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 shadow-lg shadow-cyan-500/5"
+                  : "border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 shadow-lg shadow-amber-500/5"
+              }`}
+              title="Inspect AES-256-GCM DB Envelope Encryption status and rotate master keys"
+            >
+              <span>{encryptionStatus()?.configured ? "🔐" : "⚠️"}</span>
+              <span>
+                {encryptionStatus()?.configured
+                  ? `DB Encryption: AES-256-GCM (${encryptionStatus()?.activeKeyVersion || "v1"})`
+                  : "DB Encryption: Unconfigured"}
+              </span>
+              <Show
+                when={
+                  (encryptionStatus()?.stats?.outdatedKeyCount || 0) +
+                    (encryptionStatus()?.stats?.legacyCleartextCount || 0) >
+                  0
+                }
+              >
+                <span class="rounded-full bg-amber-500/25 border border-amber-500/40 px-1.5 py-0.5 text-[10px] font-bold text-amber-200">
+                  {(encryptionStatus()?.stats?.outdatedKeyCount || 0) +
+                    (encryptionStatus()?.stats?.legacyCleartextCount || 0)}{" "}
+                  to rotate
+                </span>
+              </Show>
             </button>
             <button
               onClick={() => startNew("http")}
@@ -1263,22 +1395,46 @@ export default function Connections() {
                           {/* Title & Target Details */}
                           <div class="flex items-start justify-between gap-2 mb-1">
                             <h3 class="text-base font-bold text-white group-hover:text-blue-400 transition-colors">{conn.name}</h3>
-                            <Show when={conn.credentialSecurity === "openbao"}>
-                              <span
-                                class="shrink-0 rounded-md border border-emerald-500/40 bg-emerald-500/15 px-2 py-0.5 text-[10px] font-bold text-emerald-300 flex items-center gap-1"
-                                title="All credentials on this connection are stored encrypted in OpenBao KV v2"
-                              >
-                                🔒 OpenBao Safe
-                              </span>
-                            </Show>
-                            <Show when={conn.credentialSecurity === "cleartext" || conn.credentialSecurity === "mixed"}>
-                              <span
-                                class="shrink-0 rounded-md border border-amber-500/40 bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold text-amber-300 flex items-center gap-1"
-                                title="Warning: Credentials are stored in cleartext in SurrealDB"
-                              >
-                                ⚠️ Unsafe: DB Cleartext
-                              </span>
-                            </Show>
+                            <div class="flex items-center gap-1 shrink-0">
+                              <Show when={conn.credentialSecurity === "openbao"}>
+                                <span
+                                  class="rounded-md border border-emerald-500/40 bg-emerald-500/15 px-2 py-0.5 text-[10px] font-bold text-emerald-300 flex items-center gap-1"
+                                  title="All credentials on this connection are stored encrypted in OpenBao KV v2"
+                                >
+                                  🔒 OpenBao Safe
+                                </span>
+                              </Show>
+                              <Show when={conn.credentialSecurity === "encrypted"}>
+                                <span
+                                  class="rounded-md border border-cyan-500/40 bg-cyan-500/15 px-2 py-0.5 text-[10px] font-bold text-cyan-300 flex items-center gap-1"
+                                  title={`Credentials encrypted in SurrealDB with AES-256-GCM Envelope Encryption (key ${conn.key_version || "v1"})`}
+                                >
+                                  🔐 DB Encrypted ({conn.key_version || "v1"})
+                                </span>
+                                <Show
+                                  when={
+                                    encryptionStatus()?.activeKeyVersion &&
+                                    conn.key_version &&
+                                    conn.key_version !== encryptionStatus()?.activeKeyVersion
+                                  }
+                                >
+                                  <span
+                                    class="rounded-md border border-amber-500/40 bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-bold text-amber-200"
+                                    title={`Active master key is ${encryptionStatus()?.activeKeyVersion}; click DB Encryption in header to rotate.`}
+                                  >
+                                    Rotate → {encryptionStatus()?.activeKeyVersion}
+                                  </span>
+                                </Show>
+                              </Show>
+                              <Show when={conn.credentialSecurity === "cleartext" || conn.credentialSecurity === "mixed"}>
+                                <span
+                                  class="rounded-md border border-amber-500/40 bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold text-amber-300 flex items-center gap-1"
+                                  title="Warning: Legacy unencrypted credentials present in SurrealDB"
+                                >
+                                  ⚠️ Legacy Cleartext
+                                </span>
+                              </Show>
+                            </div>
                           </div>
                           <Show when={Array.isArray(conn.tags) && conn.tags.length > 0}>
                             <div class="mb-2 flex flex-wrap gap-1">
@@ -1521,16 +1677,18 @@ export default function Connections() {
                 <ResourceTagEditor tags={tags()} onChange={setTags} />
               </div>
 
-              {/* ---------------- CREDENTIAL STORAGE MODE (OPENBAO VS DB CLEARTEXT) ---------------- */}
+              {/* ---------------- CREDENTIAL STORAGE MODE (OPENBAO VS DB ENCRYPTED) ---------------- */}
               <div class={`p-4 rounded-xl border space-y-2.5 ${
                 secretStorage() === "openbao"
                   ? "bg-emerald-500/5 border-emerald-500/30"
-                  : "bg-amber-500/5 border-amber-500/30"
+                  : encryptionStatus()?.configured
+                    ? "bg-cyan-500/5 border-cyan-500/30"
+                    : "bg-amber-500/5 border-amber-500/30"
               }`}>
                 <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <div>
                     <h4 class="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
-                      <span>{secretStorage() === "openbao" ? "🔒" : "⚠️"}</span>
+                      <span>{secretStorage() === "openbao" ? "🔒" : encryptionStatus()?.configured ? "🔐" : "⚠️"}</span>
                       <span>Credential Storage Security</span>
                     </h4>
                     <p class="text-[11px] text-[#8b8b9e]">
@@ -1556,12 +1714,20 @@ export default function Connections() {
                       onClick={() => setSecretStorage("db")}
                       class={`px-3 py-1.5 text-xs font-bold rounded transition-all flex items-center gap-1.5 ${
                         secretStorage() === "db"
-                          ? "bg-amber-600 text-white shadow"
-                          : "text-amber-400/80 hover:text-white"
+                          ? encryptionStatus()?.configured
+                            ? "bg-cyan-600 text-white shadow"
+                            : "bg-amber-600 text-white shadow"
+                          : encryptionStatus()?.configured
+                            ? "text-cyan-400/80 hover:text-white"
+                            : "text-amber-400/80 hover:text-white"
                       }`}
                     >
-                      <span>⚠️</span>
-                      <span>DB Cleartext (Unsafe)</span>
+                      <span>{encryptionStatus()?.configured ? "🔐" : "⚠️"}</span>
+                      <span>
+                        {encryptionStatus()?.configured
+                          ? "DB Encrypted (AES-256-GCM)"
+                          : "DB Storage (Key Unconfigured)"}
+                      </span>
                     </button>
                   </div>
                 </div>
@@ -1569,7 +1735,7 @@ export default function Connections() {
                 <Show when={secretStorage() === "openbao"}>
                   <div class="text-[11px] text-emerald-300/90 flex items-center justify-between gap-2 bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-3 py-2">
                     <span>
-                      <strong>🔒 Safe Mode:</strong> Passwords and tokens entered below will be stored encrypted in OpenBao KV v2 (<code class="font-mono text-[10px]">{vaultStatus()?.mount || "secret"}/solidflow/connections/...</code>). SurrealDB only stores a <code class="font-mono text-[10px]">bao:...</code> reference pointer. You can also paste an existing <code class="font-mono text-[10px]">bao:mount/path#key</code> reference directly into any password field.
+                      <strong>🔒 OpenBao Mode:</strong> Passwords and tokens entered below will be stored encrypted in OpenBao KV v2 (<code class="font-mono text-[10px]">{vaultStatus()?.mount || "secret"}/solidflow/connections/...</code>). SurrealDB only stores a <code class="font-mono text-[10px]">bao:...</code> reference pointer. You can also paste an existing <code class="font-mono text-[10px]">bao:mount/path#key</code> reference directly into any password field.
                     </span>
                     <Show when={!vaultStatus()?.connected}>
                       <button
@@ -1583,10 +1749,25 @@ export default function Connections() {
                   </div>
                 </Show>
 
-                <Show when={secretStorage() === "db"}>
+                <Show when={secretStorage() === "db" && encryptionStatus()?.configured}>
+                  <div class="text-[11px] text-cyan-300/90 flex items-center justify-between gap-2 bg-cyan-500/10 border border-cyan-500/25 rounded-lg px-3 py-2">
+                    <span>
+                      <strong>🔐 Envelope Encryption Active ({encryptionStatus()?.activeKeyVersion}):</strong> Passwords and tokens entered below are encrypted with per-record 256-bit DEKs, unique 96-bit nonces (<code class="font-mono text-[10px]">aes-256-gcm</code>), and AAD binding before storage in SurrealDB.
+                    </span>
+                    <button
+                      type="button"
+                      onClick={openEncryptionModal}
+                      class="shrink-0 px-2.5 py-1 rounded bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/30 text-cyan-200 font-bold text-[10px]"
+                    >
+                      Key Status
+                    </button>
+                  </div>
+                </Show>
+
+                <Show when={secretStorage() === "db" && !encryptionStatus()?.configured}>
                   <div class="text-[11px] text-amber-300/90 flex items-center justify-between gap-2 bg-amber-500/10 border border-amber-500/25 rounded-lg px-3 py-2">
                     <span>
-                      <strong>⚠️ Unsafe (Cleartext in DB):</strong> Passwords and tokens entered below will be stored unencrypted in SurrealDB. Recommended only for local testing when OpenBao is not installed.
+                      <strong>⚠️ Master Key Not Configured:</strong> Saving new passwords to SurrealDB requires configuring <code class="font-mono text-[10px]">ENCRYPTION_MASTER_KEY_V1</code> (run <code class="font-mono text-[10px]">bun run keys:generate</code>) or selecting OpenBao Vault above.
                     </span>
                     <button
                       type="button"
@@ -1916,15 +2097,7 @@ export default function Connections() {
                     <div>
                       <div class="mb-1 flex items-center justify-between">
                         <label class="text-xs font-medium text-[#8b8b9e]">Password</label>
-                        <Show when={dbPassword().trim()}>
-                          <span class={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                            isVaultSecretRef(dbPassword()) || secretStorage() === "openbao"
-                              ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
-                              : "bg-amber-500/15 text-amber-300 border border-amber-500/30"
-                          }`}>
-                            {isVaultSecretRef(dbPassword()) ? "🔒 OpenBao Ref" : secretStorage() === "openbao" ? "🔒 OpenBao Safe" : "⚠️ DB Cleartext"}
-                          </span>
-                        </Show>
+                        <SecretFieldBadge value={dbPassword()} />
                       </div>
                       <input
                         type={isVaultSecretRef(dbPassword()) ? "text" : "password"}
@@ -2001,15 +2174,7 @@ export default function Connections() {
                     <div>
                       <div class="mb-1 flex items-center justify-between">
                         <label class="text-xs font-medium text-[#8b8b9e]">Secret Access Key</label>
-                        <Show when={s3SecretAccessKey().trim()}>
-                          <span class={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                            isVaultSecretRef(s3SecretAccessKey()) || secretStorage() === "openbao"
-                              ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
-                              : "bg-amber-500/15 text-amber-300 border border-amber-500/30"
-                          }`}>
-                            {isVaultSecretRef(s3SecretAccessKey()) ? "🔒 OpenBao Ref" : secretStorage() === "openbao" ? "🔒 OpenBao Safe" : "⚠️ DB Cleartext"}
-                          </span>
-                        </Show>
+                        <SecretFieldBadge value={s3SecretAccessKey()} />
                       </div>
                       <input
                         type={isVaultSecretRef(s3SecretAccessKey()) ? "text" : "password"}
@@ -2162,15 +2327,7 @@ export default function Connections() {
                       <div>
                         <div class="mb-1 flex items-center justify-between">
                           <label class="text-xs font-medium text-[#8b8b9e]">Password</label>
-                          <Show when={password().trim()}>
-                            <span class={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                              isVaultSecretRef(password()) || secretStorage() === "openbao"
-                                ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
-                                : "bg-amber-500/15 text-amber-300 border border-amber-500/30"
-                            }`}>
-                              {isVaultSecretRef(password()) ? "🔒 OpenBao Ref" : secretStorage() === "openbao" ? "🔒 OpenBao Safe" : "⚠️ DB Cleartext"}
-                            </span>
-                          </Show>
+                          <SecretFieldBadge value={password()} />
                         </div>
                         <input
                           type={isVaultSecretRef(password()) ? "text" : "password"}
@@ -2188,15 +2345,7 @@ export default function Connections() {
                     <div class="pt-2 border-t border-[#2a2a3a]/40">
                       <div class="mb-1 flex items-center justify-between">
                         <label class="text-xs font-medium text-[#8b8b9e]">Static Bearer Token</label>
-                        <Show when={bearerToken().trim()}>
-                          <span class={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                            isVaultSecretRef(bearerToken()) || secretStorage() === "openbao"
-                              ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
-                              : "bg-amber-500/15 text-amber-300 border border-amber-500/30"
-                          }`}>
-                            {isVaultSecretRef(bearerToken()) ? "🔒 OpenBao Ref" : secretStorage() === "openbao" ? "🔒 OpenBao Safe" : "⚠️ DB Cleartext"}
-                          </span>
-                        </Show>
+                        <SecretFieldBadge value={bearerToken()} />
                       </div>
                       <input
                         type={isVaultSecretRef(bearerToken()) ? "text" : "password"}
@@ -2409,15 +2558,7 @@ export default function Connections() {
                               <div>
                                 <div class="mb-1 flex items-center justify-between">
                                   <label class="text-[11px] font-medium text-[#8b8b9e]">password</label>
-                                  <Show when={tokenPassword().trim()}>
-                                    <span class={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
-                                      isVaultSecretRef(tokenPassword()) || secretStorage() === "openbao"
-                                        ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
-                                        : "bg-amber-500/15 text-amber-300 border border-amber-500/30"
-                                    }`}>
-                                      {isVaultSecretRef(tokenPassword()) ? "🔒 OpenBao Ref" : secretStorage() === "openbao" ? "🔒 OpenBao Safe" : "⚠️ DB Cleartext"}
-                                    </span>
-                                  </Show>
+                                  <SecretFieldBadge value={tokenPassword()} compact={true} />
                                 </div>
                                 <input
                                   type={isVaultSecretRef(tokenPassword()) ? "text" : "password"}
@@ -2916,6 +3057,215 @@ export default function Connections() {
                   >
                     {isSavingVault() ? "Saving..." : "Save OpenBao Settings"}
                   </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </Show>
+
+        {/* ---------------- ENVELOPE ENCRYPTION & KEY ROTATION MODAL ---------------- */}
+        <Show when={isEncryptionModalOpen()}>
+          <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
+            <div class="relative w-full max-w-xl rounded-2xl border border-cyan-500/30 bg-[#0d0d14] p-6 shadow-2xl space-y-5">
+              <div class="flex items-start justify-between border-b border-[#2a2a3a] pb-4">
+                <div class="flex items-center gap-3">
+                  <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-cyan-500/15 text-cyan-300 ring-1 ring-cyan-500/30 text-lg">
+                    🔐
+                  </div>
+                  <div>
+                    <h3 class="text-base font-bold text-white flex items-center gap-2">
+                      <span>DB Envelope Encryption & Key Rotation</span>
+                      <span class={`text-[10px] px-2 py-0.5 rounded font-bold border ${
+                        encryptionStatus()?.configured
+                          ? "bg-cyan-500/15 text-cyan-300 border-cyan-500/30"
+                          : "bg-amber-500/15 text-amber-300 border-amber-500/30"
+                      }`}>
+                        {encryptionStatus()?.configured
+                          ? `Active: ${encryptionStatus()?.activeKeyVersion}`
+                          : "Unconfigured"}
+                      </span>
+                    </h3>
+                    <p class="text-xs text-[#8b8b9e]">
+                      AES-256-GCM envelope encryption with per-record DEKs, unique 96-bit IVs, and <code class="font-mono">key_version</code> rotation
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setIsEncryptionModalOpen(false)}
+                  class="text-[#5b5b6e] hover:text-white transition-colors p-1 rounded-lg hover:bg-[#1e1e2e]"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div class="space-y-4">
+                <Show when={!encryptionStatus()?.configured}>
+                  <div class="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-200 space-y-2">
+                    <div class="font-bold">Master Key Not Configured</div>
+                    <p class="text-[11px] text-amber-300/90">
+                      {encryptionStatus()?.error ||
+                        "Generate a 256-bit key and set ENCRYPTION_MASTER_KEY_V1 + ENCRYPTION_ACTIVE_KEY_VERSION in your environment or Varlock secrets."}
+                    </p>
+                    <pre class="p-2 rounded bg-black/50 font-mono text-[10px] text-cyan-300 overflow-x-auto">bun run keys:generate</pre>
+                  </div>
+                </Show>
+
+                <Show when={encryptionStatus()?.configured}>
+                  <div class="p-3.5 rounded-xl bg-[#111118] border border-[#2a2a3a] space-y-2 text-xs">
+                    <div class="flex items-center justify-between">
+                      <span class="text-[#8b8b9e]">Loaded Master Key Versions:</span>
+                      <div class="flex flex-wrap gap-1.5">
+                        <For each={encryptionStatus()?.availableVersions || []}>
+                          {(ver: string) => (
+                            <span
+                              class={`px-2 py-0.5 rounded font-mono text-[11px] font-bold border ${
+                                ver === encryptionStatus()?.activeKeyVersion
+                                  ? "bg-cyan-500/20 text-cyan-200 border-cyan-500/40"
+                                  : "bg-[#1e1e2e] text-[#8b8b9e] border-[#2a2a3a]"
+                              }`}
+                            >
+                              {ver}{ver === encryptionStatus()?.activeKeyVersion ? " (active)" : ""}
+                            </span>
+                          )}
+                        </For>
+                      </div>
+                    </div>
+                  </div>
+                </Show>
+
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-center">
+                  <div class="p-3 rounded-xl bg-[#111118] border border-[#2a2a3a]">
+                    <div class="text-lg font-extrabold text-cyan-300">
+                      {encryptionStatus()?.stats?.encryptedActiveCount ?? 0}
+                    </div>
+                    <div class="text-[10px] text-[#8b8b9e]">Active ({encryptionStatus()?.activeKeyVersion || "—"})</div>
+                  </div>
+                  <div class="p-3 rounded-xl bg-[#111118] border border-[#2a2a3a]">
+                    <div class="text-lg font-extrabold text-amber-300">
+                      {encryptionStatus()?.stats?.outdatedKeyCount ?? 0}
+                    </div>
+                    <div class="text-[10px] text-[#8b8b9e]">Outdated Version</div>
+                  </div>
+                  <div class="p-3 rounded-xl bg-[#111118] border border-[#2a2a3a]">
+                    <div class="text-lg font-extrabold text-red-300">
+                      {encryptionStatus()?.stats?.legacyCleartextCount ?? 0}
+                    </div>
+                    <div class="text-[10px] text-[#8b8b9e]">Legacy Cleartext</div>
+                  </div>
+                  <div class="p-3 rounded-xl bg-[#111118] border border-[#2a2a3a]">
+                    <div class="text-lg font-extrabold text-emerald-300">
+                      {encryptionStatus()?.stats?.openbaoCount ?? 0}
+                    </div>
+                    <div class="text-[10px] text-[#8b8b9e]">OpenBao Safe</div>
+                  </div>
+                </div>
+
+                <Show when={encryptionStatus()?.stats?.vaultConfigNeedsRotation}>
+                  <div class="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/25 text-[11px] text-amber-200">
+                    OpenBao server token in <code class="font-mono">vault_config:main</code> will also be upgraded to <code class="font-mono">{encryptionStatus()?.activeKeyVersion}</code> when rotating.
+                  </div>
+                </Show>
+
+                <Show when={encryptionStatus()?.configured && encryptionStatus()?.isAdmin}>
+                  <div class="p-4 rounded-xl bg-[#111118] border border-[#2a2a3a] space-y-3">
+                    <div class="text-xs font-bold text-white">Rotate Keys / Migrate Legacy Records</div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <button
+                        type="button"
+                        onClick={() => setRotationMode("rewrap")}
+                        class={`p-2.5 rounded-lg border text-left text-xs transition-all ${
+                          rotationMode() === "rewrap"
+                            ? "border-cyan-500/50 bg-cyan-500/15 text-cyan-200"
+                            : "border-[#2a2a3a] bg-[#161622] text-[#8b8b9e] hover:text-white"
+                        }`}
+                      >
+                        <div class="font-bold">Re-wrap DEKs (Fast)</div>
+                        <div class="text-[10px] opacity-80">New IV + wraps DEKs with active KEK</div>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setRotationMode("reencrypt")}
+                        class={`p-2.5 rounded-lg border text-left text-xs transition-all ${
+                          rotationMode() === "reencrypt"
+                            ? "border-cyan-500/50 bg-cyan-500/15 text-cyan-200"
+                            : "border-[#2a2a3a] bg-[#161622] text-[#8b8b9e] hover:text-white"
+                        }`}
+                      >
+                        <div class="font-bold">Full Re-encrypt</div>
+                        <div class="text-[10px] opacity-80">Fresh 32B DEK + new IV per secret</div>
+                      </button>
+                    </div>
+
+                    <div class="flex flex-wrap items-center gap-4 text-xs text-[#c8c8d8]">
+                      <label class="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={rotateIncludeCleartext()}
+                          onChange={(e) => setRotateIncludeCleartext(e.currentTarget.checked)}
+                          class="h-4 w-4 rounded border-[#2a2a3a] bg-[#1e1e2e] text-cyan-500"
+                        />
+                        <span>Also encrypt legacy cleartext records</span>
+                      </label>
+                      <label class="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={rotateDryRun()}
+                          onChange={(e) => setRotateDryRun(e.currentTarget.checked)}
+                          class="h-4 w-4 rounded border-[#2a2a3a] bg-[#1e1e2e] text-cyan-500"
+                        />
+                        <span>Dry run (preview only)</span>
+                      </label>
+                    </div>
+                  </div>
+                </Show>
+
+                <Show when={encryptionStatus()?.configured && !encryptionStatus()?.isAdmin}>
+                  <div class="p-3 rounded-xl bg-[#111118] border border-[#2a2a3a] text-xs text-[#8b8b9e]">
+                    Batch key rotation requires the <strong class="text-white">Admin</strong> role (or CLI <code class="font-mono text-cyan-300">bun run keys:rotate</code>).
+                  </div>
+                </Show>
+
+                <Show when={rotationFeedback()}>
+                  <div class={`p-3 rounded-xl border text-xs ${
+                    rotationFeedback()?.ok
+                      ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300"
+                      : "bg-red-500/10 border-red-500/30 text-red-300"
+                  }`}>
+                    {rotationFeedback()?.message}
+                  </div>
+                </Show>
+              </div>
+
+              <div class="pt-4 border-t border-[#2a2a3a] flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() => refetchEncryption()}
+                  class="btn-secondary text-xs"
+                >
+                  Refresh Status
+                </button>
+                <div class="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsEncryptionModalOpen(false)}
+                    class="btn-secondary text-xs"
+                  >
+                    Close
+                  </button>
+                  <Show when={encryptionStatus()?.configured && encryptionStatus()?.isAdmin}>
+                    <button
+                      type="button"
+                      onClick={runKeyRotation}
+                      disabled={isRotatingKeys()}
+                      class="btn-primary bg-cyan-600 hover:bg-cyan-500 text-white text-xs disabled:opacity-40"
+                    >
+                      {isRotatingKeys()
+                        ? "Rotating..."
+                        : rotateDryRun()
+                          ? "Preview Rotation (Dry Run)"
+                          : `🔄 Rotate to ${encryptionStatus()?.activeKeyVersion || "Active Key"}`}
+                    </button>
+                  </Show>
                 </div>
               </div>
             </div>

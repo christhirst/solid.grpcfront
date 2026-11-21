@@ -5,6 +5,11 @@ import { normalizeConnection } from "~/lib/connections";
 import { getEffectiveAccessContext } from "~/lib/auth";
 import { canAccessResource, getResourcePermissions, normalizeGroupName } from "~/lib/groupAuth";
 import { offloadSecretsToOpenBao, deleteVaultSecrets, CONNECTION_SECRET_FIELDS } from "~/lib/openbao";
+import {
+  encryptRecordSecrets,
+  mergeMaskedConnectionSecrets,
+  sanitizeConnectionForClient,
+} from "~/lib/crypto/envelope";
 
 export async function GET(event: APIEvent) {
   try {
@@ -25,7 +30,25 @@ export async function GET(event: APIEvent) {
       });
     }
 
-    const normalized = normalizeConnection({ ...connection, id: `connection:${dbId}` }) as any;
+    const hasRealOwner = Boolean(connection.owner && connection.owner !== "anonymous");
+    const hasTags = Array.isArray(connection.tags) && connection.tags.length > 0;
+    if (ctx.sub === "anonymous") {
+      if (hasRealOwner || hasTags) {
+        return Response.json(
+          { success: false, error: "You do not have permission to view this connection." },
+          { status: 403 }
+        );
+      }
+    } else if (!canAccessResource(ctx, connection, "view")) {
+      return Response.json(
+        { success: false, error: "You do not have permission to view this connection." },
+        { status: 403 }
+      );
+    }
+
+    const normalized = sanitizeConnectionForClient(
+      normalizeConnection({ ...connection, id: `connection:${dbId}` })
+    ) as any;
     normalized.tags = Array.isArray(normalized.tags) ? normalized.tags : [];
     normalized.permissions = getResourcePermissions(ctx, normalized);
 
@@ -74,10 +97,15 @@ export async function PUT(event: APIEvent) {
           ? ctx.sub
           : existing?.owner || "anonymous";
 
-    let mergedBody: Record<string, any> = {
-      ...existing,
-      ...body,
-    };
+    let mergedBody: Record<string, any> = mergeMaskedConnectionSecrets(
+      {
+        ...existing,
+        ...body,
+      },
+      existing,
+      CONNECTION_SECRET_FIELDS
+    );
+
     if (mergedBody.secretStorage === "openbao") {
       mergedBody = await offloadSecretsToOpenBao(
         `solidflow/connections/${dbId}`,
@@ -85,6 +113,24 @@ export async function PUT(event: APIEvent) {
         existing,
         CONNECTION_SECRET_FIELDS
       );
+      delete mergedBody.encrypted_dek;
+      delete mergedBody.key_version;
+      delete mergedBody.key_rotated_at;
+    } else {
+      mergedBody.secretStorage = "db";
+      try {
+        mergedBody = encryptRecordSecrets(
+          `connection:${dbId}`,
+          mergedBody,
+          existing,
+          CONNECTION_SECRET_FIELDS
+        );
+      } catch (encErr: any) {
+        return Response.json(
+          { success: false, error: encErr?.message || "Failed to encrypt connection credentials." },
+          { status: 400 }
+        );
+      }
     }
 
     const normalized = normalizeConnection({
@@ -100,7 +146,9 @@ export async function PUT(event: APIEvent) {
     const records = Array.isArray(result) ? result[0] || result : result;
     const record = Array.isArray(records) ? records[0] : records;
 
-    const output = normalizeConnection(record ? { ...record, id: `connection:${dbId}` } : normalized) as any;
+    const output = sanitizeConnectionForClient(
+      normalizeConnection(record ? { ...record, id: `connection:${dbId}` } : normalized)
+    ) as any;
     output.permissions = getResourcePermissions(ctx, output);
 
     return new Response(JSON.stringify({ success: true, data: output }), {

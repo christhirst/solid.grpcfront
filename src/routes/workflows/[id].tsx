@@ -2225,6 +2225,11 @@ export default function WorkflowBuilder() {
                                                     🔒 OpenBao Safe
                                                   </span>
                                                 </Show>
+                                                <Show when={(conn() as any).credentialSecurity === "encrypted"}>
+                                                  <span class="rounded border border-cyan-500/40 bg-cyan-500/15 px-1.5 py-0.5 text-[9px] font-bold text-cyan-300">
+                                                    🔐 DB Encrypted ({(conn() as any).key_version || "v1"})
+                                                  </span>
+                                                </Show>
                                                 <Show when={(conn() as any).credentialSecurity === "cleartext" || (conn() as any).credentialSecurity === "mixed"}>
                                                   <span class="rounded border border-amber-500/40 bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-bold text-amber-300">
                                                     ⚠️ DB Cleartext

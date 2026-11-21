@@ -6,6 +6,7 @@ import { getEffectiveAccessContext, getOwnerFromRequest } from "~/lib/auth";
 import { normalizeConnection } from "~/lib/connections";
 import { canAccessResource, getResourcePermissions, normalizeGroupName } from "~/lib/groupAuth";
 import { offloadSecretsToOpenBao, CONNECTION_SECRET_FIELDS } from "~/lib/openbao";
+import { encryptRecordSecrets, sanitizeConnectionForClient } from "~/lib/crypto/envelope";
 
 export async function GET(event: APIEvent) {
   try {
@@ -25,11 +26,13 @@ export async function GET(event: APIEvent) {
           }
           return canAccessResource(ctx, c, "view");
         })
-        .map((c: any) => ({
-          ...c,
-          tags: Array.isArray(c.tags) ? c.tags : [],
-          permissions: getResourcePermissions(ctx, c),
-        }));
+        .map((c: any) =>
+          sanitizeConnectionForClient({
+            ...c,
+            tags: Array.isArray(c.tags) ? c.tags : [],
+            permissions: getResourcePermissions(ctx, c),
+          })
+        );
     } catch (e: any) {
       if (!e.message?.includes("does not exist")) throw e;
     }
@@ -73,6 +76,24 @@ export async function POST(event: APIEvent) {
         null,
         CONNECTION_SECRET_FIELDS
       );
+      delete payloadBody.encrypted_dek;
+      delete payloadBody.key_version;
+      delete payloadBody.key_rotated_at;
+    } else {
+      payloadBody.secretStorage = "db";
+      try {
+        payloadBody = encryptRecordSecrets(
+          `connection:${dbId}`,
+          payloadBody,
+          null,
+          CONNECTION_SECRET_FIELDS
+        );
+      } catch (encErr: any) {
+        return Response.json(
+          { success: false, error: encErr?.message || "Failed to encrypt connection credentials." },
+          { status: 400 }
+        );
+      }
     }
 
     const normalized = normalizeConnection({
@@ -91,8 +112,10 @@ export async function POST(event: APIEvent) {
     const records = Array.isArray(result) ? result[0] || result : result;
     const record = Array.isArray(records) ? records[0] : records;
 
-    const output = normalizeConnection(record ? { ...record, id: `connection:${dbId}` } : normalized);
-    (output as any).permissions = getResourcePermissions(ctx, output);
+    const output = sanitizeConnectionForClient(
+      normalizeConnection(record ? { ...record, id: `connection:${dbId}` } : normalized)
+    ) as any;
+    output.permissions = getResourcePermissions(ctx, output);
 
     return new Response(JSON.stringify({ success: true, data: output }), {
       headers: { "Content-Type": "application/json" },

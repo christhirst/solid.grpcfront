@@ -597,6 +597,7 @@ export async function getDb(): Promise<TracedDb> {
                     DEFINE INDEX IF NOT EXISTS idx_group_member_username_lc ON group_member FIELDS username_lc;
                     UPDATE group_member SET username_lc = string::lowercase(username ?? '') WHERE username_lc = NONE;
                     DEFINE INDEX IF NOT EXISTS idx_group_namespace_owner ON group_namespace FIELDS owner;
+                    DEFINE INDEX IF NOT EXISTS idx_connection_key_version ON connection FIELDS key_version;
                 `).catch((e: any) => console.warn("[DB] [INIT] Background index definition warning:", e?.message));
 
                 console.log(

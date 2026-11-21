@@ -4,7 +4,10 @@ import { getDb } from "~/lib/db";
 import { normalizeConnection, getCaCertContent, fetchPreRequestToken } from "~/lib/connections";
 import { reflectGrpcServices } from "~/lib/grpcReflection";
 import { readJsonBody } from "~/lib/requestUtils";
-import { resolveObjectSecrets } from "~/lib/openbao";
+import { resolveObjectSecrets, CONNECTION_SECRET_FIELDS } from "~/lib/openbao";
+import { getEffectiveAccessContext } from "~/lib/auth";
+import { canAccessResource } from "~/lib/groupAuth";
+import { mergeMaskedConnectionSecrets } from "~/lib/crypto/envelope";
 
 export async function POST(event: APIEvent) {
   try {
@@ -22,10 +25,27 @@ export async function POST(event: APIEvent) {
     if (id && id !== "adhoc" && id !== "draft" && id !== "new" && id !== "custom") {
       try {
         const db = await getDb();
+        const ctx = await getEffectiveAccessContext(event.request, db);
         const result = await db.select(new RecordId("connection", id));
         const dbConn = Array.isArray(result) ? result[0] : result;
         if (dbConn) {
-          rawConnection = { ...dbConn, ...(body || {}), type: "grpc" };
+          const hasRealOwner = Boolean(dbConn.owner && dbConn.owner !== "anonymous");
+          const hasTags = Array.isArray(dbConn.tags) && dbConn.tags.length > 0;
+          if (
+            ctx.sub === "anonymous"
+              ? hasRealOwner || hasTags
+              : !canAccessResource(ctx, dbConn, "view")
+          ) {
+            return Response.json(
+              { success: false, error: "You do not have permission to inspect this connection." },
+              { status: 403 }
+            );
+          }
+          rawConnection = mergeMaskedConnectionSecrets(
+            { ...dbConn, ...(body || {}), type: "grpc" },
+            dbConn,
+            CONNECTION_SECRET_FIELDS
+          );
         }
       } catch {
         // Fallback to body below
@@ -33,7 +53,11 @@ export async function POST(event: APIEvent) {
     }
 
     if (!rawConnection && body && (body.serverAddress || body.type === "grpc")) {
-      rawConnection = { ...body, type: "grpc" };
+      rawConnection = mergeMaskedConnectionSecrets(
+        { ...body, type: "grpc" },
+        null,
+        CONNECTION_SECRET_FIELDS
+      );
     }
 
     if (!rawConnection) {

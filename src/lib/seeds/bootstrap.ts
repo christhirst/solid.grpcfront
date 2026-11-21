@@ -1,6 +1,8 @@
 import { RecordId } from "surrealdb";
 import defaultData from "./defaultData.json";
 import { AUTHZEN_PROTO_CONTENT } from "~/lib/authzenProto";
+import { encryptRecordSecrets, getEncryptionStatus } from "~/lib/crypto/envelope";
+import { CONNECTION_SECRET_FIELDS } from "~/lib/vaultRef";
 
 /**
  * Ensures that if SurrealDB is empty (e.g. fresh in-memory or newly created database),
@@ -74,11 +76,15 @@ export async function bootstrapDefaultData(db: any): Promise<void> {
     console.log("[DB] [BOOTSTRAP] Empty database detected. Bootstrapping default data...");
 
     // 1. Seed Connections
+    const encryptionConfigured = getEncryptionStatus().configured;
     for (const conn of defaultData.connections || []) {
       try {
         const rawId = conn.id;
         const dbId = rawId.includes(":") ? rawId.split(":")[1] : rawId;
-        const { id: _, ...dataWithoutId } = conn;
+        const { id: _, ...rawWithoutId } = conn;
+        const dataWithoutId = encryptionConfigured
+          ? encryptRecordSecrets(`connection:${dbId}`, rawWithoutId, null, CONNECTION_SECRET_FIELDS)
+          : rawWithoutId;
         const recordId = new RecordId("connection", dbId);
         await db.query("CREATE $id CONTENT $data;", { id: recordId, data: dataWithoutId });
       } catch (err: any) {
