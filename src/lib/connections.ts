@@ -818,19 +818,21 @@ export async function testSurrealDbConnection(rawConfig: any): Promise<any> {
     const timeoutPromise = new Promise<never>((_, reject) => {
       timer = setTimeout(() => {
         try {
-          s.close();
+          Promise.resolve(s.close()).catch(() => {});
         } catch {}
         reject(new Error(`Connection to SurrealDB at ${url} timed out after ${timeoutMs}ms.`));
       }, timeoutMs);
     });
 
+    const versionCheck = process.env.SURREALDB_VERSION_CHECK === "false" ? false : true;
+
     try {
       await Promise.race([
         (async () => {
           if (auth) {
-            await s.connect(url, { authentication: auth });
+            await s.connect(url, { authentication: auth, versionCheck });
           } else {
-            await s.connect(url);
+            await s.connect(url, { versionCheck });
           }
           if (namespace) {
             await s.use({ namespace, database: database || undefined });
@@ -841,6 +843,11 @@ export async function testSurrealDbConnection(rawConfig: any): Promise<any> {
         timeoutPromise,
       ]);
       return { client: s };
+    } catch (err) {
+      try {
+        Promise.resolve(s.close()).catch(() => {});
+      } catch {}
+      throw err;
     } finally {
       clearTimeout(timer);
     }
@@ -856,12 +863,17 @@ export async function testSurrealDbConnection(rawConfig: any): Promise<any> {
     try {
       const { client } = await tryConnect(auth);
       const latencyMs = Date.now() - startTime;
+      let serverVersion: string | undefined;
+      try {
+        const v = await client.version();
+        serverVersion = v?.version;
+      } catch {}
       let infoResult: any = null;
       try {
         infoResult = await client.query("INFO FOR DB;");
       } catch {}
       try {
-        await client.close();
+        Promise.resolve(client.close()).catch(() => {});
       } catch {}
 
       const matchedScope = !auth
@@ -879,9 +891,10 @@ export async function testSurrealDbConnection(rawConfig: any): Promise<any> {
         namespace: namespace || "default",
         database: database || "default",
         authLevel: matchedScope,
+        version: serverVersion,
         latencyMs,
         info: infoResult,
-        message: `Successfully connected to SurrealDB at ${url} (NS: ${namespace || "default"}, DB: ${database || "default"}, User Scope: ${matchedScope.toUpperCase()}).`,
+        message: `Successfully connected to SurrealDB at ${url} (NS: ${namespace || "default"}, DB: ${database || "default"}, User Scope: ${matchedScope.toUpperCase()}${serverVersion ? `, Version: ${serverVersion}` : ""}).`,
       };
     } catch (err: any) {
       lastError = err;

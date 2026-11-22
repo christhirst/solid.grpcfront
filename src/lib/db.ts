@@ -1,4 +1,4 @@
-import { Surreal } from "surrealdb";
+import { Surreal, RecordId, StringRecordId, Table } from "surrealdb";
 import * as Sentry from "@sentry/node";
 import { initWorkflowScheduler } from "./workflowScheduler";
 import { logger } from "./logger";
@@ -40,14 +40,30 @@ export const STANDARD_TABLES_SQL = STANDARD_TABLES.map(
 ).join("\n");
 
 /**
- * Extract a human-readable table/resource name from a RecordId or string.
+ * Extract a human-readable table/resource name from a RecordId, Table, or string.
  * E.g. RecordId("workflow", "abc") → "workflow"
  */
-function resourceName(thing: any): string {
+export function resourceName(thing: any): string {
     if (!thing) return "unknown";
     if (typeof thing === "string") return thing.split(":")[0];
-    if (thing.tb) return String(thing.tb); // RecordId has a .tb property
-    return String(thing);
+    if (thing.tb) return String(thing.tb);
+    if (thing.table) return String(thing.table);
+    if (thing.name) return String(thing.name);
+    return String(thing).split(":")[0];
+}
+
+/**
+ * Normalize string table names and record ID strings for SurrealDB v2+ SDK methods.
+ * In surrealdb v2.x, raw strings passed to select/live bind as string values instead of
+ * table identifiers unless wrapped in `Table` or `StringRecordId`.
+ */
+export function normalizeThing(thing: any): any {
+    if (typeof thing === "string") {
+        const trimmed = thing.trim();
+        if (!trimmed) return thing;
+        return trimmed.includes(":") ? new StringRecordId(trimmed) : new Table(trimmed);
+    }
+    return thing;
 }
 
 const isDebugSurreal = () => process.env.DEBUG_SURREAL === "true" || process.env.DEBUG_SURREAL === "1";
@@ -59,6 +75,8 @@ function isConnectionError(err: any): boolean {
         msg.includes("connectionunavailable") ||
         msg.includes("connection closed") ||
         msg.includes("websocket is not open") ||
+        msg.includes("callterminated") ||
+        msg.includes("unexpectedconnection") ||
         msg.includes("socket hang up") ||
         msg.includes("econnrefused") ||
         msg.includes("econnreset") ||
@@ -76,6 +94,7 @@ class TracedDb {
     private inner: Surreal;
     private dbLabel: string;
     private onConnError?: () => void;
+    private liveSubscriptions = new Map<string, any>();
 
     constructor(inner: Surreal, label = "main", onConnError?: () => void) {
         this.inner = inner;
@@ -138,6 +157,7 @@ class TracedDb {
     /** Forward .select() with a Sentry span */
     async select(thing: any): Promise<any> {
         const resource = resourceName(thing);
+        const target = normalizeThing(thing);
         if (isDebugSurreal()) {
             console.log(`[DB] SELECT ${resource}`);
         }
@@ -153,7 +173,7 @@ class TracedDb {
             },
             async (span) => {
                 try {
-                    const result = await (this.inner as any).select(thing);
+                    const result = await (this.inner as any).select(target);
                     if (Array.isArray(result)) {
                         if (isDebugSurreal()) {
                             console.log(`[DB] SELECT ${resource} returned ${result.length} rows`);
@@ -172,6 +192,7 @@ class TracedDb {
     /** Forward .create() with a Sentry span */
     async create(thing: any, data?: any): Promise<any> {
         const resource = resourceName(thing);
+        const target = normalizeThing(thing);
         if (isDebugSurreal()) {
             console.log(`[DB] CREATE ${resource}`);
         }
@@ -187,7 +208,8 @@ class TracedDb {
             },
             async () => {
                 try {
-                    const res = await (this.inner as any).create(thing, data);
+                    const req = (this.inner as any).create(target);
+                    const res = await (data !== undefined && typeof req?.content === "function" ? req.content(data) : req);
                     if (isDebugSurreal()) {
                         console.log(`[DB] CREATE ${resource} successful`);
                     }
@@ -203,6 +225,7 @@ class TracedDb {
     /** Forward .update() with a Sentry span */
     async update(thing: any, data?: any): Promise<any> {
         const resource = resourceName(thing);
+        const target = normalizeThing(thing);
         if (isDebugSurreal()) {
             console.log(`[DB] UPDATE ${resource}`);
         }
@@ -218,7 +241,8 @@ class TracedDb {
             },
             async () => {
                 try {
-                    const res = await (this.inner as any).update(thing, data);
+                    const req = (this.inner as any).update(target);
+                    const res = await (data !== undefined && typeof req?.content === "function" ? req.content(data) : req);
                     if (isDebugSurreal()) {
                         console.log(`[DB] UPDATE ${resource} successful`);
                     }
@@ -231,9 +255,65 @@ class TracedDb {
         );
     }
 
+    /** Forward .upsert() with support for direct data or fluent .content()/.merge() chaining */
+    upsert(thing: any, data?: any): any {
+        const resource = resourceName(thing);
+        const target = normalizeThing(thing);
+        const runUpsert = (mode: "none" | "content" | "merge" | "replace" | "patch", payload?: any) => {
+            if (isDebugSurreal()) {
+                console.log(`[DB] UPSERT ${resource}`);
+            }
+            return Sentry.startSpan(
+                {
+                    name: `UPSERT ${resource}`,
+                    op: "db.upsert",
+                    attributes: {
+                        "db.system": "surrealdb",
+                        "db.name": this.dbLabel,
+                        "db.collection.name": resource,
+                    },
+                },
+                async () => {
+                    try {
+                        const req = (this.inner as any).upsert(target);
+                        const res = await (
+                            mode !== "none" && payload !== undefined && typeof req?.[mode] === "function"
+                                ? req[mode](payload)
+                                : req
+                        );
+                        if (isDebugSurreal()) {
+                            console.log(`[DB] UPSERT ${resource} successful`);
+                        }
+                        return res;
+                    } catch (err: any) {
+                        this.handleError(`UPSERT ${resource}`, err);
+                        throw err;
+                    }
+                },
+            );
+        };
+
+        if (data !== undefined) {
+            return runUpsert("content", data);
+        }
+
+        let promise: Promise<any> | null = null;
+        const getDefaultPromise = () => (promise ??= runUpsert("none"));
+        return {
+            content: (payload: any) => runUpsert("content", payload),
+            merge: (payload: any) => runUpsert("merge", payload),
+            replace: (payload: any) => runUpsert("replace", payload),
+            patch: (payload: any) => runUpsert("patch", payload),
+            then: (onfulfilled?: any, onrejected?: any) => getDefaultPromise().then(onfulfilled, onrejected),
+            catch: (onrejected?: any) => getDefaultPromise().catch(onrejected),
+            finally: (onfinally?: any) => getDefaultPromise().finally(onfinally),
+        };
+    }
+
     /** Forward .delete() with a Sentry span */
     async delete(thing: any): Promise<any> {
         const resource = resourceName(thing);
+        const target = normalizeThing(thing);
         if (isDebugSurreal()) {
             console.log(`[DB] DELETE ${resource}`);
         }
@@ -249,7 +329,7 @@ class TracedDb {
             },
             async () => {
                 try {
-                    const res = await (this.inner as any).delete(thing);
+                    const res = await (this.inner as any).delete(target);
                     if (isDebugSurreal()) {
                         console.log(`[DB] DELETE ${resource} successful`);
                     }
@@ -305,7 +385,26 @@ class TracedDb {
             },
             async () => {
                 try {
-                    const queryUuid = await (this.inner as any).live(table, callback);
+                    const target = normalizeThing(table);
+                    const subOrUuid = await (this.inner as any).live(target, callback);
+                    if (subOrUuid && typeof subOrUuid === "object" && ("id" in subOrUuid || typeof subOrUuid.subscribe === "function")) {
+                        const uuidStr = String(subOrUuid.id || "");
+                        if (uuidStr) {
+                            this.liveSubscriptions.set(uuidStr, subOrUuid);
+                        }
+                        if (callback && typeof subOrUuid.subscribe === "function") {
+                            subOrUuid.subscribe((msg: any) => {
+                                if (msg && typeof msg === "object" && "action" in msg) {
+                                    callback(String(msg.action), msg.value !== undefined ? msg.value : msg.result);
+                                }
+                            });
+                        }
+                        if (isDebugSurreal()) {
+                            console.log(`[DB] LIVE ${table} started with UUID ${uuidStr}`);
+                        }
+                        return uuidStr;
+                    }
+                    const queryUuid = String(subOrUuid);
                     if (isDebugSurreal()) {
                         console.log(`[DB] LIVE ${table} started with UUID ${queryUuid}`);
                     }
@@ -320,6 +419,15 @@ class TracedDb {
 
     /** Forward .subscribeLive() or .listenLive() */
     async subscribeLive(queryUuid: string, callback: (action: string, result: any) => void): Promise<void> {
+        const sub = this.liveSubscriptions.get(String(queryUuid));
+        if (sub && typeof sub.subscribe === "function") {
+            sub.subscribe((msg: any) => {
+                if (msg && typeof msg === "object" && "action" in msg) {
+                    callback(String(msg.action), msg.value !== undefined ? msg.value : msg.result);
+                }
+            });
+            return;
+        }
         if (typeof (this.inner as any).subscribeLive === "function") {
             await (this.inner as any).subscribeLive(queryUuid, callback);
         } else if (typeof (this.inner as any).listenLive === "function") {
@@ -333,7 +441,20 @@ class TracedDb {
             console.log(`[DB] KILL LIVE ${queryUuid}`);
         }
         try {
-            await (this.inner as any).kill(queryUuid);
+            const key = String(queryUuid);
+            const sub = this.liveSubscriptions.get(key);
+            if (sub) {
+                this.liveSubscriptions.delete(key);
+                if (typeof sub.kill === "function") {
+                    await sub.kill();
+                    return;
+                }
+            }
+            if (typeof (this.inner as any).kill === "function") {
+                await (this.inner as any).kill(queryUuid);
+            } else {
+                await (this.inner as any).query(`KILL u"${key.replace(/[^a-fA-F0-9-]/g, "")}";`);
+            }
         } catch (err: any) {
             this.handleError(`KILL LIVE ${queryUuid}`, err);
         }
@@ -341,6 +462,7 @@ class TracedDb {
 
     /** Close the underlying Surreal connection */
     async close(): Promise<void> {
+        this.liveSubscriptions.clear();
         try {
             await (this.inner as any).close();
         } catch {}
@@ -365,15 +487,20 @@ async function connectWithTimeout(
     const timeoutPromise = new Promise<never>((_, reject) => {
         timer = setTimeout(() => {
             try {
-                s.close();
+                Promise.resolve(s.close()).catch(() => {});
             } catch {}
             reject(new Error(`SurrealDB connection to ${url} timed out after ${timeoutMs}ms.`));
         }, timeoutMs);
     });
 
+    const connectOpts = {
+        ...(opts || {}),
+        ...(process.env.SURREALDB_VERSION_CHECK === "false" ? { versionCheck: false } : {}),
+    };
+
     try {
         await Promise.race([
-            s.connect(url, opts),
+            s.connect(url, connectOpts),
             timeoutPromise,
         ]);
     } finally {
@@ -459,7 +586,7 @@ async function createConnectedClient(
         } catch (err: any) {
             lastError = err;
             try {
-                await client.close();
+                Promise.resolve(client.close()).catch(() => {});
             } catch {}
             console.warn(
                 `[DB] Auth attempt failed (${Object.keys(auth).join(", ")}) [ns=${auth.namespace || "-"}, db=${auth.database || "-"}, user=${auth.username || "-"}]: ${err?.message || err}`,

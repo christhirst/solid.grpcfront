@@ -1,9 +1,18 @@
 import { describe, expect, test } from "bun:test";
 import {
+  isVersionSupported,
+  MAXIMUM_VERSION,
+  RecordId,
+  StringRecordId,
+  Table,
+} from "surrealdb";
+import {
   STANDARD_TABLES,
   STANDARD_TABLES_SQL,
   buildSurrealAuthAttempts,
   normalizeSurrealAuthLevel,
+  normalizeThing,
+  resourceName,
 } from "./db";
 import { normalizeGroupName } from "./groupAuth";
 
@@ -152,5 +161,32 @@ describe("SurrealDB user scope / authLevel", () => {
       { namespace: "Europe", username: "root", password: "secret" },
       { namespace: "Europe", database: "DE", username: "root", password: "secret" },
     ]);
+  });
+});
+
+describe("SurrealDB v4 SDK compatibility", () => {
+  test("SDK accepts both SurrealDB v3 and v4 engine versions", () => {
+    expect(MAXIMUM_VERSION).toBe("5.0.0");
+    expect(isVersionSupported("surrealdb-4.0.1")).toBe(true);
+    expect(isVersionSupported("surrealdb-3.3.5")).toBe(true);
+  });
+
+  test("normalizeThing wraps plain table names in Table and record strings in StringRecordId", () => {
+    const tbl = normalizeThing("connection");
+    expect(tbl).toBeInstanceOf(Table);
+    expect(String(tbl)).toBe("connection");
+
+    const strRec = normalizeThing("connection:123");
+    expect(strRec).toBeInstanceOf(StringRecordId);
+    expect(String(strRec)).toBe("connection:123");
+
+    const recId = new RecordId("connection", "123");
+    expect(normalizeThing(recId)).toBe(recId);
+  });
+
+  test("resourceName extracts table names from RecordId and Table instances", () => {
+    expect(resourceName(new RecordId("workflow", "abc"))).toBe("workflow");
+    expect(resourceName(new Table("connection"))).toBe("connection");
+    expect(resourceName("dashboard:xyz")).toBe("dashboard");
   });
 });
