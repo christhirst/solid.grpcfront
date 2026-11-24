@@ -380,6 +380,7 @@ export default function DashboardLibrary() {
                   { id: "news", label: "Alerts" },
                   { id: "button", label: "Buttons" },
                   { id: "form", label: "Forms" },
+                  { id: "survey", label: "Surveys" },
                   { id: "toggle", label: "Toggles" },
                 ]}
               >

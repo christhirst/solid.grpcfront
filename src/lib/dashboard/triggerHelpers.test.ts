@@ -147,3 +147,32 @@ describe("allowedWorkflowIds", () => {
     expect(allowed.has(normalizeId("⟨92a5d7b0-a4f7-47f5-ad6a-525c481f16b5⟩"))).toBe(true);
   });
 });
+
+describe("survey support", () => {
+  it("allowedWorkflowIds includes survey step workflows", () => {
+    const { allowedWorkflowIds } = require("./triggerHelpers");
+    const allowed = allowedWorkflowIds({
+      id: "survey_1",
+      widgetType: "survey",
+      workflowId: "",
+      surveyConfig: {
+        steps: [
+          { id: "s1", title: "A", fields: [], workflowId: "workflow:step_one" },
+          { id: "s2", title: "B", fields: [] },
+          { id: "s3", title: "C", fields: [], workflowId: "workflow:⟨step-three⟩" },
+        ],
+      },
+    });
+    expect(allowed.has("step_one")).toBe(true);
+    expect(allowed.has("step-three")).toBe(true);
+    expect(allowed.size).toBe(2);
+  });
+
+  it("mergeFormPayload normalizes checkbox_group values", () => {
+    const merged = mergeFormPayload(
+      { stack: "ts, rust" },
+      [{ name: "stack", type: "checkbox_group" }] as DashboardButton["formConfig"]
+    );
+    expect(merged.stack).toEqual(["ts", "rust"]);
+  });
+});

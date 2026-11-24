@@ -7,6 +7,7 @@ const ReteWorkflowEditor = clientOnly(() => import("~/components/workflow/ReteWo
 import { createSignal, createEffect, on, untrack, onMount, onCleanup, For, Show, createMemo, Index, useTransition, lazy, Suspense } from "solid-js";
 import { createClientResource } from "~/lib/clientResource";
 import { extractFormVariables, checkWorkflowConfiguredInDashboards, detectStepVariables, type VariableConfigStatus } from "~/lib/workflowVariableChecker";
+import { FORM_VALIDATOR_OPTIONS, formatValidatorBadge, type FormValidatorType } from "~/lib/formValidator";
 import { collectFieldNames, type FieldInfo } from "~/lib/dashboard/chartSeries";
 import { executeTextTransform, type TextTransformOperation, type TextTransformOpType } from "~/lib/textProcessor";
 import { isVaultSecretRef } from "~/lib/vaultRef";
@@ -1300,6 +1301,16 @@ export default function WorkflowBuilder() {
                   <span class="font-bold">{`{{ ${v.name} }}`}</span>
                   <Show when={v.alias}>
                     <span class="text-[10px] opacity-80">({v.alias})</span>
+                  </Show>
+                  <Show when={v.type && v.type !== "string"}>
+                    <span class="text-[9px] font-sans font-semibold px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-200 border border-purple-500/30">
+                      {v.type}
+                    </span>
+                  </Show>
+                  <Show when={formatValidatorBadge(v)}>
+                    <span class="text-[9px] font-sans font-semibold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-200 border border-amber-500/30">
+                      {formatValidatorBadge(v)}
+                    </span>
                   </Show>
                   <span class={`text-[9px] font-sans font-semibold px-1.5 py-0.5 rounded ${
                     v.isConfigured ? "bg-emerald-500/30 text-emerald-300" : "bg-red-500/30 text-red-300"
@@ -4276,7 +4287,7 @@ export default function WorkflowBuilder() {
                           </Show>
 
                           <Show when={stepVars().length > 0}>
-                            <div class="space-y-2.5 max-h-[220px] overflow-y-auto custom-scrollbar pr-1">
+                            <div class="space-y-2.5 max-h-[340px] overflow-y-auto custom-scrollbar pr-1">
                               {/* 🟢 UPSTREAM (Upload / Outgoing to Dashboard) */}
                               <Show when={upVars().length > 0}>
                                 <div class="space-y-1.5">
@@ -4422,6 +4433,109 @@ export default function WorkflowBuilder() {
                                               onInput={(e) => updateVar(v().name, { alias: e.currentTarget.value })}
                                             />
                                           </div>
+                                          <div class="grid grid-cols-2 gap-2 pt-0.5">
+                                            <div class="flex items-center gap-1.5">
+                                              <label class="text-[10px] text-[#8b8b9e] font-semibold shrink-0">Type:</label>
+                                              <select
+                                                class="flex-1 bg-[#0a0a0f] border border-[#2a2a3a] rounded px-1.5 py-0.5 text-[11px] text-white outline-none focus:border-purple-400"
+                                                value={v().type || "string"}
+                                                onChange={(e) => updateVar(v().name, { type: e.currentTarget.value as any })}
+                                              >
+                                                <option value="string">String</option>
+                                                <option value="number">Number</option>
+                                                <option value="boolean">Boolean</option>
+                                                <option value="select">Select</option>
+                                                <option value="list">List</option>
+                                                <option value="textarea">Textarea</option>
+                                              </select>
+                                            </div>
+                                            <div class="flex items-center gap-1.5">
+                                              <label class="text-[10px] text-[#8b8b9e] font-semibold shrink-0">Validator:</label>
+                                              <select
+                                                class="flex-1 bg-[#0a0a0f] border border-[#2a2a3a] rounded px-1.5 py-0.5 text-[11px] text-amber-200 outline-none focus:border-amber-400"
+                                                value={v().validator || "none"}
+                                                onChange={(e) => {
+                                                  const nextValidator = e.currentTarget.value as FormValidatorType;
+                                                  updateVar(v().name, {
+                                                    validator: nextValidator,
+                                                    required: nextValidator === "required" ? true : v().required,
+                                                  });
+                                                }}
+                                              >
+                                                <For each={FORM_VALIDATOR_OPTIONS}>
+                                                  {(opt) => <option value={opt.value}>{opt.label}</option>}
+                                                </For>
+                                              </select>
+                                            </div>
+                                          </div>
+                                          <Show when={v().type === "select"}>
+                                            <div class="flex items-center gap-2">
+                                              <label class="text-[10px] text-[#8b8b9e] font-semibold shrink-0">Options:</label>
+                                              <input
+                                                type="text"
+                                                class="flex-1 bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-0.5 text-[11px] text-white placeholder-[#5b5b6e] outline-none focus:border-purple-400"
+                                                placeholder="comma-separated, e.g. US, UK, DE"
+                                                value={v().options || ""}
+                                                onInput={(e) => updateVar(v().name, { options: e.currentTarget.value })}
+                                              />
+                                            </div>
+                                          </Show>
+                                          <Show when={v().validator === "regex"}>
+                                            <div class="flex items-center gap-2">
+                                              <label class="text-[10px] text-amber-300 font-semibold shrink-0">Regex:</label>
+                                              <input
+                                                type="text"
+                                                class="flex-1 bg-[#0a0a0f] border border-amber-500/30 rounded px-2 py-0.5 text-[11px] font-mono text-amber-200 placeholder-[#5b5b6e] outline-none focus:border-amber-400"
+                                                placeholder="e.g. ^[a-z0-9_]+$"
+                                                value={v().validatorPattern || ""}
+                                                onInput={(e) => updateVar(v().name, { validatorPattern: e.currentTarget.value })}
+                                              />
+                                            </div>
+                                          </Show>
+                                          <Show when={(v().type || "string") !== "boolean" && (v().type || "string") !== "select"}>
+                                            <div class="grid grid-cols-2 gap-2">
+                                              <div class="flex items-center gap-1.5">
+                                                <label class="text-[10px] text-[#8b8b9e] font-semibold shrink-0">Min:</label>
+                                                <input
+                                                  type="number"
+                                                  class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-0.5 text-[11px] font-mono text-white placeholder-[#5b5b6e] outline-none focus:border-purple-400"
+                                                  placeholder={v().type === "number" ? "Min val" : v().type === "list" ? "Min items" : "Min len"}
+                                                  value={v().validatorMin ?? ""}
+                                                  onInput={(e) =>
+                                                    updateVar(v().name, {
+                                                      validatorMin: e.currentTarget.value === "" ? undefined : Number(e.currentTarget.value),
+                                                    })
+                                                  }
+                                                />
+                                              </div>
+                                              <div class="flex items-center gap-1.5">
+                                                <label class="text-[10px] text-[#8b8b9e] font-semibold shrink-0">Max:</label>
+                                                <input
+                                                  type="number"
+                                                  class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-0.5 text-[11px] font-mono text-white placeholder-[#5b5b6e] outline-none focus:border-purple-400"
+                                                  placeholder={v().type === "number" ? "Max val" : v().type === "list" ? "Max items" : "Max len"}
+                                                  value={v().validatorMax ?? ""}
+                                                  onInput={(e) =>
+                                                    updateVar(v().name, {
+                                                      validatorMax: e.currentTarget.value === "" ? undefined : Number(e.currentTarget.value),
+                                                    })
+                                                  }
+                                                />
+                                              </div>
+                                            </div>
+                                          </Show>
+                                          <Show when={(v().validator && v().validator !== "none") || v().validatorMin !== undefined || v().validatorMax !== undefined}>
+                                            <div class="flex items-center gap-2">
+                                              <label class="text-[10px] text-[#8b8b9e] font-semibold shrink-0">Error Msg:</label>
+                                              <input
+                                                type="text"
+                                                class="flex-1 bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-0.5 text-[11px] text-white placeholder-[#5b5b6e] outline-none focus:border-amber-400"
+                                                placeholder="Custom error message (optional)"
+                                                value={v().validatorMessage || ""}
+                                                onInput={(e) => updateVar(v().name, { validatorMessage: e.currentTarget.value })}
+                                              />
+                                            </div>
+                                          </Show>
                                         </div>
                                       );
                                     }}

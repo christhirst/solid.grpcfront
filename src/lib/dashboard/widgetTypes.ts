@@ -7,7 +7,10 @@
  * pure functions.
  */
 
-export type WidgetType = "button" | "form" | "chart" | "table" | "news" | "toggle" | "infographic";
+import type { FormValidatorType } from "~/lib/formValidator";
+export type { FormValidatorType };
+
+export type WidgetType = "button" | "form" | "survey" | "chart" | "table" | "news" | "toggle" | "infographic";
 
 export type ConditionOperator =
   | "equals"
@@ -47,14 +50,87 @@ export interface ConditionRule {
   elseTargetValue?: string;
 }
 
+export type FormFieldType =
+  | "string"
+  | "number"
+  | "boolean"
+  | "select"
+  | "radio"
+  | "checkbox_group"
+  | "rating"
+  | "date"
+  | "list"
+  | "textarea";
+
 export interface FormField {
   name: string;
   label: string;
-  type: "string" | "number" | "boolean" | "select" | "list" | "textarea";
+  type: FormFieldType;
   required?: boolean;
   defaultValue?: unknown;
   value?: unknown;
   options?: string;
+  description?: string;
+  placeholder?: string;
+  /** Rating scale upper bound (default 5; UI supports 5 or 10). */
+  ratingMax?: number;
+  ratingMinLabel?: string;
+  ratingMaxLabel?: string;
+  validator?: FormValidatorType;
+  validatorPattern?: string;
+  validatorMin?: number;
+  validatorMax?: number;
+  validatorMessage?: string;
+}
+
+export type SurveyBranchOperator =
+  | "equals"
+  | "notEquals"
+  | "contains"
+  | "gt"
+  | "lt"
+  | "gte"
+  | "lte"
+  | "isEmpty"
+  | "isNotEmpty";
+
+export interface SurveyBranchRule {
+  id: string;
+  field: string;
+  operator: SurveyBranchOperator;
+  value?: string;
+  /** Step ID to jump to, or "__complete__" to finish early. */
+  targetStepId: string;
+}
+
+export interface SurveyStep {
+  id: string;
+  title: string;
+  description?: string;
+  fields: FormField[];
+  workflowId?: string;
+  nextLabel?: string;
+  branchRules?: SurveyBranchRule[];
+}
+
+export interface SurveyConfig {
+  steps: SurveyStep[];
+  showProgress?: boolean;
+  allowBack?: boolean;
+  passAccumulatedAnswers?: boolean;
+  completionTitle?: string;
+  completionMessage?: string;
+  allowRestart?: boolean;
+  showSummary?: boolean;
+}
+
+export interface FormSequenceConfig {
+  hideOnSubmit?: boolean;
+  startsHidden?: boolean;
+  nextWidgetId?: string;
+  carryAnswersForward?: boolean;
+  completionMessage?: string;
+  allowRestart?: boolean;
 }
 
 /**
@@ -156,6 +232,15 @@ export interface WidgetConfig {
   showOutput?: boolean;
   /** Configured output fields to extract and display from the response. */
   outputConfig?: OutputField[];
+  /** Multi-step survey definition (widgetType "survey"). */
+  surveyConfig?: SurveyConfig;
+  /** Sequential form chaining (widgetType "form"). */
+  sequenceConfig?: FormSequenceConfig;
+  /** Optional layout position/size persisted by the GridStack arranger. */
+  x?: number;
+  y?: number;
+  w?: number;
+  h?: number;
 }
 
 export interface EffectiveWidgetConfig {

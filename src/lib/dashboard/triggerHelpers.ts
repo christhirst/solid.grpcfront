@@ -1,19 +1,44 @@
 import { RecordId } from "surrealdb";
-import { parseListFieldValue } from "~/lib/dashboard/widgetTypes";
+import {
+  parseListFieldValue,
+  type FormSequenceConfig,
+  type FormValidatorType,
+  type SurveyConfig,
+} from "~/lib/dashboard/widgetTypes";
 
 export interface TriggerPayload {
   form?: Record<string, unknown>;
   workflowId?: string;
   seriesRun?: boolean;
+  /** Survey step whose fields should be validated (per-step workflow runs). */
+  surveyStepId?: string;
+  /** When true the submitted values are not persisted back into the dashboard definition. */
+  ephemeral?: boolean;
 }
 
 export interface DashboardButton {
   id: string;
+  widgetType?: string;
+  surveyConfig?: SurveyConfig;
+  sequenceConfig?: FormSequenceConfig;
   workflowId: string;
   conditionWorkflowId?: string;
   conditionRules?: Array<{ action?: string; targetValue?: string; elseAction?: string; elseTargetValue?: string }>;
   chartSeries?: Array<{ workflowId?: string }>;
-  formConfig?: Array<{ name: string; type?: string; value?: unknown; defaultValue?: unknown }>;
+  formConfig?: Array<{
+    name: string;
+    label?: string;
+    type?: string;
+    required?: boolean;
+    options?: string;
+    value?: unknown;
+    defaultValue?: unknown;
+    validator?: FormValidatorType;
+    validatorPattern?: string;
+    validatorMin?: number;
+    validatorMax?: number;
+    validatorMessage?: string;
+  }>;
 }
 
 export interface DashboardRecord {
@@ -56,6 +81,13 @@ export function allowedWorkflowIds(button: any): Set<string> {
       }
     }
   }
+  if (Array.isArray(button.surveyConfig?.steps)) {
+    for (const step of button.surveyConfig.steps) {
+      if (step?.workflowId) {
+        allowed.add(normalizeId(step.workflowId));
+      }
+    }
+  }
 
   return allowed;
 }
@@ -81,7 +113,7 @@ export function mergeFormPayload(
         merged[field.name] = savedVal;
       }
     }
-    if (field.type === "list" && merged[field.name] !== undefined) {
+    if ((field.type === "list" || field.type === "checkbox_group") && merged[field.name] !== undefined) {
       merged[field.name] = parseListFieldValue(merged[field.name]);
     }
   }

@@ -1,4 +1,6 @@
 import type { StepVariable } from "./stepCategories";
+import type { FormValidatorType } from "./formValidator";
+import type { FormField } from "~/lib/dashboard/widgetTypes";
 import { normalizeId } from "~/lib/dashboard/triggerHelpers";
 
 /**
@@ -103,6 +105,15 @@ export function getWorkflowDashboardUsage(
       if (Array.isArray(btn.chartSeries)) {
         for (const series of btn.chartSeries) {
           if (series.workflowId && normalizeId(series.workflowId) === rawId) {
+            isUsedInDash = true;
+            break;
+          }
+        }
+        if (isUsedInDash) break;
+      }
+      if (Array.isArray(btn.surveyConfig?.steps)) {
+        for (const step of btn.surveyConfig.steps) {
+          if (step?.workflowId && normalizeId(step.workflowId) === rawId) {
             isUsedInDash = true;
             break;
           }
@@ -237,7 +248,54 @@ export interface VariableConfigStatus {
   name: string;
   alias?: string;
   type?: string;
+  options?: string;
+  required?: boolean;
+  validator?: FormValidatorType;
+  validatorPattern?: string;
+  validatorMin?: number;
+  validatorMax?: number;
+  validatorMessage?: string;
   isConfigured: boolean;
+}
+
+const VALID_FORM_FIELD_TYPES = new Set<FormField["type"]>([
+  "string",
+  "number",
+  "boolean",
+  "select",
+  "radio",
+  "checkbox_group",
+  "rating",
+  "date",
+  "list",
+  "textarea",
+]);
+
+/** Maps a workflow StepVariable or VariableConfigStatus into a dashboard FormField, preserving type and validator rules. */
+export function buildFormFieldFromVariable(
+  item: (Partial<Omit<StepVariable, "type">> & { name: string; type?: string }) | VariableConfigStatus
+): FormField {
+  const mappedType: FormField["type"] =
+    item.type && VALID_FORM_FIELD_TYPES.has(item.type as FormField["type"])
+      ? (item.type as FormField["type"])
+      : "string";
+  const field: FormField = {
+    name: item.name,
+    label: item.alias?.trim() || item.name,
+    type: mappedType,
+    required: item.required ?? true,
+  };
+  if (item.options !== undefined && item.options !== "") field.options = item.options;
+  if (item.validator !== undefined) field.validator = item.validator;
+  if (item.validatorPattern !== undefined && item.validatorPattern !== "") {
+    field.validatorPattern = item.validatorPattern;
+  }
+  if (item.validatorMin !== undefined) field.validatorMin = item.validatorMin;
+  if (item.validatorMax !== undefined) field.validatorMax = item.validatorMax;
+  if (item.validatorMessage !== undefined && item.validatorMessage !== "") {
+    field.validatorMessage = item.validatorMessage;
+  }
+  return field;
 }
 
 export function checkWidgetVariablesConfigured(workflow: any, formConfig: any[]) {
@@ -270,6 +328,13 @@ export function checkWidgetVariablesConfigured(workflow: any, formConfig: any[])
       name: v,
       alias: matching?.alias?.trim() || undefined,
       type: matching?.type || "string",
+      options: matching?.options,
+      required: matching?.required,
+      validator: matching?.validator,
+      validatorPattern: matching?.validatorPattern,
+      validatorMin: matching?.validatorMin,
+      validatorMax: matching?.validatorMax,
+      validatorMessage: matching?.validatorMessage,
       isConfigured,
     };
   });
@@ -332,6 +397,25 @@ export function checkWorkflowConfiguredInDashboards(workflow: any, dashboards: a
           }
         }
       }
+
+      const surveySteps: any[] = Array.isArray(btn.surveyConfig?.steps) ? btn.surveyConfig.steps : [];
+      const topLevelMatch = Boolean(bWfId) && (bWfId === wfId || bWfId === rawId || bWfId.endsWith(rawId));
+      surveySteps.forEach((step: any, stepIdx: number) => {
+        const sWf = step?.workflowId;
+        const stepMatch = Boolean(sWf) && (sWf === wfId || sWf === rawId || sWf.endsWith(rawId));
+        if (!topLevelMatch && !stepMatch) return;
+        if (stepMatch) hasLinkedDashboard = true;
+        // Final workflow sees every step; a step workflow sees all steps up to and including its own.
+        const upTo = topLevelMatch ? surveySteps.length - 1 : stepIdx;
+        if (stepIdx > upTo) return;
+        for (const f of step.fields || []) {
+          let n = f.name?.trim() || "";
+          if (n.startsWith("form.")) n = n.slice(5);
+          if (n.startsWith("dashboard_form.")) n = n.slice(15);
+          if (n) allDashboardConfiguredNames.add(n);
+        }
+      });
+      if (topLevelMatch && surveySteps.length > 0) hasLinkedDashboard = true;
     }
   }
 
@@ -346,6 +430,13 @@ export function checkWorkflowConfiguredInDashboards(workflow: any, dashboards: a
       name: v,
       alias: matching?.alias?.trim() || undefined,
       type: matching?.type || "string",
+      options: matching?.options,
+      required: matching?.required,
+      validator: matching?.validator,
+      validatorPattern: matching?.validatorPattern,
+      validatorMin: matching?.validatorMin,
+      validatorMax: matching?.validatorMax,
+      validatorMessage: matching?.validatorMessage,
       isConfigured,
     };
   });

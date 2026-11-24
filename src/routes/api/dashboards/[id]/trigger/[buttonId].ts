@@ -4,6 +4,7 @@ import { runWorkflowBackground } from "~/lib/workflowEngine";
 import { v4 as uuidv4 } from "uuid";
 import { RecordId } from "surrealdb";
 import {
+  DashboardButton,
   DashboardRecord,
   TriggerPayload,
   findButton,
@@ -14,6 +15,8 @@ import {
 } from "~/lib/dashboard/triggerHelpers";
 import { readJsonBody } from "~/lib/requestUtils";
 import { buildWorkflowUserContext } from "~/lib/auth";
+import { validateWorkflowFormPayload } from "~/lib/formValidator";
+import { collectVisitedSurveyFields } from "~/lib/dashboard/surveyEngine";
 
 function jsonResponse(payload: { success: boolean; error?: string; runId?: string }, status = 200): Response {
   return new Response(JSON.stringify(payload), {
@@ -43,11 +46,6 @@ export async function POST(event: APIEvent) {
     return jsonResponse({ success: false, error: "Button not found on dashboard" }, 404);
   }
 
-  const targetWorkflowId = (button as any).workflowId;
-  if (!targetWorkflowId) {
-    return jsonResponse({ success: false, error: "Button has no workflow assigned" }, 400);
-  }
-
   let body: TriggerPayload = {};
   try {
     const raw = await readJsonBody(event);
@@ -57,8 +55,12 @@ export async function POST(event: APIEvent) {
   }
 
   // Allow the request to override the workflow that gets executed if authorized. The default
-  // remains the workflow stored on the widget so existing behaviour is preserved.
-  const workflowIdToRun = body.workflowId ?? targetWorkflowId;
+  // remains the workflow stored on the widget so existing behaviour is preserved. Surveys may
+  // have no top-level workflow at all and rely on per-step workflows supplied by the request.
+  const workflowIdToRun = body.workflowId || (button as any).workflowId;
+  if (!workflowIdToRun) {
+    return jsonResponse({ success: false, error: "Button has no workflow assigned" }, 400);
+  }
   const allowed = allowedWorkflowIds(button);
   if (!allowed.has(normalizeId(workflowIdToRun as string))) {
     return jsonResponse({ success: false, error: "Workflow not permitted for this widget" }, 403);
@@ -76,10 +78,36 @@ export async function POST(event: APIEvent) {
 
   (workflow as any).id = `workflow:${wfDbId}`;
 
-  const formPayload = mergeFormPayload(body.form ?? {}, button.formConfig);
+  const isSurvey = (button as any).widgetType === "survey";
+  let activeFormConfig: DashboardButton["formConfig"] = button.formConfig;
+  if (isSurvey) {
+    const steps = (button as any).surveyConfig?.steps || [];
+    const stepFields = body.surveyStepId
+      ? steps.find((s: any) => s.id === body.surveyStepId)?.fields
+      : undefined;
+    activeFormConfig = (stepFields || collectVisitedSurveyFields(steps, body.form ?? {})) as any;
+  }
 
-  // Skip updating dashboard buttons when triggering an auxiliary series run
-  if (!body.seriesRun) {
+  const formPayload = mergeFormPayload(body.form ?? {}, activeFormConfig);
+  const validation = validateWorkflowFormPayload(workflow, activeFormConfig as any, formPayload);
+  if (!validation.valid) {
+    return jsonResponse(
+      {
+        success: false,
+        error: validation.firstError || "Form validation failed",
+      },
+      400
+    );
+  }
+
+  // Skip updating dashboard buttons for auxiliary series runs, surveys, and ephemeral/sequential
+  // submissions so one respondent's answers are never saved into the shared dashboard definition.
+  const skipPersist =
+    body.seriesRun === true ||
+    body.ephemeral === true ||
+    isSurvey ||
+    Boolean((button as any).sequenceConfig?.hideOnSubmit);
+  if (!skipPersist) {
     const updatedButtons = buildUpdatedButtons(dashboard.buttons, buttonId, formPayload);
 
     await db.query("UPDATE $id MERGE $data", {

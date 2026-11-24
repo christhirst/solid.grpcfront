@@ -4,6 +4,8 @@ import { isServer } from "solid-js/web";
 
 import DashboardGrid from "~/components/dashboard/DashboardGrid";
 import { DashboardPublicButtonFormWidget } from "~/components/dashboard/DashboardPublicWidget";
+import { DashboardSurveyWidget } from "~/components/dashboard/DashboardSurveyWidget";
+import { useFormSequence } from "~/components/dashboard/useFormSequence";
 import { useWidgetOutcome, type WidgetOutcome } from "~/components/dashboard/useWidgetOutcome";
 import { DashTable } from "~/components/dashboard/widgets/DashTable";
 import { NewsWidgetComponent } from "~/components/dashboard/widgets/NewsWidget";
@@ -280,7 +282,8 @@ const InfographicWidget = lazy(() => import("~/components/dashboard/InfographicW
 export async function loadWorkflowMap(buttons: any[], dashId?: string): Promise<Record<string, any>> {
   const ids: string[] = [...new Set((buttons || []).flatMap((b: any) => [
     b.workflowId,
-    ...(b.chartSeries || []).map((s: any) => s.workflowId)
+    ...(b.chartSeries || []).map((s: any) => s.workflowId),
+    ...(b.surveyConfig?.steps || []).map((s: any) => s.workflowId)
   ]).filter(Boolean))] as string[];
   const cleanDashId = dashId
     ? (dashId.includes(":") ? dashId.split(":")[1] : dashId).replace(/[⟨⟩]/g, "")
@@ -324,13 +327,25 @@ export default function PublicDashboardView(props: PublicDashboardViewProps) {
     }
   };
 
-  const triggerButton = async (btn: any, effectiveWorkflowId?: string) => {
+  const sequence = useFormSequence(() => props.buttons || [], {
+    onClearForms: (ids) => {
+      for (const id of ids) setFormState(id, {});
+    },
+  });
+
+  const triggerButton = async (
+    btn: any,
+    effectiveWorkflowId?: string,
+    overrideForm?: Record<string, any>,
+    extraBody?: Record<string, any>
+  ) => {
     if (props.readOnly) return;
     if (executing[btn.id] === "running") return;
+    const silent = btn.widgetType === "survey";
     setExecuting(btn.id, "running");
     try {
-      const currentForm = formState[btn.id] || {};
-      const mergedForm: Record<string, any> = { ...currentForm };
+      const currentForm = overrideForm ?? formState[btn.id] ?? {};
+      const mergedForm: Record<string, any> = { ...sequence.carriedAnswers(btn), ...currentForm };
       (btn.formConfig || []).forEach((f: any) => {
         if (f.name && (mergedForm[f.name] === undefined || mergedForm[f.name] === "")) {
           const savedVal = f.value ?? f.defaultValue;
@@ -339,8 +354,9 @@ export default function PublicDashboardView(props: PublicDashboardViewProps) {
           }
         }
       });
-      const payload: Record<string, any> = { form: mergedForm };
+      const payload: Record<string, any> = { form: mergedForm, ...(extraBody || {}) };
       if (effectiveWorkflowId) payload.workflowId = effectiveWorkflowId;
+      if (btn.widgetType === "survey" || btn.sequenceConfig?.hideOnSubmit) payload.ephemeral = true;
 
       const res = await fetch(`/api/dashboards/${props.dashboardId}/trigger/${btn.id}`, {
         method: "POST",
@@ -353,13 +369,13 @@ export default function PublicDashboardView(props: PublicDashboardViewProps) {
         setTimeout(() => setExecuting(btn.id, "idle"), 2500);
         return json;
       } else {
-        alert("Action failed: " + json.error);
+        if (!silent) alert("Action failed: " + json.error);
         setExecuting(btn.id, "error");
         setTimeout(() => setExecuting(btn.id, "idle"), 2500);
         return json;
       }
     } catch (e: any) {
-      alert("Network or Server error: " + e.message);
+      if (!silent) alert("Network or Server error: " + e.message);
       setExecuting(btn.id, "error");
       setTimeout(() => setExecuting(btn.id, "idle"), 2500);
       return { success: false, error: e.message };
@@ -378,8 +394,9 @@ export default function PublicDashboardView(props: PublicDashboardViewProps) {
 
   return (
     <DashboardGrid
-      buttons={props.buttons || []}
+      buttons={sequence.displayedButtons()}
       isStatic={true}
+      compactOnHide={sequence.hasSequence()}
       dashboardId={props.dashboardId}
       renderWidget={(btn) => {
         const wf = () => props.workflowMap[btn.workflowId];
@@ -401,10 +418,43 @@ export default function PublicDashboardView(props: PublicDashboardViewProps) {
                       formState={formState}
                       updateForm={updateForm}
                       triggerButton={triggerButton}
+                      onSubmitSuccess={(submitted) => sequence.handleSubmitSuccess(btn, submitted)}
                     />
                   </InteractiveShell>
                 }
               >
+                <Match when={kind() === "__chain_complete__"}>
+                  <div class="w-full h-full rounded-2xl border border-emerald-500/30 bg-emerald-950/20 p-5 flex flex-col items-center justify-center gap-3 text-center">
+                    <div class="w-10 h-10 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-300">✓</div>
+                    <p class="text-sm text-white font-semibold">{btn.message}</p>
+                    <Show when={btn.allowRestart}>
+                      <button
+                        type="button"
+                        onClick={() => sequence.resetChain(btn.rootId)}
+                        class="min-h-[44px] px-5 rounded-xl border border-[#2a2a3a] bg-[#1e1e2e] text-sm font-semibold text-[#c4c4d4] hover:bg-[#2a2a3a] transition-colors"
+                      >
+                        Start Again
+                      </button>
+                    </Show>
+                  </div>
+                </Match>
+                <Match when={kind() === "survey"}>
+                  <ConditionalWidgetWrapper btn={btn} dashboardId={props.dashboardId}>
+                    <InteractiveShell>
+                      <DashboardSurveyWidget
+                        btn={btn}
+                        dashboardId={props.dashboardId}
+                        readOnly={props.readOnly}
+                        onTriggerStep={(payload, workflowId, stepId) =>
+                          triggerButton(btn, workflowId, payload, { surveyStepId: stepId, ephemeral: true })
+                        }
+                        onTriggerFinal={(payload, workflowId) =>
+                          triggerButton(btn, workflowId, payload, { ephemeral: true })
+                        }
+                      />
+                    </InteractiveShell>
+                  </ConditionalWidgetWrapper>
+                </Match>
                 <Match when={kind() === "news"}>
                   <ConditionalWidgetWrapper btn={btn} dashboardId={props.dashboardId}>
                     <NewsWidgetComponent btn={btn} dashboardId={props.dashboardId} />

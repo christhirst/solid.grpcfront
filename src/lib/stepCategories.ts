@@ -3,6 +3,9 @@
  * This module is safe for client-side imports (no server dependencies).
  */
 
+import type { FormValidatorType } from "./formValidator";
+export type { FormValidatorType };
+
 export type StepCategory = "source" | "transform" | "target";
 
 /**
@@ -45,7 +48,14 @@ export interface StepVariable {
   alias?: string; // Human-friendly alias, e.g. "has_incidents" or "target_table"
   direction: "up" | "down"; // "up" = green (upload/output), "down" = red (download/input)
   isLiteral?: boolean; // When true: excluded from dashboard form requirements, sent literally as {{ name }}
-  type?: "string" | "number" | "boolean" | "list" | "query" | "any";
+  type?: "string" | "number" | "boolean" | "select" | "list" | "textarea" | "query" | "any";
+  options?: string; // Comma-separated options when type === "select"
+  required?: boolean;
+  validator?: FormValidatorType;
+  validatorPattern?: string;
+  validatorMin?: number;
+  validatorMax?: number;
+  validatorMessage?: string;
   description?: string;
   value?: any; // Last evaluated value
 }

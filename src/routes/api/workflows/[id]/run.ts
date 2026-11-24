@@ -7,6 +7,7 @@ import { readJsonBody } from "~/lib/requestUtils";
 import { buildWorkflowUserContext, getEffectiveAccessContext } from "~/lib/auth";
 import { canAccessObject } from "~/lib/groupAuth";
 import { canUseWorkflowViaDashboard } from "~/lib/dashboard/dashboardScope";
+import { validateWorkflowFormPayload } from "~/lib/formValidator";
 
 export async function POST(event: APIEvent) {
   try {
@@ -39,12 +40,14 @@ export async function POST(event: APIEvent) {
     };
 
     // Read form data from payload if present
-    let formPayload = {};
+    let formPayload: Record<string, any> = {};
+    let hasFormBody = false;
     let bodyDashboardId = "";
     try {
       const body = await readJsonBody(event);
-      if (body && body.form) {
+      if (body && body.form && typeof body.form === "object") {
         formPayload = body.form;
+        hasFormBody = Object.keys(body.form).length > 0;
       }
       if (body && (body.dashboard || body.dashboardId)) {
         bodyDashboardId = String(body.dashboard || body.dashboardId);
@@ -70,6 +73,23 @@ export async function POST(event: APIEvent) {
         },
         { status: 403 }
       );
+    }
+
+    if (hasFormBody || Boolean(dashboardIdParam)) {
+      const validation = validateWorkflowFormPayload(workflow, undefined, formPayload);
+      if (!validation.valid) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: validation.firstError || "Form validation failed",
+            errors: validation.errors,
+          }),
+          {
+            status: 400,
+            headers: { "Content-Type": "application/json" },
+          }
+        );
+      }
     }
 
     const runId = `workflow_run:${uuidv4()}`;

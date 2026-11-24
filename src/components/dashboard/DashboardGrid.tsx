@@ -1,4 +1,4 @@
-import { onCleanup, For, Show, JSX, createEffect } from "solid-js";
+import { onCleanup, For, Show, JSX, createEffect, createMemo } from "solid-js";
 import { isServer } from "solid-js/web";
 import type { GridStack as GridStackType } from "gridstack";
 
@@ -10,6 +10,8 @@ export function getDefaultWidgetDimensions(widgetType?: string, hasExpandedConte
       return { w: 6, h: 4, minW: 3, minH: 3 };
     case "form":
       return { w: 6, h: 4, minW: 3, minH: 2 };
+    case "survey":
+      return { w: 6, h: 6, minW: 4, minH: 4 };
     case "news":
       return { w: 6, h: 3, minW: 3, minH: 2 };
     case "toggle":
@@ -32,6 +34,8 @@ export interface DashboardGridProps {
   onLayoutChange?: (layout: Array<{ id: string; x: number; y: number; w: number; h: number }>) => void;
   renderWidget: (btn: any) => JSX.Element;
   class?: string;
+  /** Static grids only: collapse gaps left by hidden widgets (sequential form flows). */
+  compactOnHide?: boolean;
 }
 
 export default function DashboardGrid(props: DashboardGridProps) {
@@ -66,7 +70,7 @@ export default function DashboardGrid(props: DashboardGridProps) {
           ]
         },
         animate: true,
-        float: true,
+        float: !(props.isStatic && props.compactOnHide),
         staticGrid: props.isStatic,
         handle: props.isStatic ? undefined : ".grid-stack-drag-handle",
         resizable: {
@@ -100,10 +104,22 @@ export default function DashboardGrid(props: DashboardGridProps) {
     }
   };
 
+  const idsKey = createMemo(() => (props.buttons || []).map((b) => b.id).join("|"));
+  // Static layouts re-init whenever a widget's slot changes (e.g. sequential forms swapping in place).
+  // Editable layouts must NOT track positions or dragging would re-init GridStack mid-drag.
+  const layoutKey = createMemo(() =>
+    props.isStatic
+      ? (props.buttons || []).map((b) => `${b.id}@${b.x ?? ""},${b.y ?? ""}`).join("|")
+      : ""
+  );
+
   // Initialize once per dashboard/layout mode, after Solid has updated the grid items.
   createEffect(() => {
     const _static = props.isStatic;
     const _dashId = props.dashboardId;
+    const _ids = idsKey();
+    const _layout = layoutKey();
+    const _compact = props.compactOnHide;
     if (isServer || !containerRef) return;
 
     const version = ++initVersion;

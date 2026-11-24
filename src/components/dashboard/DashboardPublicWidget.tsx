@@ -14,6 +14,8 @@ export interface DashboardPublicWidgetProps {
   formState: Record<string, Record<string, unknown>>;
   updateForm: (btnId: string, field: string, value: unknown) => void;
   triggerButton: (btn: WidgetConfig, effectiveWorkflowId?: string) => Promise<any>;
+  /** Called after a successful submit (or local-only advance for sequential forms). */
+  onSubmitSuccess?: (submittedForm: Record<string, unknown>, triggerResult: any) => void;
   /** Optional child component for table/chart/news/toggle/infographic. */
   children?: any;
 }
@@ -34,8 +36,17 @@ export function DashboardPublicButtonFormWidget(props: DashboardPublicWidgetProp
   });
 
   const handleTrigger = async () => {
+    // Sequential forms without a workflow advance locally (no server round trip needed).
+    if (!effective().workflowId && props.btn.sequenceConfig?.hideOnSubmit) {
+      props.onSubmitSuccess?.(props.formState[props.btn.id] || {}, { success: true, localOnly: true });
+      return;
+    }
     const res = (await props.triggerButton(props.btn, effective().workflowId)) as any;
     if (disposed) return;
+    if (res?.success) {
+      props.onSubmitSuccess?.(props.formState[props.btn.id] || {}, res);
+      if (disposed) return;
+    }
     const runId = res?.runId;
     const hasOutput = !!(props.btn.showOutput || (props.btn.outputConfig && props.btn.outputConfig.length > 0));
 

@@ -4,10 +4,21 @@ import { createStore, reconcile } from "solid-js/store";
 import { useParams, useNavigate, A } from "@solidjs/router";
 import { isServer } from "solid-js/web";
 
-import { extractFormVariables, checkWidgetVariablesConfigured, extractUpstreamVariables } from "~/lib/workflowVariableChecker";
+import {
+  extractFormVariables,
+  checkWidgetVariablesConfigured,
+  extractUpstreamVariables,
+  detectStepVariables,
+  buildFormFieldFromVariable,
+} from "~/lib/workflowVariableChecker";
+import { FORM_VALIDATOR_OPTIONS, formatValidatorBadge, type FormValidatorType } from "~/lib/formValidator";
 import DashboardGrid, { getDefaultWidgetDimensions } from "~/components/dashboard/DashboardGrid";
 import { DashboardButtonFormWidget } from "~/components/dashboard/DashboardButtonFormWidget";
 import { DashboardPublicButtonFormWidget } from "~/components/dashboard/DashboardPublicWidget";
+import { DashboardSurveyWidget } from "~/components/dashboard/DashboardSurveyWidget";
+import { SurveyBuilderEditor } from "~/components/dashboard/SurveyBuilderEditor";
+import { useFormSequence } from "~/components/dashboard/useFormSequence";
+import { createDefaultSurveyConfig } from "~/lib/dashboard/surveyEngine";
 import { useWidgetOutcome } from "~/components/dashboard/useWidgetOutcome";
 import { applyWidgetConditions, defaultEffectiveConfig } from "~/lib/dashboard/widgetConditions";
 import { resolveChartSeries, effectiveChartType, SERIES_COLORS, MULTI_SERIES_TYPES } from "~/lib/dashboard/chartSeries";
@@ -310,7 +321,22 @@ export default function DashboardBuilder() {
     }
   };
 
-  const triggerButton = async (btn: any, effectiveWorkflowId?: string) => {
+  const previewSequence = useFormSequence(() => buttons, {
+    onClearForms: (ids) => {
+      setFormState((prev) => {
+        const next = { ...prev };
+        for (const id of ids) delete next[id];
+        return next;
+      });
+    },
+  });
+
+  const triggerButton = async (
+    btn: any,
+    effectiveWorkflowId?: string,
+    overrideForm?: Record<string, any>,
+    extraBody?: Record<string, any>
+  ) => {
     if (isNew()) {
       setActionMessage({ type: "error", text: "Please save the dashboard first before executing button actions!" });
       return;
@@ -319,9 +345,11 @@ export default function DashboardBuilder() {
     setExecuting(prev => ({ ...prev, [btn.id]: "running" }));
     try {
       const payload: Record<string, any> = {
-        form: formState()[btn.id] || {}
+        form: { ...previewSequence.carriedAnswers(btn), ...(overrideForm ?? formState()[btn.id] ?? {}) },
+        ...(extraBody || {}),
       };
       if (effectiveWorkflowId) payload.workflowId = effectiveWorkflowId;
+      if (btn.widgetType === "survey" || btn.sequenceConfig?.hideOnSubmit) payload.ephemeral = true;
 
       const res = await fetch(`/api/dashboards/${params.id}/trigger/${btn.id}`, {
         method: "POST",
@@ -349,11 +377,12 @@ export default function DashboardBuilder() {
     }
   };
 
-  const addWidget = (widgetType: "button" | "form" | "chart" | "table" | "news" | "toggle" | "infographic") => {
+  const addWidget = (widgetType: "button" | "form" | "survey" | "chart" | "table" | "news" | "toggle" | "infographic") => {
     setShowWidgetPicker(false);
     const labels: Record<string, string> = {
       button: "New Button",
       form: "New Form",
+      survey: "New Survey",
       chart: "New Chart",
       table: "New Table",
       news: "News Alert Feed",
@@ -385,6 +414,7 @@ export default function DashboardBuilder() {
       infographicSyntax: "",
       infographicTemplate: "list-row-simple-horizontal-arrow",
       infographicEditable: false,
+      surveyConfig: widgetType === "survey" ? createDefaultSurveyConfig() : undefined,
     }]);
   };
 
@@ -462,6 +492,40 @@ export default function DashboardBuilder() {
       );
     }
 
+    if (wtype === "survey") {
+      return (
+        <DashboardSurveyWidget
+          btn={btn}
+          dashboardId={params.id}
+          isPreview={isNew()}
+          onTriggerStep={
+            isNew()
+              ? undefined
+              : (payload, workflowId, stepId) =>
+                  triggerButton(btn, workflowId, payload, { surveyStepId: stepId, ephemeral: true })
+          }
+          onTriggerFinal={
+            isNew()
+              ? undefined
+              : (payload, workflowId) => triggerButton(btn, workflowId, payload, { ephemeral: true })
+          }
+        />
+      );
+    }
+    if (wtype === "__chain_complete__") {
+      return (
+        <div class="w-full h-full rounded-2xl border border-emerald-500/30 bg-emerald-950/20 p-5 flex flex-col items-center justify-center gap-3 text-center">
+          <div class="w-10 h-10 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-300">✓</div>
+          <p class="text-sm text-white font-semibold">{btn.message}</p>
+          <Show when={btn.allowRestart}>
+            <button type="button" onClick={() => previewSequence.resetChain(btn.rootId)} class="min-h-[44px] px-5 rounded-xl border border-[#2a2a3a] bg-[#1e1e2e] text-sm font-semibold text-[#c4c4d4] hover:bg-[#2a2a3a] transition-colors">
+              Start Again
+            </button>
+          </Show>
+        </div>
+      );
+    }
+
     return (
       <DashboardPublicButtonFormWidget
         btn={btn}
@@ -470,6 +534,7 @@ export default function DashboardBuilder() {
         formState={formState()}
         updateForm={updateForm}
         triggerButton={triggerButton}
+        onSubmitSuccess={(submitted) => previewSequence.handleSubmitSuccess(btn, submitted)}
       />
     );
   };
@@ -738,6 +803,7 @@ export default function DashboardBuilder() {
                   {([
                     { type: "button", icon: "▶", label: "Button", desc: "Trigger a workflow run", color: "text-blue-400" },
                     { type: "form",   icon: "📝", label: "Form",   desc: "Button with input fields", color: "text-purple-400" },
+                    { type: "survey", icon: "📋", label: "Survey / Wizard", desc: "Multi-step sequential forms", color: "text-indigo-400" },
                     { type: "chart",  icon: "📈", label: "Chart",  desc: "Auto-load chart data", color: "text-pink-400" },
                     { type: "table",  icon: "📊", label: "Table",  desc: "Auto-load table data", color: "text-emerald-400" },
                     { type: "news",   icon: "📰", label: "News Alert", desc: "IF/ELSE color & text news feed", color: "text-amber-400" },
@@ -801,21 +867,35 @@ export default function DashboardBuilder() {
                 const accentCls = () =>
                   wt() === "chart" ? "border-l-pink-500" :
                   wt() === "table" ? "border-l-emerald-500" :
-                  wt() === "form"  ? "border-l-purple-500" : wt() === "infographic" ? "border-l-rose-500" : "border-l-blue-500";
+                  wt() === "form"  ? "border-l-purple-500" : wt() === "survey" ? "border-l-indigo-500" : wt() === "infographic" ? "border-l-rose-500" : "border-l-blue-500";
                 const typeLabel: Record<string, string> = {
-                  button: "⚡ Button", form: "📝 Form", chart: "📈 Chart", table: "📊 Table", infographic: "🦋 Infographic"
+                  button: "⚡ Button", form: "📝 Form", survey: "📋 Survey", chart: "📈 Chart", table: "📊 Table", infographic: "🦋 Infographic"
                 };
                 const typeBadgeCls = () =>
                   wt() === "chart" ? "text-pink-400 bg-pink-500/10 border-pink-500/20" :
                   wt() === "table" ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20" :
                   wt() === "form"  ? "text-purple-400 bg-purple-500/10 border-purple-500/20" :
+                  wt() === "survey" ? "text-indigo-400 bg-indigo-500/10 border-indigo-500/20" :
                   wt() === "infographic" ? "text-rose-400 bg-rose-500/10 border-rose-500/20" :
                   "text-blue-400 bg-blue-500/10 border-blue-500/20";
 
                 const boundWf = createMemo(() => workflows()?.find((w: any) => w.id === btn.workflowId));
                 const condWf = createMemo(() => btn.conditionWorkflowId ? workflows()?.find((w: any) => w.id === btn.conditionWorkflowId) : boundWf());
                 const upstreamVars = createMemo(() => extractUpstreamVariables(condWf()));
-                const varStatus = createMemo(() => checkWidgetVariablesConfigured(boundWf(), btn.formConfig));
+                const surveyFields = () => (btn.surveyConfig?.steps || []).flatMap((s: any) => s.fields || []);
+                const varStatus = createMemo(() =>
+                  checkWidgetVariablesConfigured(boundWf(), wt() === "survey" ? surveyFields() : btn.formConfig)
+                );
+                const appendFormFields = (fields: any[]) => {
+                  if (wt() === "survey") {
+                    const stepsArr = btn.surveyConfig?.steps || [];
+                    if (stepsArr.length === 0) return;
+                    const lastIdx = stepsArr.length - 1;
+                    updateButton(index(), "surveyConfig", "steps", lastIdx, "fields", [...(stepsArr[lastIdx].fields || []), ...fields]);
+                  } else {
+                    updateButton(index(), "formConfig", [...(btn.formConfig || []), ...fields]);
+                  }
+                };
 
                 return (
                   <div class={`card min-w-0 p-5 relative border-l-4 group overflow-hidden ${accentCls()}`}>
@@ -858,8 +938,8 @@ export default function DashboardBuilder() {
                         <input type="text" class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-purple-500 focus:outline-none" value={btn.label} onInput={(e) => updateButton(index(), "label", e.currentTarget.value)} placeholder="Widget label" />
                       </div>
 
-                      {/* Color — button/form only */}
-                      <Show when={wt() === "button" || wt() === "form"}>
+                      {/* Color — button/form/survey */}
+                      <Show when={wt() === "button" || wt() === "form" || wt() === "survey"}>
                         <div>
                           <label class="mb-1 block text-sm text-[#8b8b9e]">Color</label>
                           <select class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-purple-500 focus:outline-none" value={btn.color} onChange={(e) => updateButton(index(), "color", e.currentTarget.value)}>
@@ -871,7 +951,7 @@ export default function DashboardBuilder() {
                       {/* Workflow binding — always */}
                       <div class="col-span-2 min-w-0 w-full sm:max-w-sm">
                         <div class="flex items-center justify-between mb-1">
-                          <label for={`workflow-${btn.id}`} class="block text-sm font-bold text-[#8b8b9e]">Bind to Workflow</label>
+                          <label for={`workflow-${btn.id}`} class="block text-sm font-bold text-[#8b8b9e]"><Show when={wt() === "survey"} fallback="Bind to Workflow">Final Survey Workflow (optional — runs on completion)</Show></label>
                           <button
                             type="button"
                             onClick={() => refetchWorkflows()}
@@ -892,19 +972,33 @@ export default function DashboardBuilder() {
                               if (wf) {
                                 const vars = extractFormVariables(wf);
                                 const existing = btn.formConfig || [];
-                                const stepVars = (wf.steps || []).flatMap((s: any) => s.variables || []);
+                                const stepVars = (wf.steps || []).flatMap((s: any) => detectStepVariables(s));
                                 const updated = vars.map((v: string) => {
-                                  const existingField = existing.find((e: any) => e.name === v);
-                                  if (existingField) return existingField;
                                   const matchingVar = stepVars.find((sv: any) => sv.name === v || sv.name === `form.${v}` || sv.name === `dashboard_form.${v}`);
-                                  const label = matchingVar?.alias?.trim() || v;
-                                  return { name: v, label, type: "string", required: true };
+                                  const existingField = existing.find((e: any) => e.name === v);
+                                  if (existingField) {
+                                    const base = matchingVar ? buildFormFieldFromVariable({ ...matchingVar, name: v }) : undefined;
+                                    return {
+                                      ...(base || {}),
+                                      ...existingField,
+                                      type: existingField.type || base?.type || "string",
+                                      options: existingField.options !== undefined && existingField.options !== "" ? existingField.options : base?.options,
+                                      validator: existingField.validator !== undefined ? existingField.validator : base?.validator,
+                                      validatorPattern: existingField.validatorPattern !== undefined && existingField.validatorPattern !== "" ? existingField.validatorPattern : base?.validatorPattern,
+                                      validatorMin: existingField.validatorMin !== undefined ? existingField.validatorMin : base?.validatorMin,
+                                      validatorMax: existingField.validatorMax !== undefined ? existingField.validatorMax : base?.validatorMax,
+                                      validatorMessage: existingField.validatorMessage !== undefined && existingField.validatorMessage !== "" ? existingField.validatorMessage : base?.validatorMessage,
+                                    };
+                                  }
+                                  return matchingVar
+                                    ? buildFormFieldFromVariable({ ...matchingVar, name: v })
+                                    : { name: v, label: v, type: "string", required: true };
                                 });
                                 updateButton(index(), "formConfig", updated);
                               }
                             }
                           }}>
-                          <option value="" disabled>Select a workflow...</option>
+                          <option value="" disabled={wt() !== "survey"}><Show when={wt() === "survey"} fallback="Select a workflow...">None (use per-step workflows only)</Show></option>
                           <Show when={workflows.loading}>
                             <option value="" disabled>Loading workflows...</option>
                           </Show>
@@ -939,22 +1033,13 @@ export default function DashboardBuilder() {
                                     : `${varStatus().missingVars.length} of ${varStatus().reqVars.length} Need Values`}
                                 </span>
                               </div>
-                              <Show when={!varStatus().allConfigured && (wt() === "button" || wt() === "form")}>
+                              <Show when={!varStatus().allConfigured && (wt() === "button" || wt() === "form" || wt() === "survey")}>
                                 <button
                                   type="button"
                                   onClick={() => {
-                                    const copy = [...(btn.formConfig || [])];
-                                    for (const item of varStatus().varsWithStatus) {
-                                      if (!item.isConfigured) {
-                                        copy.push({
-                                          name: item.name,
-                                          label: item.alias || item.name,
-                                          type: item.type || "string",
-                                          required: true,
-                                        });
-                                      }
-                                    }
-                                    updateButton(index(), "formConfig", copy);
+                                    appendFormFields(
+                                      varStatus().varsWithStatus.filter((item) => !item.isConfigured).map((item) => buildFormFieldFromVariable(item))
+                                    );
                                   }}
                                   class="text-[10px] font-semibold px-2 py-1 rounded bg-red-600/20 text-red-300 hover:bg-red-600/40 border border-red-500/30 transition-colors"
                                   title="Add all missing variables to form fields"
@@ -989,6 +1074,20 @@ export default function DashboardBuilder() {
                                             Alias: <span class="text-white">{item.alias}</span>
                                           </div>
                                         </Show>
+                                        <Show when={(item.type && item.type !== "string") || formatValidatorBadge(item)}>
+                                          <div class="flex flex-wrap gap-1 mt-0.5">
+                                            <Show when={item.type && item.type !== "string"}>
+                                              <span class="text-[9px] font-sans font-semibold px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-200 border border-purple-500/30">
+                                                {item.type}
+                                              </span>
+                                            </Show>
+                                            <Show when={formatValidatorBadge(item)}>
+                                              <span class="text-[9px] font-sans font-semibold px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-200 border border-amber-500/30">
+                                                {formatValidatorBadge(item)}
+                                              </span>
+                                            </Show>
+                                          </div>
+                                        </Show>
                                       </div>
                                     </div>
 
@@ -997,7 +1096,7 @@ export default function DashboardBuilder() {
                                         when={item.isConfigured}
                                         fallback={
                                           <Show
-                                            when={wt() === "button" || wt() === "form"}
+                                            when={wt() === "button" || wt() === "form" || wt() === "survey"}
                                             fallback={
                                               <span class="text-[10px] font-semibold px-2 py-0.5 rounded bg-red-500/20 text-red-300 border border-red-500/30">
                                                 Needs Value
@@ -1007,14 +1106,7 @@ export default function DashboardBuilder() {
                                             <button
                                               type="button"
                                               onClick={() => {
-                                                const copy = [...(btn.formConfig || [])];
-                                                copy.push({
-                                                  name: item.name,
-                                                  label: item.alias || item.name,
-                                                  type: item.type || "string",
-                                                  required: true,
-                                                });
-                                                updateButton(index(), "formConfig", copy);
+                                                appendFormFields([buildFormFieldFromVariable(item)]);
                                               }}
                                               class="text-[10px] font-bold px-2 py-1 rounded bg-red-600/30 hover:bg-red-600/50 text-red-200 border border-red-500/40 transition-colors flex items-center gap-1"
                                             >
@@ -1325,45 +1417,153 @@ export default function DashboardBuilder() {
                             <div class="space-y-2">
                               <For each={btn.formConfig}>
                                 {(field: any, fIdx) => (
-                                  <div class="bg-[#1e1e2e]/50 p-2 rounded-lg border border-[#2a2a3a]">
-                                    <div class="flex items-center gap-2">
-                                      <div class="flex-1">
+                                  <div class="bg-[#1e1e2e]/50 p-2 rounded-lg border border-[#2a2a3a] space-y-2">
+                                    <div class="flex flex-wrap items-center gap-2">
+                                      <div class="flex-1 min-w-[100px]">
                                         <label class="text-xs text-[#5b5b6e] block mb-0.5">Variable</label>
                                         <input class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-1 text-xs font-mono text-purple-300 focus:outline-none focus:border-purple-500" value={field.name}
                                           onInput={(e) => { updateButton(index(),"formConfig", fIdx(), (f: any) => ({ ...f, name: e.currentTarget.value })); }} />
                                       </div>
-                                      <div class="flex-1">
+                                      <div class="flex-1 min-w-[100px]">
                                         <label class="text-xs text-[#5b5b6e] block mb-0.5">Label</label>
                                         <input class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-purple-500" value={field.label}
                                           onInput={(e) => { updateButton(index(),"formConfig", fIdx(), (f: any) => ({ ...f, label: e.currentTarget.value })); }} />
                                       </div>
-                                      <div class="flex-1">
+                                      <div class="flex-1 min-w-[100px]">
                                         <label class="text-xs text-[#5b5b6e] block mb-0.5">Saved Value</label>
                                         <input class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-1 text-xs text-emerald-300 font-mono focus:outline-none focus:border-purple-500"
                                           value={Array.isArray(field.value ?? field.defaultValue) ? (field.value ?? field.defaultValue).join(", ") : (field.value ?? field.defaultValue ?? "")}
                                           placeholder={field.type === "list" ? "e.g. item1, item2, item3" : "Default value"}
                                           onInput={(e) => { updateButton(index(),"formConfig", fIdx(), (f: any) => ({ ...f, value: e.currentTarget.value, defaultValue: e.currentTarget.value })); }} />
                                       </div>
-                                      <div class="w-20">
+                                      <div class="w-24">
                                         <label class="text-xs text-[#5b5b6e] block mb-0.5">Type</label>
-                                        <select class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-1 py-1 text-xs text-white focus:outline-none focus:border-purple-500" value={field.type}
+                                        <select class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-1 py-1 text-xs text-white focus:outline-none focus:border-purple-500" value={field.type || "string"}
                                           onChange={(e) => { updateButton(index(),"formConfig", fIdx(), (f: any) => ({ ...f, type: e.currentTarget.value })); }}>
                                           <option value="string">String</option>
                                           <option value="number">Number</option>
                                           <option value="boolean">Boolean</option>
                                           <option value="select">Select</option>
+                                          <option value="radio">Radio (single choice)</option>
+                                          <option value="checkbox_group">Checkboxes (multi)</option>
+                                          <option value="rating">Rating</option>
+                                          <option value="date">Date</option>
                                           <option value="list">List</option>
+                                          <option value="textarea">Textarea</option>
+                                        </select>
+                                      </div>
+                                      <div class="w-36">
+                                        <label class="text-xs text-[#5b5b6e] block mb-0.5">Validator</label>
+                                        <select
+                                          class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-1 py-1 text-xs text-amber-200 focus:outline-none focus:border-amber-500"
+                                          value={field.validator || "none"}
+                                          onChange={(e) => {
+                                            const nextValidator = e.currentTarget.value as FormValidatorType;
+                                            updateButton(index(), "formConfig", fIdx(), (f: any) => ({
+                                              ...f,
+                                              validator: nextValidator,
+                                              required: nextValidator === "required" ? true : f.required,
+                                            }));
+                                          }}
+                                        >
+                                          <For each={FORM_VALIDATOR_OPTIONS}>
+                                            {(opt) => <option value={opt.value}>{opt.label}</option>}
+                                          </For>
                                         </select>
                                       </div>
                                       <button onClick={() => { const c=btn.formConfig.filter((_:any,i:number)=>i!==fIdx()); updateButton(index(),"formConfig",c); }} class="text-[#5b5b6e] hover:text-red-400 mt-3 shrink-0">
                                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                                       </button>
                                     </div>
-                                    <Show when={field.type === "select"}>
-                                      <div class="mt-2 pt-2 border-t border-[#2a2a3a]/50">
+                                    <Show when={field.type === "rating"}>
+                                      <div class="pt-2 border-t border-[#2a2a3a]/50 grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                        <div>
+                                          <label class="text-xs text-[#5b5b6e] block mb-0.5">Rating Max</label>
+                                          <select class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-1 py-1 text-xs text-white focus:outline-none focus:border-purple-500" value={String(field.ratingMax || 5)}
+                                            onChange={(e) => { updateButton(index(),"formConfig", fIdx(), (f: any) => ({ ...f, ratingMax: Number(e.currentTarget.value) })); }}>
+                                            <option value="5">1 – 5</option>
+                                            <option value="10">1 – 10</option>
+                                          </select>
+                                        </div>
+                                        <div>
+                                          <label class="text-xs text-[#5b5b6e] block mb-0.5">Low label</label>
+                                          <input class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-purple-500" value={field.ratingMinLabel || ""}
+                                            onInput={(e) => { updateButton(index(),"formConfig", fIdx(), (f: any) => ({ ...f, ratingMinLabel: e.currentTarget.value })); }} />
+                                        </div>
+                                        <div>
+                                          <label class="text-xs text-[#5b5b6e] block mb-0.5">High label</label>
+                                          <input class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-purple-500" value={field.ratingMaxLabel || ""}
+                                            onInput={(e) => { updateButton(index(),"formConfig", fIdx(), (f: any) => ({ ...f, ratingMaxLabel: e.currentTarget.value })); }} />
+                                        </div>
+                                      </div>
+                                    </Show>
+                                    <Show when={field.type === "select" || field.type === "radio" || field.type === "checkbox_group"}>
+                                      <div class="pt-2 border-t border-[#2a2a3a]/50">
                                         <label class="text-xs text-[#5b5b6e] block mb-0.5">Options (comma-separated)</label>
                                         <input class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-purple-500" value={field.options||""}
                                           onInput={(e)=>{ updateButton(index(),"formConfig", fIdx(), (f: any) => ({ ...f, options: e.currentTarget.value })); }} placeholder="e.g. US, UK, Canada" />
+                                      </div>
+                                    </Show>
+                                    <Show when={field.validator === "regex" || ((field.type || "string") !== "boolean" && (field.type || "string") !== "select") || (field.validator && field.validator !== "none") || field.validatorMin !== undefined || field.validatorMax !== undefined}>
+                                      <div class="pt-2 border-t border-[#2a2a3a]/50 grid grid-cols-1 sm:grid-cols-4 gap-2">
+                                        <Show when={field.validator === "regex"}>
+                                          <div class="sm:col-span-2">
+                                            <label class="text-[11px] text-amber-300/90 block mb-0.5">Regex Pattern</label>
+                                            <input
+                                              class="w-full bg-[#0a0a0f] border border-amber-500/30 rounded px-2 py-1 text-xs font-mono text-amber-200 focus:outline-none focus:border-amber-400"
+                                              value={field.validatorPattern || ""}
+                                              placeholder="e.g. ^[a-z0-9_]+$"
+                                              onInput={(e) => {
+                                                updateButton(index(), "formConfig", fIdx(), (f: any) => ({ ...f, validatorPattern: e.currentTarget.value }));
+                                              }}
+                                            />
+                                          </div>
+                                        </Show>
+                                        <Show when={(field.type || "string") !== "boolean" && (field.type || "string") !== "select"}>
+                                          <div>
+                                            <label class="text-[11px] text-[#5b5b6e] block mb-0.5">
+                                              {field.type === "number" ? "Min Value" : field.type === "list" ? "Min Items" : "Min Length"}
+                                            </label>
+                                            <input
+                                              type="number"
+                                              class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-1 text-xs font-mono text-white focus:outline-none focus:border-purple-500"
+                                              value={field.validatorMin ?? ""}
+                                              placeholder="Optional"
+                                              onInput={(e) => {
+                                                const v = e.currentTarget.value === "" ? undefined : Number(e.currentTarget.value);
+                                                updateButton(index(), "formConfig", fIdx(), (f: any) => ({ ...f, validatorMin: v }));
+                                              }}
+                                            />
+                                          </div>
+                                          <div>
+                                            <label class="text-[11px] text-[#5b5b6e] block mb-0.5">
+                                              {field.type === "number" ? "Max Value" : field.type === "list" ? "Max Items" : "Max Length"}
+                                            </label>
+                                            <input
+                                              type="number"
+                                              class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-1 text-xs font-mono text-white focus:outline-none focus:border-purple-500"
+                                              value={field.validatorMax ?? ""}
+                                              placeholder="Optional"
+                                              onInput={(e) => {
+                                                const v = e.currentTarget.value === "" ? undefined : Number(e.currentTarget.value);
+                                                updateButton(index(), "formConfig", fIdx(), (f: any) => ({ ...f, validatorMax: v }));
+                                              }}
+                                            />
+                                          </div>
+                                        </Show>
+                                        <Show when={(field.validator && field.validator !== "none") || field.validatorMin !== undefined || field.validatorMax !== undefined}>
+                                          <div class={field.validator === "regex" ? "sm:col-span-4" : "sm:col-span-2"}>
+                                            <label class="text-[11px] text-[#5b5b6e] block mb-0.5">Custom Error Message</label>
+                                            <input
+                                              class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-amber-400"
+                                              value={field.validatorMessage || ""}
+                                              placeholder="Optional custom error message"
+                                              onInput={(e) => {
+                                                updateButton(index(), "formConfig", fIdx(), (f: any) => ({ ...f, validatorMessage: e.currentTarget.value }));
+                                              }}
+                                            />
+                                          </div>
+                                        </Show>
                                       </div>
                                     </Show>
                                   </div>
@@ -1374,8 +1574,79 @@ export default function DashboardBuilder() {
                         </div>
                       </Show>
 
+                      {/* ── Survey builder ── */}
+                      <Show when={wt() === "survey"}>
+                        <SurveyBuilderEditor
+                          btn={btn}
+                          workflows={workflows() || []}
+                          onUpdateSurveyConfig={(next) => updateButton(index(), "surveyConfig", reconcile(next))}
+                        />
+                      </Show>
+
+                      {/* ── Sequential form flow ── */}
+                      <Show when={wt() === "form"}>
+                        <div class="col-span-2 pt-3 border-t border-[#2a2a3a]/50">
+                          <div class="p-3 rounded-xl border border-indigo-500/30 bg-[#12121c] space-y-2.5">
+                            <div class="text-xs font-bold text-indigo-300">⏭ Sequential Form Flow (One After Another)</div>
+                            <p class="text-[11px] text-[#8b8b9e]">
+                              Hide this form after it is submitted and reveal another form in the same spot.
+                            </p>
+                            <label class="flex items-center gap-2 text-xs text-zinc-300 cursor-pointer">
+                              <input type="checkbox" class="w-3.5 h-3.5 rounded border-[#2a2a3a] bg-[#1e1e2e] text-indigo-500"
+                                checked={!!btn.sequenceConfig?.hideOnSubmit}
+                                onChange={(e) => updateButton(index(), "sequenceConfig", (c: any) => ({ ...(c || {}), hideOnSubmit: e.currentTarget.checked }))} />
+                              <span>Hide this form after submit</span>
+                            </label>
+                            <label class="flex items-center gap-2 text-xs text-zinc-300 cursor-pointer">
+                              <input type="checkbox" class="w-3.5 h-3.5 rounded border-[#2a2a3a] bg-[#1e1e2e] text-indigo-500"
+                                checked={!!btn.sequenceConfig?.startsHidden}
+                                onChange={(e) => updateButton(index(), "sequenceConfig", (c: any) => ({ ...(c || {}), startsHidden: e.currentTarget.checked }))} />
+                              <span>Start hidden (wait for an earlier form to reveal this one)</span>
+                            </label>
+                            <div>
+                              <label class="text-[11px] text-[#8b8b9e] block mb-0.5">Reveal next widget after submit</label>
+                              <select class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-indigo-500"
+                                value={btn.sequenceConfig?.nextWidgetId || ""}
+                                onChange={(e) => updateButton(index(), "sequenceConfig", (c: any) => ({ ...(c || {}), nextWidgetId: e.currentTarget.value || undefined }))}>
+                                <option value="" selected={!btn.sequenceConfig?.nextWidgetId}>None (end of flow)</option>
+                                <For each={buttons}>
+                                  {(other: any, oi) => (
+                                    <Show when={other.id !== btn.id}>
+                                      <option value={other.id} selected={other.id === btn.sequenceConfig?.nextWidgetId}>{oi() + 1}. {other.label || other.id}</option>
+                                    </Show>
+                                  )}
+                                </For>
+                              </select>
+                            </div>
+                            <label class="flex items-center gap-2 text-xs text-zinc-300 cursor-pointer">
+                              <input type="checkbox" class="w-3.5 h-3.5 rounded border-[#2a2a3a] bg-[#1e1e2e] text-indigo-500"
+                                checked={btn.sequenceConfig?.carryAnswersForward !== false}
+                                onChange={(e) => updateButton(index(), "sequenceConfig", (c: any) => ({ ...(c || {}), carryAnswersForward: e.currentTarget.checked }))} />
+                              <span>Carry answers from earlier forms forward to workflows</span>
+                            </label>
+                            <Show when={btn.sequenceConfig?.hideOnSubmit && !btn.sequenceConfig?.nextWidgetId}>
+                              <div class="space-y-2 pt-2 border-t border-[#2a2a3a]/60">
+                                <div>
+                                  <label class="text-[11px] text-[#8b8b9e] block mb-0.5">Completion Message</label>
+                                  <input class="w-full bg-[#0a0a0f] border border-[#2a2a3a] rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-indigo-500"
+                                    value={btn.sequenceConfig?.completionMessage || ""}
+                                    placeholder="Thank you! Your responses have been submitted."
+                                    onInput={(e) => updateButton(index(), "sequenceConfig", (c: any) => ({ ...(c || {}), completionMessage: e.currentTarget.value }))} />
+                                </div>
+                                <label class="flex items-center gap-2 text-xs text-zinc-300 cursor-pointer">
+                                  <input type="checkbox" class="w-3.5 h-3.5 rounded border-[#2a2a3a] bg-[#1e1e2e] text-indigo-500"
+                                    checked={btn.sequenceConfig?.allowRestart !== false}
+                                    onChange={(e) => updateButton(index(), "sequenceConfig", (c: any) => ({ ...(c || {}), allowRestart: e.currentTarget.checked }))} />
+                                  <span>Allow "Start Again"</span>
+                                </label>
+                              </div>
+                            </Show>
+                          </div>
+                        </div>
+                      </Show>
+
                       {/* ── Output / Response Fields ── */}
-                      <Show when={wt() === "button" || wt() === "form"}>
+                      <Show when={wt() === "button" || wt() === "form" || wt() === "survey"}>
                         <div class="col-span-2 pt-3 border-t border-[#2a2a3a]/50">
                           <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
                             <label class="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
@@ -1962,6 +2233,16 @@ export default function DashboardBuilder() {
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
                 Arrange
               </button>
+              <Show when={previewSequence.hasSequence()}>
+                <button
+                  type="button"
+                  onClick={() => previewSequence.resetAll()}
+                  class="text-xs text-indigo-300 hover:text-indigo-200 flex items-center gap-1 normal-case tracking-normal font-semibold"
+                  title="Restart the sequential form flow preview"
+                >
+                  ↺ Reset Form Flow
+                </button>
+              </Show>
               <Show when={savedPublished() && !isNew()}>
                 <A href={savedPath()} target="_blank" class="text-xs text-blue-400 hover:underline flex items-center gap-1 normal-case tracking-normal font-semibold">
                   Public View
@@ -1992,10 +2273,10 @@ export default function DashboardBuilder() {
               </Show>
               <Show when={buttons.length > 0}>
                 <DashboardGrid
-                  buttons={buttons}
+                  buttons={previewSequence.displayedButtons()}
                   isStatic={false}
                   dashboardId={params.id}
-                  onLayoutChange={handleLayoutChange}
+                  onLayoutChange={previewSequence.isAdvanced() ? undefined : handleLayoutChange}
                   renderWidget={renderLiveWidget}
                 />
               </Show>

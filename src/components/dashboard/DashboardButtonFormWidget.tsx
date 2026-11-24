@@ -7,7 +7,13 @@ import {
   type WidgetConfig,
 } from "~/lib/dashboard/widgetTypes";
 import { getWidgetTheme } from "~/lib/dashboard/widgetThemes";
+import { parseOptionsList } from "~/lib/dashboard/surveyEngine";
 import { getValueAtPath } from "~/lib/dashboard/widgetConditions";
+import {
+  formatValidatorBadge,
+  validateFormFieldValue,
+  validateFormPayload,
+} from "~/lib/formValidator";
 
 export type WidgetExecutionState = "idle" | "running" | "success" | "error";
 
@@ -48,16 +54,32 @@ function FormFieldInput(props: {
   field: FormField;
   value: unknown;
   onChange: (value: unknown) => void;
+  invalid?: boolean;
+  onBlur?: () => void;
 }) {
+  const inputBorderClass = () =>
+    props.invalid
+      ? "border-red-500/80 focus:border-red-500 focus:ring-red-500/50"
+      : "border-[#2a2a3a] focus:border-purple-500 focus:ring-purple-500/50";
+
   return (
     <Switch
       fallback={
         <input
           type={props.field.type === "number" ? "number" : "text"}
           required={props.field.required}
-          class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500/50 transition-all"
+          class={`w-full rounded-lg border bg-[#1e1e2e] p-2.5 text-sm text-white focus:outline-none focus:ring-1 transition-all ${inputBorderClass()}`}
           value={String(props.value ?? "")}
-          onInput={(e) => props.onChange(props.field.type === "number" ? Number(e.currentTarget.value) : e.currentTarget.value)}
+          onInput={(e) =>
+            props.onChange(
+              props.field.type === "number"
+                ? e.currentTarget.value === ""
+                  ? ""
+                  : Number(e.currentTarget.value)
+                : e.currentTarget.value
+            )
+          }
+          onBlur={() => props.onBlur?.()}
           placeholder={`Enter ${props.field.label}...`}
         />
       }
@@ -69,15 +91,17 @@ function FormFieldInput(props: {
             class="w-4 h-4 rounded border-[#2a2a3a] bg-[#1e1e2e] text-purple-500 focus:ring-purple-500/50"
             checked={!!props.value}
             onChange={(e) => props.onChange(e.currentTarget.checked)}
+            onBlur={() => props.onBlur?.()}
           />
           <span class="text-sm text-white">Enable</span>
         </label>
       </Match>
       <Match when={props.field.type === "select"}>
         <select
-          class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500/50 transition-all"
+          class={`w-full rounded-lg border bg-[#1e1e2e] p-2.5 text-sm text-white focus:outline-none focus:ring-1 transition-all ${inputBorderClass()}`}
           value={String(props.value ?? "")}
           onChange={(e) => props.onChange(e.currentTarget.value)}
+          onBlur={() => props.onBlur?.()}
         >
           <option value="" disabled>Select an option...</option>
           <For each={(props.field.options || "").split(",").map((o) => o.trim()).filter(Boolean)}>
@@ -110,13 +134,14 @@ function FormFieldInput(props: {
               <textarea
                 rows={3}
                 required={props.field.required}
-                class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500/50 transition-all font-mono"
+                class={`w-full rounded-lg border bg-[#1e1e2e] p-2.5 text-sm text-white focus:outline-none focus:ring-1 transition-all font-mono ${inputBorderClass()}`}
                 value={rawText()}
                 onInput={(e) => {
                   const text = e.currentTarget.value;
                   setRawText(text);
                   props.onChange(parseListFieldValue(text));
                 }}
+                onBlur={() => props.onBlur?.()}
                 placeholder={`Comma or newline separated values for ${props.field.label}...`}
               />
               <div class="flex flex-wrap items-center gap-1.5">
@@ -143,13 +168,125 @@ function FormFieldInput(props: {
           );
         })()}
       </Match>
+      <Match when={props.field.type === "date"}>
+        <input
+          type="date"
+          required={props.field.required}
+          class={`w-full min-h-[44px] rounded-lg border bg-[#1e1e2e] p-2.5 text-sm text-white focus:outline-none focus:ring-1 transition-all ${inputBorderClass()}`}
+          value={String(props.value ?? "")}
+          onInput={(e) => props.onChange(e.currentTarget.value)}
+          onBlur={() => props.onBlur?.()}
+        />
+      </Match>
+      <Match when={props.field.type === "radio"}>
+        <div class="grid grid-cols-1 gap-2" role="radiogroup" aria-label={props.field.label}>
+          <For each={parseOptionsList(props.field.options)}>
+            {(opt) => (
+              <button
+                type="button"
+                role="radio"
+                aria-checked={String(props.value ?? "") === opt}
+                onClick={() => {
+                  props.onChange(opt);
+                  props.onBlur?.();
+                }}
+                class={`min-h-[44px] rounded-lg border px-3 py-2 text-left text-sm transition-all flex items-center gap-2.5 ${
+                  String(props.value ?? "") === opt
+                    ? "border-purple-500 bg-purple-500/15 text-white ring-1 ring-purple-500/40"
+                    : "border-[#2a2a3a] bg-[#1e1e2e] text-[#c4c4d4] hover:border-purple-500/50"
+                }`}
+              >
+                <span
+                  class={`w-4 h-4 shrink-0 rounded-full border-2 ${
+                    String(props.value ?? "") === opt ? "border-purple-400 bg-purple-500" : "border-[#5b5b6e]"
+                  }`}
+                />
+                <span>{opt}</span>
+              </button>
+            )}
+          </For>
+        </div>
+      </Match>
+      <Match when={props.field.type === "checkbox_group"}>
+        <div class="grid grid-cols-1 gap-2" role="group" aria-label={props.field.label}>
+          <For each={parseOptionsList(props.field.options)}>
+            {(opt) => {
+              const selected = () => parseListFieldValue(props.value).includes(opt);
+              return (
+                <button
+                  type="button"
+                  role="checkbox"
+                  aria-checked={selected()}
+                  onClick={() => {
+                    const cur = parseListFieldValue(props.value);
+                    props.onChange(selected() ? cur.filter((v) => v !== opt) : [...cur, opt]);
+                    props.onBlur?.();
+                  }}
+                  class={`min-h-[44px] rounded-lg border px-3 py-2 text-left text-sm transition-all flex items-center gap-2.5 ${
+                    selected()
+                      ? "border-purple-500 bg-purple-500/15 text-white ring-1 ring-purple-500/40"
+                      : "border-[#2a2a3a] bg-[#1e1e2e] text-[#c4c4d4] hover:border-purple-500/50"
+                  }`}
+                >
+                  <span
+                    class={`w-4 h-4 shrink-0 rounded border-2 flex items-center justify-center text-[10px] ${
+                      selected() ? "border-purple-400 bg-purple-500 text-white" : "border-[#5b5b6e]"
+                    }`}
+                  >
+                    <Show when={selected()}>✓</Show>
+                  </span>
+                  <span>{opt}</span>
+                </button>
+              );
+            }}
+          </For>
+        </div>
+      </Match>
+      <Match when={props.field.type === "rating"}>
+        <div class="space-y-1.5">
+          <div class="flex flex-wrap gap-2" role="radiogroup" aria-label={props.field.label}>
+            <For
+              each={Array.from(
+                { length: props.field.ratingMax && props.field.ratingMax > 0 ? props.field.ratingMax : 5 },
+                (_, i) => i + 1
+              )}
+            >
+              {(n) => (
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={String(props.value ?? "") === String(n)}
+                  onClick={() => {
+                    props.onChange(n);
+                    props.onBlur?.();
+                  }}
+                  class={`min-h-[44px] min-w-[44px] rounded-lg border text-sm font-bold transition-all ${
+                    String(props.value ?? "") === String(n)
+                      ? "border-purple-500 bg-purple-600 text-white ring-1 ring-purple-400/50"
+                      : "border-[#2a2a3a] bg-[#1e1e2e] text-[#c4c4d4] hover:border-purple-500/50"
+                  }`}
+                >
+                  {n}
+                </button>
+              )}
+            </For>
+          </div>
+          <Show when={props.field.ratingMinLabel || props.field.ratingMaxLabel}>
+            <div class="flex justify-between text-[10px] text-[#8b8b9e]">
+              <span>{props.field.ratingMinLabel}</span>
+              <span>{props.field.ratingMaxLabel}</span>
+            </div>
+          </Show>
+        </div>
+      </Match>
       <Match when={props.field.type === "textarea"}>
         <textarea
           rows={3}
           required={props.field.required}
-          class="w-full rounded-lg border border-[#2a2a3a] bg-[#1e1e2e] p-2.5 text-sm text-white focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500/50 transition-all font-mono"
+          class={`w-full rounded-lg border bg-[#1e1e2e] p-2.5 text-sm text-white focus:outline-none focus:ring-1 transition-all font-mono ${inputBorderClass()}`}
           value={String(props.value ?? "")}
           onInput={(e) => props.onChange(e.currentTarget.value)}
+          onBlur={() => props.onBlur?.()}
           placeholder={`Enter ${props.field.label}...`}
         />
       </Match>
@@ -161,6 +298,8 @@ function FormFieldInput(props: {
 export function DashboardButtonFormWidget(props: DashboardButtonFormWidgetProps) {
   const [showResponse, setShowResponse] = createSignal(true);
   const [copiedFieldId, setCopiedFieldId] = createSignal<string | null>(null);
+  const [touchedFields, setTouchedFields] = createSignal<Record<string, boolean>>({});
+  const [submitAttempted, setSubmitAttempted] = createSignal(false);
 
   const isFormWidget = () => props.btn.widgetType === "form";
   const effectiveColor = () => props.effective?.color || props.btn.color;
@@ -170,6 +309,7 @@ export function DashboardButtonFormWidget(props: DashboardButtonFormWidgetProps)
   const fields = () => props.btn.formConfig || [];
   const hasFields = () => fields().length > 0;
   const btnClass = () => buildButtonClass(props.state, effectiveColor());
+  const formValidation = () => validateFormPayload(fields(), formValues());
 
   const hasOutput = () => !!(props.btn.showOutput || (props.btn.outputConfig && props.btn.outputConfig.length > 0));
   const outputFields = () => {
@@ -183,6 +323,14 @@ export function DashboardButtonFormWidget(props: DashboardButtonFormWidgetProps)
   const isCardMode = () => isFormWidget() || hasFields() || hasOutput();
 
   const handleTriggerClick = async () => {
+    if (hasFields()) {
+      setSubmitAttempted(true);
+      const check = formValidation();
+      if (!check.valid) {
+        return;
+      }
+    }
+    setSubmitAttempted(false);
     if (hasOutput()) {
       setShowResponse(true);
     }
@@ -246,14 +394,46 @@ export function DashboardButtonFormWidget(props: DashboardButtonFormWidgetProps)
                   <For each={fields()}>
                     {(field) => {
                       const value = () => getFieldValue(field, formValues());
+                      const fieldResult = () => validateFormFieldValue(field, value());
+                      const hasTypedValue = () =>
+                        value() !== undefined && value() !== null && String(value()).trim() !== "";
+                      const showError = () =>
+                        !fieldResult().valid &&
+                        (submitAttempted() || !!touchedFields()[field.name] || hasTypedValue());
+                      const validatorBadge = () => formatValidatorBadge(field);
+
                       return (
                         <div class="col-span-1">
-                          <label class="block text-xs font-bold text-[#8b8b9e] mb-1.5">{field.label}</label>
+                          <div class="flex items-center justify-between gap-2 mb-1.5">
+                            <label class="block text-xs font-bold text-[#8b8b9e] truncate">
+                              {field.label}
+                            </label>
+                            <Show when={validatorBadge()}>
+                              <span class="text-[9px] font-semibold px-1.5 py-0.2 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 shrink-0">
+                                {validatorBadge()}
+                              </span>
+                            </Show>
+                          </div>
+                          <Show when={field.description}>
+                            <p class="mb-1.5 text-[11px] text-[#8b8b9e]">{field.description}</p>
+                          </Show>
                           <FormFieldInput
                             field={field}
                             value={value()}
-                            onChange={(value) => props.updateForm(props.btn.id, field.name, value)}
+                            invalid={showError()}
+                            onBlur={() =>
+                              setTouchedFields((prev) => ({ ...prev, [field.name]: true }))
+                            }
+                            onChange={(nextVal) => {
+                              setTouchedFields((prev) => ({ ...prev, [field.name]: true }));
+                              props.updateForm(props.btn.id, field.name, nextVal);
+                            }}
                           />
+                          <Show when={showError()}>
+                            <p class="mt-1 text-[11px] text-red-400 font-medium">
+                              {fieldResult().error}
+                            </p>
+                          </Show>
                         </div>
                       );
                     }}
@@ -271,6 +451,12 @@ export function DashboardButtonFormWidget(props: DashboardButtonFormWidgetProps)
 
             {/* Bottom Actions & Response Output */}
             <div class="pt-3 space-y-3">
+              <Show when={submitAttempted() && !formValidation().valid}>
+                <div class="p-2.5 rounded-lg bg-red-950/50 border border-red-500/40 text-xs text-red-300">
+                  {formValidation().firstError || "Please fix the highlighted form errors before submitting."}
+                </div>
+              </Show>
+
               {/* Trigger Button */}
               <button
                 onClick={handleTriggerClick}
