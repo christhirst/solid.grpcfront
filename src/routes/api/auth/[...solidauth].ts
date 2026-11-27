@@ -2,15 +2,19 @@ import { SolidAuth, type SolidAuthConfig } from "@auth/solid-start";
 import { logger } from "~/lib/logger";
 import { createDynamicRequest } from "~/lib/authUrl";
 import { decodeJwtHeaderSafe, decodeJwtPayloadSafe, extractClaimsFromOidcPayload } from "~/lib/groupAuth";
+import { parseOidcScope } from "~/lib/oidcConfig";
 
 const oidcIssuer = process.env.OIDC_ISSUER || "https://auth.401c6411-20e6-4053-8c2b-062d3c6ffcc0.k8s.civo.com/api/realms/master";
 const clientId = process.env.OIDC_CLIENT_ID || process.env.AUTH_CLIENT_NAME || process.env["AUTH_CLIENT-NAME"] || "solid-grpcfront";
 const clientSecret = process.env.OIDC_CLIENT_SECRET || process.env.AUTH_SECRET || "JhWziCfG2qCmYPCT";
 const authSecret = process.env.AUTH_SECRET || "JhWziCfG2qCmYPCT";
+const oidcScope = parseOidcScope(process.env.OIDC_SCOPE);
 
 const debugLog = (...args: any[]) => {
   logger.debug(...args);
 };
+
+debugLog(`[auth] OIDC scope: ${oidcScope ?? "(library default)"}`);
 
 const config: SolidAuthConfig = {
   basePath: "/api/auth",
@@ -23,6 +27,7 @@ const config: SolidAuthConfig = {
       clientId: clientId,
       clientSecret: clientSecret,
       checks: ["pkce"],
+      ...(oidcScope ? { authorization: { params: { scope: oidcScope } } } : {}),
       client: {
         token_endpoint_auth_method: "client_secret_post",
       },
